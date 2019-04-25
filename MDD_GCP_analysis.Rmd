@@ -1,0 +1,302 @@
+---
+title: LINCS molecular deep dive Global Chromatin Profilie analysis
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+
+library(scales)
+library(RColorBrewer)
+library(MDDRPPA)
+library(classInt)
+library(tidyverse)
+
+
+```
+
+```{r functions}
+
+diverge.color <- function(data,pal_choice="RdGy",centeredOn=0){
+  nHalf=50
+  Min <- min(data,na.rm=TRUE)
+  Max <- max(data,na.rm=TRUE)
+  Thresh <- centeredOn
+  pal<-brewer.pal(n=11,pal_choice)
+  rc1<-colorRampPalette(colors=c(pal[1],pal[2]),space="Lab")(10)
+  for(i in 2:10){
+    tmp<-colorRampPalette(colors=c(pal[i],pal[i+1]),space="Lab")(10)
+    rc1<-c(rc1,tmp)
+  }
+  rb1 <- seq(Min, Thresh, length.out=nHalf+1)
+  rb2 <- seq(Thresh, Max, length.out=nHalf+1)[-1]
+  rampbreaks <- c(rb1, rb2)
+  cuts <- classIntervals(data, style="fixed",fixedBreaks=rampbreaks)
+  return(list(cuts,rc1))
+}
+
+
+####global parameters
+cols <- brewer.pal(9,"OrRd")
+spectralPal <- brewer.pal(11,"Spectral")
+blRdPal <- brewer.pal(11,"RdBu")[11:1]
+
+
+#Values used for out of bounds values
+lowProb <- .02
+upProb <- .98
+
+#Filter threshold for Biomarker variances
+varianceCut <- 0.04
+
+#fold change threshold
+fcThresh <- 1.5
+z_score_thresh <- 1.5
+
+#Create a function that takes in a vector and returns a same-length vector of z scores 
+z_score <- function(x) (x-mean(x, na.rm = TRUE))/sqrt(var(x, na.rm = TRUE))
+
+```
+
+
+```{r getData}
+
+ProbeMetadata <- read_delim("GCP_Data/ProbeMetadata.txt", 
+                            "\t", escape_double = FALSE, trim_ws = TRUE)
+
+GCP_Data <- read_tsv("GCP_Data/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
+  t() %>%
+  as.tibble()
+
+# w1<- GCP_Data %>%
+#   filter(pert_batch_internal_compound_enumerator == "W1")
+# w2<- GCP_Data %>%
+#   filter(pert_batch_internal_compound_enumerator == "W2")
+# w3<- GCP_Data %>%
+#   filter(pert_batch_internal_compound_enumerator == "W3")
+# w4<- GCP_Data %>%
+#   filter(pert_batch_internal_compound_enumerator == "W4")
+# w5<- GCP_Data %>%
+#   filter(pert_batch_internal_compound_enumerator == "W5")
+
+
+colnames(GCP_Data) <- GCP_Data[1,]
+GCP_Data <- GCP_Data %>%
+  slice(-1) %>%
+  mutate_at(vars(matches("^H3K")), as.numeric) %>%
+  filter(!is.na(id)) %>%
+  mutate(pert_time = factor(pert_time, levels = c(0,1,4,8,24,48)))
+
+```
+
+```{r distributions, eval = TRUE}
+df <- GCP_Data %>%
+  select(pert_batch_internal_compound_enumerator, pert_batch_internal_replicate, pert_iname, pert_time) %>%
+  distinct()
+
+p <- ggplot(df, aes(x = pert_batch_internal_compound_enumerator, y = pert_batch_internal_replicate, colour = pert_iname, shape = pert_time)) + 
+  #geom_point() +
+  geom_jitter(alpha = .7, size = 7, width = .2, height = .2)
+p
+
+df <- GCP_Data %>%
+  select(matches("^H3K|_compound_")) %>%
+  gather(key=probe_id, value = value, -pert_batch_internal_compound_enumerator)
+
+p <- ggplot(df, aes(x = value, fill = pert_batch_internal_compound_enumerator)) + 
+  geom_density(alpha = .2) +
+  guides(fill = FALSE) +
+  labs(title= "GCP Week") +
+  facet_wrap(~probe_id, scales = "free")
+p
+
+
+df <- GCP_Data %>%
+  select(matches("^H3K|_replicate")) %>%
+  gather(key=probe_id, value = value, -pert_batch_internal_replicate)
+
+p <- ggplot(df, aes(x = value, fill = pert_batch_internal_replicate)) + 
+  geom_density(alpha = .2) +
+  guides(fill = FALSE) +
+  labs(title= "GCP Replicate") +
+  facet_wrap(~probe_id, scales = "free")
+p
+
+```
+
+```{r perturbedConditions, fig.width = 4, fig.height=4, eval= FALSE}
+
+df <- all_data %>%
+  mutate(Ligand = str_remove(Ligand_TimePoint, "_.*"),
+         Time = str_remove(Ligand_TimePoint, ".*_"),
+         Time = as.integer(Time))
+
+p <- ggplot(df, aes(x = Time, y = RPPA_fold_change_prop, colour = Ligand)) +
+  geom_line() +
+  labs(title = "RPPA fold change proportions",
+       subtitle = paste("fc threshold =",fcThresh),
+       x = "Hours",
+       y = "Proportion of perturbed antibodies")
+p
+
+p <-ggplot(df, aes(x = Time, y = CycIF_fold_change_prop, colour = Ligand))+
+  geom_line()+
+  labs(title = "cycIF fold change proportions",
+       subtitle = paste("fc threshold =",fcThresh),
+       x = "Hours",
+       y = "Proportion of perturbed antibodies")
+p
+
+p <- ggplot(df, aes(x = Time, y = GCP_fold_change_prop, colour = Ligand))+
+  geom_line()+
+  labs(title = "GCP fold change proportions",
+       subtitle = paste("fc threshold =",fcThresh),
+       x = "Hours",
+       y = "Proportion of perturbed histones")
+p
+
+```
+
+```{r perturbedConditionsZScores, fig.width = 3.5, fig.height=3.5, eval = FALSE}
+pdf("signalEffectsColumns.pdf",width = 4, height = 4)
+df <- all_data %>%
+  mutate(Ligand = str_remove(Ligand_TimePoint, "_.*"),
+         Time = str_remove(Ligand_TimePoint, ".*_"),
+         Time = as.integer(Time)) %>%
+  filter(!Ligand == "EGF")
+
+# p <- ggplot(df, aes(x = Time, y = RPPA_Z_score_prop, colour = Ligand)) +
+#   coord_cartesian(ylim = c(0,.45)) +
+#   geom_line() +
+#   labs(title = "RPPA signal effects",
+#        subtitle = paste("z score threshold =", z_score_thresh),
+#        x = "Hours",
+#        y = "Proportion of perturbed antibodies")
+# p
+# 
+# p <-ggplot(df, aes(x = Time, y = CycIF_Z_score_prop, colour = Ligand))+
+#   coord_cartesian(ylim = c(0,.45)) +
+#   geom_line()+
+#   labs(title = "cycIF signal effects",
+#        subtitle = paste("z score threshold =", z_score_thresh),
+#        x = "Hours",
+#        y = "Proportion of perturbed features")
+# p
+# 
+# p <- ggplot(df, aes(x = Time, y = GCP_Z_score_prop, colour = Ligand))+
+#   coord_cartesian(ylim = c(0,.45)) +
+#   geom_line()+
+#   labs(title = "GCP signal effects",
+#        subtitle = paste("z score threshold =", z_score_thresh),
+#        x = "Hours",
+#        y = "Proportion of perturbed histones")
+# p
+
+
+#Bar plots
+p <- ggplot(df, aes(x = factor(Time), y = RPPA_Z_score_prop, fill = Ligand)) +
+  coord_cartesian(ylim = c(0,.45)) +
+  geom_col(position = "dodge", width=.8) +
+  labs(title = "RPPA signal effects",
+       subtitle = paste("z score threshold =", z_score_thresh),
+       x = "Hours",
+       y = "Proportion of perturbed antibodies") +
+  theme_bw()
+p
+
+p <-ggplot(df, aes(x = factor(Time), y = CycIF_Z_score_prop, fill = Ligand))+
+  coord_cartesian(ylim = c(0,.45)) +
+  geom_col(position = "dodge", width=.8) +
+  labs(title = "cycIF signal effects",
+       subtitle = paste("z score threshold =", z_score_thresh),
+       x = "Hours",
+       y = "Proportion of perturbed features") +
+  theme_bw()
+p
+
+p <- ggplot(df, aes(x = factor(Time), y = GCP_Z_score_prop, fill = Ligand))+
+  coord_cartesian(ylim = c(0,.45)) +
+  geom_col(position = "dodge", width=.8) +
+  labs(title = "GCP signal effects",
+       subtitle = paste("z score threshold =", z_score_thresh),
+       x = "Hours",
+       y = "Proportion of perturbed histones") +
+  theme_bw()
+p
+
+p <- ggplot(df, aes(x = factor(Time), y = L1000_Z_score_prop, fill = Ligand))+
+  coord_cartesian(ylim = c(0,.45)) +
+  geom_col(position = "dodge", width=.8) +
+  labs(title = "L1000 signal effects",
+       subtitle = paste("z score threshold =", z_score_thresh),
+       x = "Hours",
+       y = "Proportion of perturbed genes") +
+  theme_bw()
+p
+
+#line graphs grouped by ligand
+df <- all_data %>%
+  mutate(Ligand = str_remove(Ligand_TimePoint, "_.*"),
+         Time = str_remove(Ligand_TimePoint, ".*_"),
+         Time = as.integer(Time)) %>%
+  select(Ligand, Time, matches("Z_score")) %>%
+  gather(key = "Assay",value="Proportion",-Ligand, -Time) %>%
+  mutate(Assay = str_remove(Assay,"_.*")) %>%
+  filter(!Ligand == "EGF")
+
+p <- ggplot(df, aes(x = Time, y = Proportion, colour = Assay)) +
+  coord_cartesian(ylim = c(0,.45)) +
+  geom_line() +
+  scale_x_continuous(breaks = c(4,8,24,48)) +
+  labs(title = "RPPA, cycIF, GCP and L1000 signal effects",
+       subtitle = paste("z score threshold =", z_score_thresh),
+       x = "Hours",
+       y = "Proportion of perturbed features") +
+  facet_wrap(~Ligand) +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 5))
+
+p
+
+```
+
+```{r conditionTimeEGFNormT0Heatmap, eval=FALSE}
+lowProb <- .02
+upProb <- .98
+m <- all_data %>%
+  select(-Ligand_TimePoint) %>%
+  unlist() %>%
+  matrix(nrow = length(unique(all_data$Ligand_TimePoint)),byrow = TRUE) %>%
+  squish(quantile(.,probs=c(lowProb, upProb), na.rm = TRUE)) 
+
+rownames(m) <- all_data$Ligand_TimePoint
+colnames(m) <- colnames(select(all_data, -Ligand_TimePoint))
+
+ccols <- diverge.color(unlist(m), pal_choice = "RdBu", centeredOn = 0)
+
+colAnBar <- all_data %>%
+  select(-Ligand_TimePoint) %>%
+  colnames() %>%
+  str_remove("_.*")
+colAnBar <- colAnBar %>%
+  str_replace("cycIF", "blue") %>%
+  str_replace("RPPA","pink") %>%
+  str_replace("GCP","yellow")
+
+#data with columns ordered by samples
+hm <- heatmap(m,
+              #Colv=NA,
+              ColSideColors = colAnBar,
+              scale="none",
+              col=ccols[[2]][length(ccols[[2]]):1],
+              breaks=ccols[[1]]$brks,
+              margins = c(5,10),
+              cexRow = .8,
+              cexCol = .8)
+
+
+```
+
+
