@@ -69,7 +69,7 @@ varianceCut <- 0.04
 
 #fold change threshold
 fcThresh <- 1.5
-z_score_thresh <- 2
+z_score_thresh <- 1.5
 
 #Create a function that takes in a vector and returns a same-length vector of z scores 
 z_score <- function(x) (x-mean(x, na.rm = TRUE))/sqrt(var(x, na.rm = TRUE))
@@ -160,8 +160,29 @@ zs_logicals <-  abs(select(GCP_zscores,-Ligand_TimePoint)) >= z_score_thresh
 #Add the proportion of perturbed antibodies to the dataframe based on z scores
 GCP_data$GCP_Z_score_prop <- apply(zs_logicals, 1, sum, na.rm = TRUE)/ncol(zs_logicals)
 
+#Add L1000 data
+l1000_data <- read_tsv("MCF10A_L1000_TCnorm.tsv") %>%
+  gather(Ligand_TimePoint_Replicate, Value, -probe) %>%
+  mutate(Ligand_TimePoint = str_remove(Ligand_TimePoint_Replicate, "_[ABC]"),
+         probe = paste0("L1000_",probe)) %>%
+  group_by(Ligand_TimePoint, probe) %>%
+  summarise(Value = mean(Value)) %>%
+  spread(probe, Value) %>%
+  ungroup()
+  
+l1000_zscores <- l1000_data %>%
+  mutate_at(vars(-matches("Ligand_TimePoint")), z_score)
+zs_logicals <-  abs(select(l1000_zscores,-Ligand_TimePoint)) >= z_score_thresh
+
+#Add the proportion of perturbed antibodies to the dataframe based on z scores
+l1000_data$L1000_Z_score_prop <- apply(zs_logicals, 1, sum, na.rm = TRUE)/ncol(zs_logicals)
+
+#l1000_metadata <- read_tsv("MCF10A_L1000_TCnorm_meta.tsv")
+
+#join all data
 all_data <- inner_join(cycIF,RPPA) %>%
   inner_join(GCP_data) %>%
+  inner_join(l1000_data) %>%
   arrange(Ligand_TimePoint)
 
 all_data$Ligand_TimePoint <- factor(all_data$Ligand_TimePoint, levels = c(
@@ -176,7 +197,7 @@ all_data$Ligand_TimePoint <- factor(all_data$Ligand_TimePoint, levels = c(
 ```
 
 ```{r distributions, eval = FALSE}
-
+pdf("MDD_value_distributions.pdf")
 df <- cycIF %>%
   gather(key=Ligand_TimePoint)
 p <- ggplot(df, aes(x = value, fill = Ligand_TimePoint)) + 
@@ -201,6 +222,15 @@ p <- ggplot(df, aes(x = value, fill = Ligand_TimePoint)) +
   labs(title= "GCP")
 p
 
+df <- l1000_data %>%
+  gather(key=Ligand_TimePoint)
+p <- ggplot(df, aes(x = value, fill = Ligand_TimePoint)) + 
+  geom_density(alpha = .2) +
+  guides(fill = FALSE)+
+  labs(title= "L1000")
+p
+
+dev.off()
 ```
 
 ```{r perturbedConditions, fig.width = 4, fig.height=4, eval= FALSE}
@@ -237,40 +267,107 @@ p
 ```
 
 ```{r perturbedConditionsZScores, fig.width = 3.5, fig.height=3.5}
-pdf("signalEffects.pdf",width = 4, height = 4)
+pdf("signalEffectsColumns.pdf",width = 4, height = 4)
 df <- all_data %>%
   mutate(Ligand = str_remove(Ligand_TimePoint, "_.*"),
          Time = str_remove(Ligand_TimePoint, ".*_"),
-         Time = as.integer(Time))
+         Time = as.integer(Time)) %>%
+  filter(!Ligand == "EGF")
 
-p <- ggplot(df, aes(x = Time, y = RPPA_Z_score_prop, colour = Ligand)) +
+# p <- ggplot(df, aes(x = Time, y = RPPA_Z_score_prop, colour = Ligand)) +
+#   coord_cartesian(ylim = c(0,.45)) +
+#   geom_line() +
+#   labs(title = "RPPA signal effects",
+#        subtitle = paste("z score threshold =", z_score_thresh),
+#        x = "Hours",
+#        y = "Proportion of perturbed antibodies")
+# p
+# 
+# p <-ggplot(df, aes(x = Time, y = CycIF_Z_score_prop, colour = Ligand))+
+#   coord_cartesian(ylim = c(0,.45)) +
+#   geom_line()+
+#   labs(title = "cycIF signal effects",
+#        subtitle = paste("z score threshold =", z_score_thresh),
+#        x = "Hours",
+#        y = "Proportion of perturbed features")
+# p
+# 
+# p <- ggplot(df, aes(x = Time, y = GCP_Z_score_prop, colour = Ligand))+
+#   coord_cartesian(ylim = c(0,.45)) +
+#   geom_line()+
+#   labs(title = "GCP signal effects",
+#        subtitle = paste("z score threshold =", z_score_thresh),
+#        x = "Hours",
+#        y = "Proportion of perturbed histones")
+# p
+
+
+#Bar plots
+p <- ggplot(df, aes(x = factor(Time), y = RPPA_Z_score_prop, fill = Ligand)) +
   coord_cartesian(ylim = c(0,.45)) +
-  geom_line() +
+  geom_col(position = "dodge", width=.8) +
   labs(title = "RPPA signal effects",
        subtitle = paste("z score threshold =", z_score_thresh),
        x = "Hours",
-       y = "Proportion of perturbed antibodies")
+       y = "Proportion of perturbed antibodies") +
+  theme_bw()
 p
 
-p <-ggplot(df, aes(x = Time, y = CycIF_Z_score_prop, colour = Ligand))+
+p <-ggplot(df, aes(x = factor(Time), y = CycIF_Z_score_prop, fill = Ligand))+
   coord_cartesian(ylim = c(0,.45)) +
-  geom_line()+
+  geom_col(position = "dodge", width=.8) +
   labs(title = "cycIF signal effects",
        subtitle = paste("z score threshold =", z_score_thresh),
        x = "Hours",
-       y = "Proportion of perturbed features")
+       y = "Proportion of perturbed features") +
+  theme_bw()
 p
 
-p <- ggplot(df, aes(x = Time, y = GCP_Z_score_prop, colour = Ligand))+
+p <- ggplot(df, aes(x = factor(Time), y = GCP_Z_score_prop, fill = Ligand))+
   coord_cartesian(ylim = c(0,.45)) +
-  geom_line()+
+  geom_col(position = "dodge", width=.8) +
   labs(title = "GCP signal effects",
        subtitle = paste("z score threshold =", z_score_thresh),
        x = "Hours",
-       y = "Proportion of perturbed histones")
+       y = "Proportion of perturbed histones") +
+  theme_bw()
 p
 
-dev.off()
+p <- ggplot(df, aes(x = factor(Time), y = L1000_Z_score_prop, fill = Ligand))+
+  coord_cartesian(ylim = c(0,.45)) +
+  geom_col(position = "dodge", width=.8) +
+  labs(title = "L1000 signal effects",
+       subtitle = paste("z score threshold =", z_score_thresh),
+       x = "Hours",
+       y = "Proportion of perturbed genes") +
+  theme_bw()
+p
+
+#line graphs grouped by ligand
+df <- all_data %>%
+  mutate(Ligand = str_remove(Ligand_TimePoint, "_.*"),
+         Time = str_remove(Ligand_TimePoint, ".*_"),
+         Time = as.integer(Time)) %>%
+  select(Ligand, Time, matches("Z_score")) %>%
+  gather(key = "Assay",value="Proportion",-Ligand, -Time) %>%
+  mutate(Assay = str_remove(Assay,"_.*")) %>%
+  filter(!Ligand == "EGF")
+
+p <- ggplot(df, aes(x = Time, y = Proportion, colour = Assay)) +
+  coord_cartesian(ylim = c(0,.45)) +
+  geom_line() +
+  scale_x_continuous(breaks = c(4,8,24,48)) +
+  labs(title = "RPPA, cycIF, GCP and L1000 signal effects",
+       subtitle = paste("z score threshold =", z_score_thresh),
+       x = "Hours",
+       y = "Proportion of perturbed features") +
+  facet_wrap(~Ligand) +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 5))
+
+p
+
+ dev.off()
 ```
 
 ```{r conditionTimeEGFNormT0Heatmap, eval=FALSE}
