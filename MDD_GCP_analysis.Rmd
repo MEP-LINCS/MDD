@@ -89,7 +89,7 @@ GCP_Data <- GCP_Data %>%
   filter(!is.na(id)) %>%
   mutate(pert_time = factor(pert_time, levels = c(0,1,4,8,24,48)))
 
-#Calculate z scores within weeks
+#Calculate z scores within weeks and probe
 GCP_z <- GCP_Data %>%
   select(matches("^H3K|_compound_|pert_iname|pert_time$|det_well")) %>%
   gather(key=probe_id, value = value, -pert_batch_internal_compound_enumerator,-pert_iname,-pert_time, -det_well) %>%
@@ -195,76 +195,94 @@ p <- ggplot(df, aes(x = pert_batch_internal_compound_enumerator, y = value_z, co
     guides(colour = guide_legend(title = "Condition"))
 p
 
-p <- ggplot(df, aes(x = value, fill = pert_batch_internal_compound_enumerator)) + 
+df <- GCP_z
+p <- ggplot(df, aes(x = value, fill = pert_batch_internal_compound_enumerator)) +
   geom_density(alpha = .2) +
   guides(fill = guide_legend(title = "Week")) +
   labs(x = "GCP value",
        title= "GCP values grouped by weeks",
-       subtitle= "PBS_0 and EGF_48 conditions") +
+       subtitle= "All conditions") +
   theme(strip.text = element_text(size = 8)) +
   facet_wrap(~probe_id, scales = "free")
 p
 
-p <- ggplot(df, aes(x = value_z, fill = pert_batch_internal_compound_enumerator)) + 
+p <- ggplot(df, aes(x = value_z, fill = pert_batch_internal_compound_enumerator)) +
   geom_density(alpha = .2) +
   guides(fill = guide_legend(title = "Week")) +
   labs(x = "GCP z scores ",
          title= "GCP z scores grouped by weeks",
-       subtitle= "PBS_0 and EGF_48 conditions") +
-  theme(strip.text = element_text(size = 8)) +
-  facet_wrap(~probe_id, scales = "free")
-p
-
-#Calculate z scores within replicate batches
-df <- GCP_Data %>%
-  select(matches("^H3K|_replicate|pert_iname|pert_time$")) %>%
-  gather(key=probe_id, value = value, -pert_batch_internal_replicate,-pert_iname,-pert_time) %>%
-  group_by(pert_batch_internal_replicate, probe_id) %>%
-  mutate(value_z = z_score(value)) %>%
-  ungroup() %>%
-  filter(pert_time==0&pert_iname=="PBS"|pert_time==48&pert_iname=="EGF",
-         pert_batch_internal_replicate %in% 1:3)
-
-p <- ggplot(df, aes(x = value, fill = pert_batch_internal_replicate)) + 
-  geom_density(alpha = .2) +
-  guides(fill = FALSE) +
-  labs(title= "GCP raw data grouped by replicate batches",
-                subtitle= "PBS_0 and EGF_48 conditions") +
-  theme(strip.text = element_text(size = 8)) +
-  facet_wrap(~probe_id, scales = "free")
-p
-
-p <- ggplot(df, aes(x = value_z, fill = pert_batch_internal_replicate)) + 
-  geom_density(alpha = .2) +
-  labs(title= "GCP z scores within replicates",
-                subtitle= "PBS_0 and EGF_48 conditions") +
-  guides(fill = guide_legend(title = "Replicate")) +
+       subtitle= "All conditions") +
   theme(strip.text = element_text(size = 8)) +
   facet_wrap(~probe_id, scales = "free")
 p
 ```
 
+```{r separateDensityPlots, fig.height=24}
+p <- ggplot(df, aes(x = value_z, fill = pert_batch_internal_compound_enumerator)) +
+  geom_density(alpha = .2) +
+  guides(fill = guide_legend(title = "Week")) +
+  labs(x = "GCP z scores ",
+         title= "GCP z scores by week and probe",
+       subtitle= "All conditions") +
+  theme(strip.text = element_text(size = 8)) +
+  facet_grid(probe_id~pert_batch_internal_compound_enumerator, scales = "free_y")
+p
 
-```{r normalize, eval = FALSE}
+df <- GCP_z %>%
+  group_by(probe_id, pert_batch_internal_compound_enumerator) %>%
+  mutate(Week_probe_group = n()) %>%
+  ungroup()
+
+#Calculate z scores within replicate batches
+# df <- GCP_Data %>%
+#   select(matches("^H3K|_replicate|pert_iname|pert_time$")) %>%
+#   gather(key=probe_id, value = value, -pert_batch_internal_replicate,-pert_iname,-pert_time) %>%
+#   group_by(pert_batch_internal_replicate, probe_id) %>%
+#   mutate(value_z = z_score(value)) %>%
+#   ungroup() %>%
+#   filter(pert_batch_internal_replicate %in% 1:3)
+# 
+# p <- ggplot(df, aes(x = value, fill = pert_batch_internal_replicate)) +
+#   geom_density(alpha = .2) +
+#   guides(fill = FALSE) +
+#   labs(title= "GCP raw data grouped by replicate batches",
+#                 subtitle= "PBS_0 and EGF_48 conditions") +
+#   theme(strip.text = element_text(size = 8)) +
+#   facet_wrap(~probe_id, scales = "free")
+# p
+# 
+# p <- ggplot(df, aes(x = value_z, fill = pert_batch_internal_replicate)) +
+#   geom_density(alpha = .2) +
+#   labs(title= "GCP z scores within replicates",
+#                 subtitle= "All conditions") +
+#   guides(fill = guide_legend(title = "Replicate")) +
+#   theme(strip.text = element_text(size = 8)) +
+#   facet_wrap(~probe_id, scales = "free")
+# p
+```
+
+There five number summary of n in the probe+week groups is `r summary(df$Week_probe_group)` 
+
+```{r normalize, eval = TRUE}
 
 
 EGF_values <- GCP_z %>%
-  select(matches("^H3K|pert_batch_internal_compound_enumerator|pert_iname|pert_time$")) %>%
-  filter(pert_iname == "EGF") %>%
-  gather(probe_id,value,-pert_batch_internal_compound_enumerator,-pert_iname,-pert_time)
+  select(-det_well) %>%
+  filter(pert_iname == "EGF")
 
 #identify the NA values
 EGF_NAs <- EGF_values %>%
   filter(is.na(value)) %>%
-  select(pert_iname, pert_time, probe_id, pert_batch_internal_replicate) 
+  select(pert_iname, pert_time, probe_id, pert_batch_internal_compound_enumerator) 
 
 #calculate the medians from the replicates of the NA values
 EGF_imputed <- EGF_NAs %>%
-  select(-pert_batch_internal_replicate) %>%
+  select(-pert_batch_internal_compound_enumerator) %>%
   left_join(EGF_values, by = c("pert_iname", "pert_time", "probe_id")) %>%
   distinct() %>%
   group_by(pert_iname, pert_time, probe_id) %>%
-  summarise(value = median(value, na.rm = TRUE)) %>%
+  summarise(value = median(value, na.rm = TRUE),
+            value_z = median(value_z, na.rm = TRUE)) %>%
   ungroup() %>%
   right_join(EGF_NAs, by = c("pert_iname", "pert_time", "probe_id"))
 
@@ -272,197 +290,58 @@ EGF_imputed <- EGF_NAs %>%
 EGF_values <- EGF_values %>%
   filter(!is.na(value)) %>%
   bind_rows(EGF_imputed) %>%
-  rename(EGF_value = value) %>%
+  rename(EGF_value = value,
+         EGF_value_z = value_z) %>%
   select(-pert_iname)
 
 #Add the EGF values and normalize to them
-EGF_norm<- GCP_Data %>%
+EGF_norm<- GCP_z %>%
   filter(!pert_time == "0") %>%
-  select(matches("^H3K|replicate|pert_iname|pert_time$")) %>%
-  gather(probe_id,value,-pert_batch_internal_replicate,-pert_iname,-pert_time) %>%
-  left_join(EGF_values, by = c("pert_time", "probe_id", "pert_batch_internal_replicate")) %>%
-  mutate(value_EGF_norm = value-EGF_value) %>%
-  select(-value, -EGF_value) %>%
+  #select(matches(|pert_iname|pert_time$|pert_batch_internal_compound_enumerator")) %>%
+  #gather(probe_id,value,-pert_batch_internal_compound_enumerator,-pert_iname,-pert_time) %>%
+  left_join(EGF_values, by = c("pert_time", "probe_id", "pert_batch_internal_compound_enumerator")) %>%
+  mutate(value_EGF_norm = value-EGF_value,
+         value_z_EGF_norm = value_z-EGF_value_z) %>%
+  select(-value, -value_z, -EGF_value, -EGF_value_z) %>%
   mutate(pert_iname = toupper(pert_iname),
-         condition = paste(pert_iname, pert_time, pert_batch_internal_replicate, sep = "_"),
+         condition = paste(pert_iname, pert_time, pert_batch_internal_compound_enumerator, sep = "_"),
          probe_id = factor(probe_id, levels = unique(probe_id))) %>%
-  spread(key = probe_id, value = value_EGF_norm) %>%
-  mutate(condition =  factor(condition, levels = paste(rep(c("PBS","BMP2", "IFNG", "TGFB", "HGF", "OSM", "EGF"), each = 20), rep(c(4,8, 24, 48), each = 5), 1:5, sep = "_"))) %>%
+ # spread(key = probe_id, value = value_EGF_norm) %>%
+  mutate(condition =  factor(condition, levels = paste(rep(c("PBS","BMP2", "IFNG", "TGFB", "HGF", "OSM", "EGF"), each = 20), rep(c(4,8, 24, 48), each = 5), paste0("W",1:5), sep = "_"))) %>%
   arrange(condition)
 
 ```
 
-```{r perturbedConditions, fig.width = 4, fig.height=4, eval= FALSE}
+```{r EGFNormHeatmap, eval=FALSE}
 
-df <- all_data %>%
-  mutate(Ligand = str_remove(Ligand_TimePoint, "_.*"),
-         Time = str_remove(Ligand_TimePoint, ".*_"),
-         Time = as.integer(Time))
-
-p <- ggplot(df, aes(x = Time, y = RPPA_fold_change_prop, colour = Ligand)) +
-  geom_line() +
-  labs(title = "RPPA fold change proportions",
-       subtitle = paste("fc threshold =",fcThresh),
-       x = "Hours",
-       y = "Proportion of perturbed antibodies")
-p
-
-p <-ggplot(df, aes(x = Time, y = CycIF_fold_change_prop, colour = Ligand))+
-  geom_line()+
-  labs(title = "cycIF fold change proportions",
-       subtitle = paste("fc threshold =",fcThresh),
-       x = "Hours",
-       y = "Proportion of perturbed antibodies")
-p
-
-p <- ggplot(df, aes(x = Time, y = GCP_fold_change_prop, colour = Ligand))+
-  geom_line()+
-  labs(title = "GCP fold change proportions",
-       subtitle = paste("fc threshold =",fcThresh),
-       x = "Hours",
-       y = "Proportion of perturbed histones")
-p
-
-```
-
-```{r perturbedConditionsZScores, fig.width = 3.5, fig.height=3.5, eval = FALSE}
-pdf("signalEffectsColumns.pdf",width = 4, height = 4)
-df <- all_data %>%
-  mutate(Ligand = str_remove(Ligand_TimePoint, "_.*"),
-         Time = str_remove(Ligand_TimePoint, ".*_"),
-         Time = as.integer(Time)) %>%
-  filter(!Ligand == "EGF")
-
-# p <- ggplot(df, aes(x = Time, y = RPPA_Z_score_prop, colour = Ligand)) +
-#   coord_cartesian(ylim = c(0,.45)) +
-#   geom_line() +
-#   labs(title = "RPPA signal effects",
-#        subtitle = paste("z score threshold =", z_score_thresh),
-#        x = "Hours",
-#        y = "Proportion of perturbed antibodies")
-# p
-# 
-# p <-ggplot(df, aes(x = Time, y = CycIF_Z_score_prop, colour = Ligand))+
-#   coord_cartesian(ylim = c(0,.45)) +
-#   geom_line()+
-#   labs(title = "cycIF signal effects",
-#        subtitle = paste("z score threshold =", z_score_thresh),
-#        x = "Hours",
-#        y = "Proportion of perturbed features")
-# p
-# 
-# p <- ggplot(df, aes(x = Time, y = GCP_Z_score_prop, colour = Ligand))+
-#   coord_cartesian(ylim = c(0,.45)) +
-#   geom_line()+
-#   labs(title = "GCP signal effects",
-#        subtitle = paste("z score threshold =", z_score_thresh),
-#        x = "Hours",
-#        y = "Proportion of perturbed histones")
-# p
-
-
-#Bar plots
-p <- ggplot(df, aes(x = factor(Time), y = RPPA_Z_score_prop, fill = Ligand)) +
-  coord_cartesian(ylim = c(0,.45)) +
-  geom_col(position = "dodge", width=.8) +
-  labs(title = "RPPA signal effects",
-       subtitle = paste("z score threshold =", z_score_thresh),
-       x = "Hours",
-       y = "Proportion of perturbed antibodies") +
-  theme_bw()
-p
-
-p <-ggplot(df, aes(x = factor(Time), y = CycIF_Z_score_prop, fill = Ligand))+
-  coord_cartesian(ylim = c(0,.45)) +
-  geom_col(position = "dodge", width=.8) +
-  labs(title = "cycIF signal effects",
-       subtitle = paste("z score threshold =", z_score_thresh),
-       x = "Hours",
-       y = "Proportion of perturbed features") +
-  theme_bw()
-p
-
-p <- ggplot(df, aes(x = factor(Time), y = GCP_Z_score_prop, fill = Ligand))+
-  coord_cartesian(ylim = c(0,.45)) +
-  geom_col(position = "dodge", width=.8) +
-  labs(title = "GCP signal effects",
-       subtitle = paste("z score threshold =", z_score_thresh),
-       x = "Hours",
-       y = "Proportion of perturbed histones") +
-  theme_bw()
-p
-
-p <- ggplot(df, aes(x = factor(Time), y = L1000_Z_score_prop, fill = Ligand))+
-  coord_cartesian(ylim = c(0,.45)) +
-  geom_col(position = "dodge", width=.8) +
-  labs(title = "L1000 signal effects",
-       subtitle = paste("z score threshold =", z_score_thresh),
-       x = "Hours",
-       y = "Proportion of perturbed genes") +
-  theme_bw()
-p
-
-#line graphs grouped by ligand
-df <- all_data %>%
-  mutate(Ligand = str_remove(Ligand_TimePoint, "_.*"),
-         Time = str_remove(Ligand_TimePoint, ".*_"),
-         Time = as.integer(Time)) %>%
-  select(Ligand, Time, matches("Z_score")) %>%
-  gather(key = "Assay",value="Proportion",-Ligand, -Time) %>%
-  mutate(Assay = str_remove(Assay,"_.*")) %>%
-  filter(!Ligand == "EGF")
-
-p <- ggplot(df, aes(x = Time, y = Proportion, colour = Assay)) +
-  coord_cartesian(ylim = c(0,.45)) +
-  geom_line() +
-  scale_x_continuous(breaks = c(4,8,24,48)) +
-  labs(title = "RPPA, cycIF, GCP and L1000 signal effects",
-       subtitle = paste("z score threshold =", z_score_thresh),
-       x = "Hours",
-       y = "Proportion of perturbed features") +
-  facet_wrap(~Ligand) +
-  theme_bw()+
-  theme(axis.text.x = element_text(size = 5))
-
-p
-
-```
-
-```{r conditionTimeEGFNormT0Heatmap, eval=FALSE}
 lowProb <- .02
 upProb <- .98
-m <- all_data %>%
-  select(-Ligand_TimePoint) %>%
-  unlist() %>%
-  matrix(nrow = length(unique(all_data$Ligand_TimePoint)),byrow = TRUE) %>%
+m <- EGF_norm %>%
+  select(probe_id, condition, value_EGF_norm) %>%
+  spread(key = probe_id, value = value_EGF_norm) %>%
+  select_if(is.numeric) %>%
+ # drop_na() %>%
+  as.matrix() %>%
   squish(quantile(.,probs=c(lowProb, upProb), na.rm = TRUE)) 
 
-rownames(m) <- all_data$Ligand_TimePoint
-colnames(m) <- colnames(select(all_data, -Ligand_TimePoint))
+rownames(m) <- unique(EGF_norm$condition, incomparables = NA)
 
+
+m <- t(m)
 ccols <- diverge.color(unlist(m), pal_choice = "RdBu", centeredOn = 0)
-
-colAnBar <- all_data %>%
-  select(-Ligand_TimePoint) %>%
-  colnames() %>%
-  str_remove("_.*")
-colAnBar <- colAnBar %>%
-  str_replace("cycIF", "blue") %>%
-  str_replace("RPPA","pink") %>%
-  str_replace("GCP","yellow")
 
 #data with columns ordered by samples
 hm <- heatmap(m,
               #Colv=NA,
-              ColSideColors = colAnBar,
+              #ColSideColors = colAnBar,
               scale="none",
               col=ccols[[2]][length(ccols[[2]]):1],
               breaks=ccols[[1]]$brks,
               margins = c(5,10),
               cexRow = .8,
-              cexCol = .8)
+              cexCol = .8)#data with columns ordered by samples
 
-
+hm <- heatmap(m)
 ```
 
 
