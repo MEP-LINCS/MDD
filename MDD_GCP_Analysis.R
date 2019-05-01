@@ -4,7 +4,7 @@ library(tidyverse)
 library(scales)
 library(RColorBrewer)
 library(classInt)
-#library(CePa)
+library(CePa)
 #library(cmapR)
 
 diverge.color <- function(data,pal_choice="RdGy",centeredOn=0){
@@ -26,8 +26,11 @@ diverge.color <- function(data,pal_choice="RdGy",centeredOn=0){
 }
 
 
-# foo <- read.gct("GCP_Data/GCP_MCF10a_EGF48hr_BatchNormalized.gct")
-# foo <- read.gctx.meta("GCP_Data/GCP_MCF10a_raw.gct")
+GCP_data <- read.gct("Data/GCP_MCF10a_EGF48hr_BatchNormalized.gct")
+foo <- read.gct("Data/GCP_MCF10a_raw.gct")
+foo <- read.gct("Data/GCP_MCF10a_log2_LoadBalanceMS1norm.gct")
+foo <- read.gct("Data/GCP_MCF10a_log2_outliers_removed.gct")
+
 ProbeMetadata <- read_delim("GCP_Data/ProbeMetadata.txt", 
                             "\t", escape_double = FALSE, trim_ws = TRUE)
 
