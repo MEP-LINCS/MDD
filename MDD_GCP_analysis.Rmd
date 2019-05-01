@@ -63,10 +63,10 @@ z_score <- function(x) (x-mean(x, na.rm = TRUE))/sqrt(var(x, na.rm = TRUE))
 
 ```{r getData}
 
-ProbeMetadata <- read_delim("Data/ProbeMetadata.txt", 
+ProbeMetadata <- read_delim("Data/GCP/ProbeMetadata.txt", 
                             "\t", escape_double = FALSE, trim_ws = TRUE)
 
-GCP_Data <- read_tsv("Data/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
+GCP_Data <- read_tsv("Data/GCP/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
   t() %>%
   as.tibble()
 
