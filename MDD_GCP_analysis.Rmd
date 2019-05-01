@@ -1,5 +1,5 @@
 ---
-title: LINCS molecular deep dive Global Chromatin Profilie analysis
+title: MCF10a Global Chromatin Profilie analysis
 output:
   html_document:
     df_print: paged
@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE,
 
 library(scales)
 library(RColorBrewer)
-library(MDDRPPA)
+#library(MDDRPPA)
 library(classInt)
 library(tidyverse)
 
@@ -63,10 +63,10 @@ z_score <- function(x) (x-mean(x, na.rm = TRUE))/sqrt(var(x, na.rm = TRUE))
 
 ```{r getData}
 
-ProbeMetadata <- read_delim("GCP_Data/ProbeMetadata.txt", 
+ProbeMetadata <- read_delim("Data/ProbeMetadata.txt", 
                             "\t", escape_double = FALSE, trim_ws = TRUE)
 
-GCP_Data <- read_tsv("GCP_Data/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
+GCP_Data <- read_tsv("Data/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
   t() %>%
   as.tibble()
 
@@ -89,40 +89,206 @@ GCP_Data <- GCP_Data %>%
   filter(!is.na(id)) %>%
   mutate(pert_time = factor(pert_time, levels = c(0,1,4,8,24,48)))
 
+#Calculate z scores within weeks
+GCP_z <- GCP_Data %>%
+  select(matches("^H3K|_compound_|pert_iname|pert_time$|det_well")) %>%
+  gather(key=probe_id, value = value, -pert_batch_internal_compound_enumerator,-pert_iname,-pert_time, -det_well) %>%
+  group_by(pert_batch_internal_compound_enumerator, probe_id) %>%
+  mutate(value_z = z_score(value)) %>%
+  ungroup()
+
 ```
 
-```{r distributions, eval = TRUE}
+
+```{r batchEDA, fig.width = 7, fig.height=5.5, eval = TRUE}
 df <- GCP_Data %>%
   select(pert_batch_internal_compound_enumerator, pert_batch_internal_replicate, pert_iname, pert_time) %>%
   distinct()
 
 p <- ggplot(df, aes(x = pert_batch_internal_compound_enumerator, y = pert_batch_internal_replicate, colour = pert_iname, shape = pert_time)) + 
   #geom_point() +
-  geom_jitter(alpha = .7, size = 7, width = .2, height = .2)
+  geom_jitter(alpha = .7, size = 6, width = .3, height = .3) +
+  labs(x = "Week",
+       y = "Replicate",
+       title = "Replicate batches are spread over five weeks",
+       subtitle = "PBS_0 and EGF_48 are only conditions in every week")
+p
+```
+
+
+```{r processingPlate, fig.width= 3.5, fig.height=2.2}
+#recreate the GCP processing plate and color each well by median raw and Z score values
+
+df <- GCP_z %>%  
+  group_by(det_well, pert_batch_internal_compound_enumerator) %>%
+  summarise(value = median(value, na.rm = TRUE),
+            value_z = median(value_z, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(row = str_remove(det_well,"[[:digit:]]+"),
+         column = str_remove(det_well,"[[:alpha:]]"),
+         column = as.integer(column))
+
+
+p <- ggplot(df , aes(x = column, y = row, fill = pert_batch_internal_compound_enumerator)) +
+  geom_tile() +
+  scale_y_discrete(limits=LETTERS[8:1]) +
+  scale_x_continuous(breaks = 1:12) +
+  labs(title = "GCP processing plate",
+       fill = "Week")
 p
 
+p <- ggplot(df , aes(x = column, y = row, fill = value)) +
+  geom_tile() +
+  scale_y_discrete(limits=LETTERS[8:1]) +
+  scale_x_continuous(breaks = 1:12) +
+  labs(title = "GCP processing plate",
+       subtitle = "colored by raw value")
+p
+
+p <- ggplot(df , aes(x = column, y = row, fill = value_z)) +
+  geom_tile() +
+  scale_y_discrete(limits=LETTERS[8:1]) +
+  scale_x_continuous(breaks = 1:12) +
+  labs(title = "GCP processing plate",
+       subtitle = "colored by raw z score")
+p
+
+```
+
+
+### Batch effect removal  
+Assumptions are that most of the batch effect comes from the week the samples were grown and the each week the mix of ligands is similar enough to not biologically bias the mean or variance of the values.  
+
+#### Method  
+Group by week and probe  
+Calcuate z scores on log2 of raw data  
+Calculate median EGF value for each probe at each time point  
+
+
+```{r}
 df <- GCP_Data %>%
-  select(matches("^H3K|_compound_")) %>%
-  gather(key=probe_id, value = value, -pert_batch_internal_compound_enumerator)
+  select(matches("^H3K|_compound_|pert_iname|pert_time$")) %>%
+  gather(key=probe_id, value = value, -pert_batch_internal_compound_enumerator,-pert_iname,-pert_time) %>%
+  filter(pert_time==0&pert_iname=="PBS"|pert_time==48&pert_iname=="EGF")
+
+p <- ggplot(df, aes(x = pert_batch_internal_compound_enumerator, y = value, colour = pert_iname)) +
+  geom_point()+
+  theme(strip.text = element_text(size = 8)) +
+  facet_wrap(~probe_id, scales = "free") + 
+  labs(x = "Week",
+       y = "GCP value",
+       title = "PBS_0 and EGF_48 weekly variations",
+       subtitle = "Raw data, y limits scaled to each probe value")
+p
+
+df <- GCP_z %>%
+  filter(pert_time==0&pert_iname=="PBS"|pert_time==48&pert_iname=="EGF")
+
+p <- ggplot(df, aes(x = pert_batch_internal_compound_enumerator, y = value_z, colour = pert_iname)) +
+  geom_point()+
+  theme(strip.text = element_text(size = 8)) +
+  facet_wrap(~probe_id, scales = "free") + 
+  labs(x = "Week",
+       y = "GCP within week Z scores",
+       title = "PBS_0 and EGF_48 weekly variations",
+       subtitle = "Z scored data, y limits scaled to each probe value") +
+    guides(colour = guide_legend(title = "Condition"))
+p
 
 p <- ggplot(df, aes(x = value, fill = pert_batch_internal_compound_enumerator)) + 
   geom_density(alpha = .2) +
-  guides(fill = FALSE) +
-  labs(title= "GCP Week") +
+  guides(fill = guide_legend(title = "Week")) +
+  labs(x = "GCP value",
+       title= "GCP values grouped by weeks",
+       subtitle= "PBS_0 and EGF_48 conditions") +
+  theme(strip.text = element_text(size = 8)) +
   facet_wrap(~probe_id, scales = "free")
 p
 
+p <- ggplot(df, aes(x = value_z, fill = pert_batch_internal_compound_enumerator)) + 
+  geom_density(alpha = .2) +
+  guides(fill = guide_legend(title = "Week")) +
+  labs(x = "GCP z scores ",
+         title= "GCP z scores grouped by weeks",
+       subtitle= "PBS_0 and EGF_48 conditions") +
+  theme(strip.text = element_text(size = 8)) +
+  facet_wrap(~probe_id, scales = "free")
+p
 
+#Calculate z scores within replicate batches
 df <- GCP_Data %>%
-  select(matches("^H3K|_replicate")) %>%
-  gather(key=probe_id, value = value, -pert_batch_internal_replicate)
+  select(matches("^H3K|_replicate|pert_iname|pert_time$")) %>%
+  gather(key=probe_id, value = value, -pert_batch_internal_replicate,-pert_iname,-pert_time) %>%
+  group_by(pert_batch_internal_replicate, probe_id) %>%
+  mutate(value_z = z_score(value)) %>%
+  ungroup() %>%
+  filter(pert_time==0&pert_iname=="PBS"|pert_time==48&pert_iname=="EGF",
+         pert_batch_internal_replicate %in% 1:3)
 
 p <- ggplot(df, aes(x = value, fill = pert_batch_internal_replicate)) + 
   geom_density(alpha = .2) +
   guides(fill = FALSE) +
-  labs(title= "GCP Replicate") +
+  labs(title= "GCP raw data grouped by replicate batches",
+                subtitle= "PBS_0 and EGF_48 conditions") +
+  theme(strip.text = element_text(size = 8)) +
   facet_wrap(~probe_id, scales = "free")
 p
+
+p <- ggplot(df, aes(x = value_z, fill = pert_batch_internal_replicate)) + 
+  geom_density(alpha = .2) +
+  labs(title= "GCP z scores within replicates",
+                subtitle= "PBS_0 and EGF_48 conditions") +
+  guides(fill = guide_legend(title = "Replicate")) +
+  theme(strip.text = element_text(size = 8)) +
+  facet_wrap(~probe_id, scales = "free")
+p
+```
+
+
+```{r normalize, eval = FALSE}
+
+
+EGF_values <- GCP_z %>%
+  select(matches("^H3K|pert_batch_internal_compound_enumerator|pert_iname|pert_time$")) %>%
+  filter(pert_iname == "EGF") %>%
+  gather(probe_id,value,-pert_batch_internal_compound_enumerator,-pert_iname,-pert_time)
+
+#identify the NA values
+EGF_NAs <- EGF_values %>%
+  filter(is.na(value)) %>%
+  select(pert_iname, pert_time, probe_id, pert_batch_internal_replicate) 
+
+#calculate the medians from the replicates of the NA values
+EGF_imputed <- EGF_NAs %>%
+  select(-pert_batch_internal_replicate) %>%
+  left_join(EGF_values, by = c("pert_iname", "pert_time", "probe_id")) %>%
+  distinct() %>%
+  group_by(pert_iname, pert_time, probe_id) %>%
+  summarise(value = median(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  right_join(EGF_NAs, by = c("pert_iname", "pert_time", "probe_id"))
+
+#remove the NA values and add in the imputed values
+EGF_values <- EGF_values %>%
+  filter(!is.na(value)) %>%
+  bind_rows(EGF_imputed) %>%
+  rename(EGF_value = value) %>%
+  select(-pert_iname)
+
+#Add the EGF values and normalize to them
+EGF_norm<- GCP_Data %>%
+  filter(!pert_time == "0") %>%
+  select(matches("^H3K|replicate|pert_iname|pert_time$")) %>%
+  gather(probe_id,value,-pert_batch_internal_replicate,-pert_iname,-pert_time) %>%
+  left_join(EGF_values, by = c("pert_time", "probe_id", "pert_batch_internal_replicate")) %>%
+  mutate(value_EGF_norm = value-EGF_value) %>%
+  select(-value, -EGF_value) %>%
+  mutate(pert_iname = toupper(pert_iname),
+         condition = paste(pert_iname, pert_time, pert_batch_internal_replicate, sep = "_"),
+         probe_id = factor(probe_id, levels = unique(probe_id))) %>%
+  spread(key = probe_id, value = value_EGF_norm) %>%
+  mutate(condition =  factor(condition, levels = paste(rep(c("PBS","BMP2", "IFNG", "TGFB", "HGF", "OSM", "EGF"), each = 20), rep(c(4,8, 24, 48), each = 5), 1:5, sep = "_"))) %>%
+  arrange(condition)
 
 ```
 
