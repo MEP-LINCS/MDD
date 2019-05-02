@@ -1,0 +1,104 @@
+---
+title: "MDD standard figures"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+
+suppressMessages(library(tidyverse))
+suppressMessages(library(ComplexHeatmap))
+library(umap)
+#library(synapser)
+
+```
+
+###Overview
+These figures are derived from data downloaded from the LINCS Molecular Deep Dive files on Synapse https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
+
+The data have been filtered for QC issues and normalized to the EGF timepoints.  
+
+```{r functions}
+#' Read an assay's csv or tsv data file 
+load_data <- function(assay_name){
+  file_name <- dir("Data",pattern = paste0(assay_name,".*Level3"),recursive = TRUE, full.names = TRUE)
+  if(!length(file_name) == 1) stop("There was not one ", assay_name, " data file found")
+    
+  if(str_detect(file_name, "csv")) {
+    df <- read_csv(file_name)
+  } else if (str_detect(file_name, "tsv")){
+    df <- read_tsv(file_name)
+  } else stop("The data file ",file_name, " must be a csv or tsv file type")
+} #end of function
+
+plot_heatmap <- function(df, assay_name, show_row_names = FALSE){
+  #issues
+  #center on white
+  #add column annotations
+  #remove row names
+  
+  #Arrange the data columns by condition
+  dfa <- df %>%
+     mutate(Condition =  factor(Condition, levels = paste(rep(c("PBS","BMP2", "IFNG", "TGFB", "HGF", "OSM", "EGF"), each = 5), rep(c(1,4,8, 24, 48), times = 7), sep = "_"))) %>%
+  arrange(Condition)
+  
+  #Create a matrix of the data with row and column names
+  mat <- dfa %>%
+    select(-Condition) %>%
+    as.matrix() %>%
+        t()
+  colnames(mat) <- dfa$Condition
+
+  #Create the heatmap column annotations
+  df_ann <- dfa %>%
+    select(Condition) %>%
+    mutate(Ligand = str_remove(Condition, "_.*"),
+           Time = str_remove(Condition, ".*_"),
+           EGF_Paired = Ligand %in% c("BMP2", "IFNG", "TGFB")) %>%
+    select(-Condition)
+  
+  ha <- HeatmapAnnotation(df_ann)
+  #Create the heatmap
+  Heatmap(mat,
+          top_annotation = ha,
+          show_row_names = show_row_names,
+          cluster_columns = FALSE,
+          na_col = "grey")
+}
+
+plot_umap <- function(df){
+  
+}
+
+plot_pca <- function(df){
+  
+}
+
+plot_introspect <- function(df){
+  
+}
+
+plot_circos <- function(df){
+  
+}
+```
+
+
+```{r rppa_figures}
+
+rppa <- load_data("RPPA")
+
+#Select data and translate from RPPA terms to common terms
+df <- rppa %>%
+  select(Antibody, Ligand_TimePoint, EGFNorm) %>%
+  rename(Feature = Antibody,
+         Condition = Ligand_TimePoint,
+         Value = EGFNorm) %>%
+  spread(key = Feature, value = Value) %>%
+  filter(!Condition == "ctrl_0")
+
+res <- plot_heatmap(df,
+                    assay = "RPPA")
+
+
+```
