@@ -120,7 +120,8 @@ prepare_data <- function(x){
            Time = str_replace_all(Time, "^24$","3"),
            Time = str_replace_all(Time, "^48$","4"),
            Ligand = str_remove(Condition, "_.*")
-           )
+           ) %>%
+    rename(Replicate = replicate)
 }
 
 draw_one_track <- function(title_text){
@@ -178,7 +179,7 @@ prep_data <- function(df){
   return(df)
 }
 
-prep_annotaitions <- function(df, md){
+prep_annotations <- function(df, md){
       df_ann <- df %>%
       gather("specimenName", "value", -feature) %>%
       inner_join(md, by = "specimenName") %>%
@@ -186,20 +187,35 @@ prep_annotaitions <- function(df, md){
       distinct() %>%
       rename(Time = experimentalTimePoint,
              Ligand = ligand,
-             Ligand2 = secondLigand) %>%
+             Ligand2 = secondLigand,
+             Replicate = replicate) %>%
       as.data.frame()
       return(df_ann)
 }
  #Create the heatmap column annotations
-  create_top_annotations <- function(df){
-    df_ann <- prep_annotaitions(df, md)
-    
-    haTop <- HeatmapAnnotation(df = df_ann,
-                               col = list(Ligand = c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072"),
-                                          Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
-                                          Ligand2 = c("EGF" = "#fc8d62", "none" = "#8da0cb")))
-    return(haTop)
-  }
+create_top_annotations <- function(df, md){
+  df_ann <- prep_annotations(df, md)
+  
+  haTop <- HeatmapAnnotation(df = df_ann,
+                             col = list(Ligand = c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072"),
+                                        Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
+                                        Ligand2 = c("EGF" = "#fc8d62", "none" = "#8da0cb"),
+                                        Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a")))
+  return(haTop)
+}
+
+create_row_annotations <- function(df, md){
+  df_ann <- prep_annotations(df, md) %>%
+    select(Replicate, Time, Ligand2, Ligand)
+  
+  haRow <- rowAnnotation(df = df_ann, show_legend = FALSE,
+                             col = list(Ligand = c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072"),
+                                        Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
+                                        Ligand2 = c("EGF" = "#fc8d62", "none" = "#8da0cb"),
+                                        Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a")))
+  return(haRow)
+}
+
   
 #####
 plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE){
@@ -213,7 +229,7 @@ plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE){
   Heatmap(matrix = select(df, -feature) %>%
             as.matrix(),
           name = "abundance",
-          top_annotation = create_top_annotations(df),
+          top_annotation = create_top_annotations(df, md),
           show_row_names = show_row_names,
           show_column_names = FALSE,
           cluster_columns = FALSE,
@@ -221,27 +237,26 @@ plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE){
           na_col = "grey")
 }
 
-plot_umap <- function(df, md, assay_name){
-  #Generate a 2d scatterplot of the UMAP dimensions
-  #Use size to represent timepoint, dot in center to represent ligand_2 == EGF
-
-  ligand_cols <- c("PBS" = "#8dd3c7",
+plot_umap <- function(df, md, assay_name,
+                      ligand_cols = c("PBS" = "#8dd3c7",
                    "BMP2" = "#ffffb3",
                    "IFNG" = "#bebada",
                    "TGFB" = "#b3de69",
                    "HGF" = "#80b1d3",
                    "OSM" = "#fdb462",
-                   "EGF" = "#fb8072")
-  
-   ligand_2_cols <- c("EGF" = "#ff0000",
-                     "None" = "#00000000")
+                   "EGF" = "#fb8072"),
+                   ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")){
+  #Generate a 2d scatterplot of the UMAP dimensions
+  #Use size to represent timepoint, dot in center to represent ligand_2 == EGF
+
   windsorize_probs <- get_win_probs(df, .01, .99)
   
   #convert specimenID column names to specimanName and reorder
   df <- prep_data(df)
   
    #Create annotation values
-  df_ann <-prep_annotaitions(df, md)
+  df_ann <-prep_annotations(df, md)
 
    df_mat <- df %>%
     select(-feature) %>%
@@ -264,116 +279,90 @@ p <- ggplot(df_UMAP, aes(x = UMAP_1,
   geom_point(shape = 21, stroke = 4) +
   scale_color_manual( values = ligand_cols) +
   scale_fill_manual( values = ligand_2_cols) +
-  scale_size(breaks = c(1,4,8,24,48), trans = "exp") +
+  scale_size(breaks = c(1,4,8,24,48)) +
   labs(title = paste("UMAP embedding of ", assay_name, " data"))
 p
   
 }
 
-plot_pca <- function(df){
-    #Generate a 2d scatterplot of the the first two principal components
-  #Use size to represent timepoint, a dot in center to represent ligand_2 == EGF
- #temporary function for Ligand_2 metadata
-  label_ligand_2 <- function(x) {
-    ligand_2 <- rep("None", times = length(x))
-    ligand_2[x %in% c("BMP2", "IFNG", "TGFB")] <- "EGF"
-    return(ligand_2)
-  }
-  
-  ligand_cols <- c("PBS" = "#8dd3c7",
+plot_pca <- function(df, md, assay_name,
+                      ligand_cols = c("PBS" = "#8dd3c7",
                    "BMP2" = "#ffffb3",
                    "IFNG" = "#bebada",
                    "TGFB" = "#b3de69",
                    "HGF" = "#80b1d3",
                    "OSM" = "#fdb462",
-                   "EGF" = "#fb8072")
-  
-   ligand_2_cols <- c("EGF" = "#ff0000",
-                     "None" = "#00000000")
+                   "EGF" = "#fb8072"),
+                   ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")){
+  #Generate a 2d scatterplot of the first two princpal components
+  #Use size to represent timepoint, dot in center to represent ligand_2 == EGF
 
+  windsorize_probs <- get_win_probs(df, .01, .99)
+  
+  #convert specimenID column names to specimanName and reorder
+  df <- prep_data(df)
+  
    #Create annotation values
-  df_ann <- df %>%
-    select(-Feature) %>%
-    colnames() %>%
-    enframe(value = "Condition") %>%
-    mutate(Ligand = str_remove(Condition, "_.*"),
-           Timepoint = str_remove(Condition, ".*_"),
-           Timepoint = as.numeric(Timepoint),
-           Ligand_2 = label_ligand_2(Ligand)) %>%
-    select(-Condition, -name) %>%
-    as.data.frame()
+  df_ann <-prep_annotations(df, md)
 
    df_mat <- df %>%
-    select(-Feature) %>%
-    t() %>%
+    select(-feature) %>%
+     t() %>%
   as.matrix()
-  colnames(df_mat) <- df$Feature
+  colnames(df_mat) <- df$feature
 
+    df_pca <- prcomp(df_mat)$x %>%
+  data.frame() %>%
+    cbind(df_ann)
+    
   df_pca <- prcomp(df_mat)$x %>%
   data.frame() %>%
     cbind(df_ann)
   
 p <- ggplot(df_pca, aes(x = PC1,
                          y = PC2,
-                         size = Timepoint,
+                         size = Time,
                          colour = Ligand,
-                         fill = Ligand_2)) +
+                         fill = Ligand2)) +
     geom_point() +
   geom_point(shape = 21, stroke = 4) +
   scale_color_manual( values = ligand_cols) +
   scale_fill_manual( values = ligand_2_cols) +
-  scale_size(breaks = c(1,4,8,24,48), trans = "exp") +
+  scale_size(breaks = c(1,4,8,24,48)) +
   labs(title = paste("PCA of ", assay_name, " data"))
 p
-  
 }
 
-plot_introspect <- function(df, assay_name){
-  #calculate correlations across the condtions and show in a heatmap
-#temporary function for Ligand_2 metadata
-  label_ligand_2 <- function(x) {
-    ligand_2 <- rep("None", times = length(x))
-    ligand_2[x %in% c("BMP2", "IFNG", "TGFB")] <- "EGF"
-    return(ligand_2)
-  }
+
+plot_introspect <- function(df, md, assay_name,
+                      ligand_cols = c("PBS" = "#8dd3c7",
+                   "BMP2" = "#ffffb3",
+                   "IFNG" = "#bebada",
+                   "TGFB" = "#b3de69",
+                   "HGF" = "#80b1d3",
+                   "OSM" = "#fdb462",
+                   "EGF" = "#fb8072"),
+                   ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")){
+  #calculate correlations across the conditions and show in a heatmap
+
+  windsorize_probs <- get_win_probs(df, .01, .99)
   
-  windsorize_probs <- df %>%
-    select(-Feature) %>%
-  unlist %>%
-  quantile(probs = c(.005,.995))
+  #convert specimenID column names to specimanName and reorder
+  df <- prep_data(df)
   
-  #Set the order of the columns
-  condition_order <-  paste(rep(c("PBS","BMP2", "IFNG", "TGFB", "HGF", "OSM", "EGF"), each = 5), rep(c(1, 4 ,8, 24, 48), times = 7), sep = "_") %>%
-    intersect(colnames(df))
+  #Create annotation values
+  #df_ann <-prep_annotations(df, md)
   
-  #Arrange columns by standard condition order
-  df <- df %>%
-    select(Feature, condition_order)
-  #Create the heatmap column annotations
-  df_ann <- colnames(df) %>%
-    intersect(condition_order) %>%
-    enframe(value = "Condition") %>%
-    mutate(Ligand = str_remove(Condition, "_.*"),
-           Timepoint = str_remove(Condition, ".*_"),
-           Timepoint = as.numeric(Timepoint),
-           Ligand_2 = label_ligand_2(Ligand)) %>%
-    select(-Condition, -name) %>%
-    as.data.frame()
-  
-  haTop = HeatmapAnnotation(df = df_ann,
-                            col = list(Ligand = c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072"),
-                                       Timepoint = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
-                                       Ligand_2 = c("EGF" = "#fc8d62", "None" = "#8da0cb")))
-  
-  haRow <- rowAnnotation(df = df_ann,
-                            col = list(Ligand = c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072"),
-                                       Timepoint = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
-                                       Ligand_2 = c("EGF" = "#fc8d62", "None" = "#8da0cb")))
+  haRow <- create_row_annotations(df, md)
   
   #Create the heatmap
-  Heatmap(matrix = cor(select(df, -matches("Feature"))),
+  Heatmap(matrix = select(df, -feature) %>%
+            as.matrix() %>%
+            cor(),
           name = "abundance",
-          top_annotation = haTop,
+          top_annotation = create_top_annotations(df, md),
           right_annotation = haRow,
           show_row_names = FALSE,
           show_column_names = FALSE,
@@ -415,9 +404,9 @@ plot_heatmap(df, md, assay_name = "RPPA")
 
 plot_umap(df, md, assay_name = "RPPA")
 
-#plot_pca(df, md, assay_name = "RPPA")
+plot_pca(df, md, assay_name = "RPPA")
 
-#plot_introspect(df, md, assay_name = "RPPA")
+plot_introspect(df, md, assay_name = "RPPA")
 
 ```
 
