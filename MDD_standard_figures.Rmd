@@ -160,10 +160,10 @@ get_win_probs <- function(df, low = .02, hi = .98){
   windsorize_probs <- df %>%
     select(-feature) %>%
     unlist %>%
-    quantile(probs = c(low, hi))
+    quantile(probs = c(low, hi), na.rm = TRUE)
 }
   
-prep_data <- function(df){
+prep_data <- function(df, md){
     df <- df %>%
     gather(specimenID, value, -feature) %>%
     inner_join(md, by = "specimenID") %>%
@@ -183,12 +183,13 @@ prep_annotations <- function(df, md){
       df_ann <- df %>%
       gather("specimenName", "value", -feature) %>%
       inner_join(md, by = "specimenName") %>%
-      select(ligand, secondLigand, experimentalTimePoint, replicate) %>%
+      select(ligand, secondLigand, experimentalTimePoint, replicate, collection) %>%
       distinct() %>%
       rename(Time = experimentalTimePoint,
              Ligand = ligand,
              Ligand2 = secondLigand,
-             Replicate = replicate) %>%
+             Replicate = replicate,
+             Collection = collection) %>%
       as.data.frame()
       return(df_ann)
 }
@@ -200,19 +201,22 @@ create_top_annotations <- function(df, md){
                              col = list(Ligand = c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072"),
                                         Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
                                         Ligand2 = c("EGF" = "#fc8d62", "none" = "#8da0cb"),
-                                        Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a")))
+                                        Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a", "D" = "#33a02c", "E" = 
+"#fb9a99"),
+                                        Collection = c("C1" = "#8dd3c7", "C2" = "#ffffb3", "C3" = "#bebada")))
   return(haTop)
 }
 
 create_row_annotations <- function(df, md){
   df_ann <- prep_annotations(df, md) %>%
-    select(Replicate, Time, Ligand2, Ligand)
+    select(Collection, Replicate, Time, Ligand2, Ligand)
   
   haRow <- rowAnnotation(df = df_ann, show_legend = FALSE,
                              col = list(Ligand = c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072"),
                                         Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
                                         Ligand2 = c("EGF" = "#fc8d62", "none" = "#8da0cb"),
-                                        Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a")))
+                                        Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a", "D" = "#33a02c", "E" = "#fb9a99"),
+                                        Collection = c("C1" = "#8dd3c7", "C2" = "#ffffb3", "C3" = "#bebada")))
   return(haRow)
 }
 
@@ -223,7 +227,8 @@ plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE){
   windsorize_probs <- get_win_probs(df, .01, .99)
   
   #convert specimenID column names to specimanName and reorder
-  df <- prep_data(df)
+  df <- prep_data(df, md) %>%
+    select(-matches("EGF"))
   
   #Create the heatmap
   Heatmap(matrix = select(df, -feature) %>%
@@ -253,7 +258,8 @@ plot_umap <- function(df, md, assay_name,
   windsorize_probs <- get_win_probs(df, .01, .99)
   
   #convert specimenID column names to specimanName and reorder
-  df <- prep_data(df)
+  df <- prep_data(df, md) %>%
+    select(-matches("EGF"))
   
    #Create annotation values
   df_ann <-prep_annotations(df, md)
@@ -264,7 +270,7 @@ plot_umap <- function(df, md, assay_name,
   as.matrix()
   colnames(df_mat) <- df$feature
 
-  df_UMAP <- umap(df_mat)$layout %>%
+  df_UMAP <- umap(df_mat, na.rm = TRUE)$layout %>%
   data.frame() %>%
   rename(UMAP_1 = X1,
          UMAP_2 = X2) %>%
@@ -301,7 +307,8 @@ plot_pca <- function(df, md, assay_name,
   windsorize_probs <- get_win_probs(df, .01, .99)
   
   #convert specimenID column names to specimanName and reorder
-  df <- prep_data(df)
+  df <- prep_data(df, md) %>%
+    select(-matches("EGF"))
   
    #Create annotation values
   df_ann <-prep_annotations(df, md)
@@ -349,8 +356,9 @@ plot_introspect <- function(df, md, assay_name,
 
   windsorize_probs <- get_win_probs(df, .01, .99)
   
-  #convert specimenID column names to specimanName and reorder
-  df <- prep_data(df)
+  #convert specimenID column names to specimanName, reorder delete EGF samples
+  df <- prep_data(df, md) %>%
+    select(-matches("EGF"))
   
   #Create annotation values
   #df_ann <-prep_annotations(df, md)
@@ -360,7 +368,7 @@ plot_introspect <- function(df, md, assay_name,
   #Create the heatmap
   Heatmap(matrix = select(df, -feature) %>%
             as.matrix() %>%
-            cor(),
+            cor(use = "complete.obs"),
           name = "abundance",
           top_annotation = create_top_annotations(df, md),
           right_annotation = haRow,
@@ -393,7 +401,7 @@ circos.clear()
 ```
 
 
-```{r rppa_figures}
+```{r rppa_figures, eval = TRUE}
 
 md <- read_tsv("metadata/MCF10A_MDD_sample_annotations.tsv")
 
@@ -410,28 +418,19 @@ plot_introspect(df, md, assay_name = "RPPA")
 
 ```
 
-```{r IF_figures, eval = FALSE}
+```{r IF_figures, eval = TRUE}
 
-immunofluoresence <- load_data("IF")
-
-#Select data and translate from IF terms to common terms
+boundedLog2 <- function(x) log2(x + .0001)
+#filter out missing C1 24 hour samples
+immunofluoresence <- load_data(assay_name = "IF") %>%
+  mutate_if(is.numeric, .funs = boundedLog2)
+  
+plot_heatmap(immunofluoresence, md, assay_name = "IF")
 df <- immunofluoresence %>%
-  mutate(Collection_condition = paste(Collection, Ligand, TimePoint, sep = "_")) %>%
-  select(Collection_condition, Replicate, matches("EGFNorm")) %>%
-  group_by(Collection_condition) %>%
-  summarise_if(is.numeric, mean) %>%
-  ungroup() %>%
-  gather(key = "Feature") %>%
-
-  gather(-Collection, -Ligand, -TimePoint)
-  rename(Feature = Antibody,
-         Condition = Ligand_TimePoint,
-         Value = EGFNorm) %>%
-  spread(key = Feature, value = Value) %>%
-  filter(!Condition == "ctrl_0")
-
-res <- plot_heatmap(df, assay = "RPPA")
-res
+    filter(!feature == "EdUPositiveProportion")
+plot_umap(df, md, assay_name = "RPPA")
+plot_pca(df, md, assay_name = "RPPA")
+plot_introspect(immunofluoresence, md, assay_name = "RPPA")
 
 ```
 
