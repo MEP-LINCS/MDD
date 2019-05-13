@@ -5,7 +5,7 @@ library(ComplexHeatmap)
 library(gridBase)
 
 parseCorMatrix <- function(x){
-  alpha_factor <- 128
+  alpha_factor <- 255
   from_condition <- x$Condition
   to_condition <- names(x)[c(-1,-22,-23)]
   #remove metadata from correlations
@@ -13,6 +13,8 @@ parseCorMatrix <- function(x){
     unlist()
   #remove correlations within the ligand conditions
   cors[str_detect(names(cors), x[["Ligand"]])] <- 0
+  #Remove negative correlations
+  cors[cors<0] <- 0
   #scale alpha based on correlations
   alpha <- (cors * alpha_factor) %% 256
   alpha <- as.integer(alpha) %>%
@@ -36,10 +38,10 @@ parseCorMatrix <- function(x){
            To_timepoint = str_replace(To_timepoint,"^24$","2.5"),
            To_timepoint = str_replace(To_timepoint,"^48$","3.5"),
            To_timepoint = as.numeric(To_timepoint),
-           From_timepoint_st = From_timepoint - .5,
-           From_timepoint_end = From_timepoint + .5,
-           To_timepoint_st = To_timepoint - .5,
-           To_timepoint_end = To_timepoint + .5)
+           From_timepoint_st = From_timepoint - .45,
+           From_timepoint_end = From_timepoint + .45,
+           To_timepoint_st = To_timepoint - .45,
+           To_timepoint_end = To_timepoint + .45)
 }
 
 circlize_plot <- function() {
@@ -68,7 +70,7 @@ circlize_plot <- function() {
   circos.clear()
 }
 addLink <- function(x){
-  cor_thresh <- .4
+  cor_thresh <- .45
   if(x["Cors"] > cor_thresh) {
     lwd <- max(0, as.numeric(x["Cors"])-cor_thresh)*30
     #cat("lwd ",lwd, "col ", x["Col"])
@@ -85,34 +87,21 @@ prepare_data <- function(x){
            Time = str_replace_all(Time, "^8$","2"),
            Time = str_replace_all(Time, "^24$","3"),
            Time = str_replace_all(Time, "^48$","4"),
-           Ligand = str_remove(Condition, "_.*"))
+           Ligand = str_remove(Condition, "_.*")
+           )
 }
 
+#return the default ggplot colors
 gg_color_hue <- function(n) {
   hues = seq(15, 375, length = n + 1)
   hcl(h = hues, l = 65, c = 100)[1:n]
 }
 
-######end of functions
-
-load("MCF10A_RPPA_GCP_CYCIF_condition_correlation.Rdata")
-
-
-
-rppa <- prepare_data(cormats[["RPPA"]])
-cycIF <- prepare_data(cormats[["CYCIF"]])
-GCP <- prepare_data(cormats[["GCP"]])
-
-#Assign ggplot colors to the ligands based on their order in the RPPA dataset
-col_ligands <- gg_color_hue(5)
-names(col_ligands) <- unique(rppa$Ligand)
-#Assign colors to conditions in the track
-col_names <- c("grey50", "grey25","red3","royalblue3")
-
 draw_one_track <- function(title_text){
-  circos.par("track.height" = 0.2)
+  circos.par("track.height" = 0.2,
+             "points.overflow.warning" = FALSE)
   circos.initialize(factors = as.factor(rppa$Ligand), xlim =c(0,4), sector.width = 20)
-  
+
   circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
     xlim = CELL_META$xlim
     ylim = CELL_META$ylim
@@ -120,84 +109,82 @@ draw_one_track <- function(title_text){
     n_breaks = length(breaks)
     circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
                 breaks[-1], rep(ylim[2], n_breaks - 1),
-                col = col_names,
+                col = track_col_names,
                 border = NA)
-    circos.text(CELL_META$xcenter, CELL_META$cell.ylim[2] + uy(5, "mm"),
-                CELL_META$sector.index)
+    circos.text(CELL_META$xcenter,
+                CELL_META$cell.ylim[2] + uy(3, "mm"),
+                CELL_META$sector.index,
+                col = c("black","red","black", "red", "red"))
   }) 
   
+  title(title_text,
+        outer = TRUE,
+        cex.main = 1,
+        line = -1)
   
-  title(title_text)
-  
+  legend(-1.1,
+         -.9,
+         "TGFB, BMP2 and IFNG\n are paired with EGF",
+         bty = "n",
+         cex = .6)
 }
 
+######end of functions
+
+load("Data/MCF10A_RPPA_GCP_CYCIF_condition_correlation.Rdata")
+
+rppa <- prepare_data(cormats[["RPPA"]])
+#cycIF <- prepare_data(cormats[["CYCIF"]])
+#GCP <- prepare_data(cormats[["GCP"]])
+
+#Assign ggplot colors to the ligands based on their order in the RPPA dataset
+col_ligands <- gg_color_hue(5)
+names(col_ligands) <- unique(rppa$Ligand)
+#Assign colors to conditions in the track
+track_col_names <- c("grey50", "grey25","red3","royalblue3")
+
+pdf("CircosPlots.pdf",width = 7, height = 7)
+# for(ligand in unique(rppa$Ligand)){
+#   res <- draw_one_track(title_text = "RPPA Correlations")
+#   df <- rppa %>%
+#     filter(Ligand == ligand)
+#   for(i in 1:nrow(df)){
+#     foo <- parseCorMatrix(df[i,])
+#     res <- apply(foo, 1, addLink)
+#   }
+#   circos.clear()
+# }
 res <- draw_one_track(title_text = "RPPA Correlations")
-
-#for(i in 1:20){
-for(i in 1){
-  foo <- parseCorMatrix(rppa[i,])
-  res <- apply(foo, 1, addLink)
-}
-
-pdf("RPPA Circoses.pdf",width = 4, height = 4)
-for(ligand in unique(rppa$Ligand)){
-  res <- draw_one_track(title_text = "RPPA Correlations")
-  df <- rppa %>%
-    filter(Ligand == ligand)
-  for(i in 1:nrow(df)){
-    foo <- parseCorMatrix(df[i,])
-    res <- apply(foo, 1, addLink)
-  }
-}
-res <- draw_one_track(title_text = "RPPA Correalations")
 df <- rppa
 for(i in 1:nrow(df)){
   foo <- parseCorMatrix(df[i,])
   res <- apply(foo, 1, addLink)
 }
+circos.clear()
+
+# for(ligand in unique(cycIF$Ligand)){
+#   res <- draw_one_track(title_text = "cycIF Correlations")
+#   df <- rppa %>%
+#     filter(Ligand == ligand)
+#   for(i in 1:nrow(df)){
+#     foo <- parseCorMatrix(df[i,])
+#     res <- apply(foo, 1, addLink)
+#   }
+#   circos.clear()
+# }
+res <- draw_one_track(title_text = "cycIF Correlations")
+df <- cycIF
+for(i in 1:nrow(df)){
+  foo <- parseCorMatrix(df[i,])
+  res <- apply(foo, 1, addLink)
+}
+circos.clear()
+
+res <- draw_one_track(title_text = "GCP Correlations")
+df <- GCP
+for(i in 1:nrow(df)){
+  foo <- parseCorMatrix(df[i,])
+  res <- apply(foo, 1, addLink)
+}
+circos.clear()
 dev.off()
-# 
-# circos.initialize(factors = as.factor(rppa$Ligand), xlim =c(0,4), sector.width = 20)
-# 
-# circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
-#   xlim = CELL_META$xlim
-#   ylim = CELL_META$ylim
-#   breaks = seq(xlim[1], xlim[2], by = 1)
-#   n_breaks = length(breaks)
-#   circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
-#               breaks[-1], rep(ylim[2], n_breaks - 1),
-#               col = col_names,
-#               border = NA)
-#   circos.text(CELL_META$xcenter, CELL_META$cell.ylim[2] + uy(5, "mm"),
-#               CELL_META$sector.index)
-# }) 
-# 
-# title("cycIF Correlations")
-# 
-# for(i in 1:20){
-#   foo <- parseCorMatrix(cycIF[i,])
-#   res <- apply(foo, 1, addLink)
-# }
-# 
-# circos.initialize(factors = as.factor(rppa$Ligand), xlim =c(0,4), sector.width = 20)
-# 
-# circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
-#   xlim = CELL_META$xlim
-#   ylim = CELL_META$ylim
-#   breaks = seq(xlim[1], xlim[2], by = 1)
-#   n_breaks = length(breaks)
-#   circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
-#               breaks[-1], rep(ylim[2], n_breaks - 1),
-#               col = col_names,
-#               border = NA)
-#   circos.text(CELL_META$xcenter, CELL_META$cell.ylim[2] + uy(5, "mm"),
-#               CELL_META$sector.index)
-# }) 
-# 
-# #draw(lgd_list, x = unit(4, "mm"), y = unit(4, "mm"), just = c("left", "bottom"))
-# title("GCP Correlations")
-# 
-# for(i in 1:20){
-#   foo <- parseCorMatrix(GCP[i,])
-#   res <- apply(foo, 1, addLink)
-# }
