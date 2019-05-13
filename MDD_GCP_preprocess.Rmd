@@ -1,0 +1,163 @@
+---
+title: "Preprocess MDD GCP Data""
+author: "Mark Dane"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+
+library(scales)
+library(RColorBrewer)
+#library(MDDRPPA)
+library(classInt)
+library(tidyverse)
+```
+
+```{r functions}
+
+diverge.color <- function(data,pal_choice="RdGy",centeredOn=0){
+  nHalf=50
+  Min <- min(data,na.rm=TRUE)
+  Max <- max(data,na.rm=TRUE)
+  Thresh <- centeredOn
+  pal<-brewer.pal(n=11,pal_choice)
+  rc1<-colorRampPalette(colors=c(pal[1],pal[2]),space="Lab")(10)
+  for(i in 2:10){
+    tmp<-colorRampPalette(colors=c(pal[i],pal[i+1]),space="Lab")(10)
+    rc1<-c(rc1,tmp)
+  }
+  rb1 <- seq(Min, Thresh, length.out=nHalf+1)
+  rb2 <- seq(Thresh, Max, length.out=nHalf+1)[-1]
+  rampbreaks <- c(rb1, rb2)
+  cuts <- classIntervals(data, style="fixed",fixedBreaks=rampbreaks)
+  return(list(cuts,rc1))
+}
+
+
+####global parameters
+cols <- brewer.pal(9,"OrRd")
+spectralPal <- brewer.pal(11,"Spectral")
+blRdPal <- brewer.pal(11,"RdBu")[11:1]
+
+
+#Values used for out of bounds values
+lowProb <- .02
+upProb <- .98
+
+#Filter threshold for Biomarker variances
+varianceCut <- 0.04
+
+#fold change threshold
+fcThresh <- 1.5
+z_score_thresh <- 1.5
+
+#Create a function that takes in a vector and returns a same-length vector of z scores 
+z_score <- function(x) (x-mean(x, na.rm = TRUE))/sqrt(var(x, na.rm = TRUE))
+
+```
+
+
+```{r getDataGCPData}
+
+ProbeMetadata <- read_delim("Data/ProbeMetadata.txt", 
+                            "\t", escape_double = FALSE, trim_ws = TRUE)
+
+mddMetadata <- read_tsv("Metadata/MCF10A_MDD_sample_annotations.tsv")
+
+GCP_Data <- read_tsv("Data/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
+  t() %>%
+  as.tibble()
+colnames(GCP_Data) <- GCP_Data[1,]
+
+l2 <- GCP_Data %>%
+  slice(-1) %>%
+  filter(!is.na(id)) %>%
+    mutate(ligand = pert_iname,
+         ligand = str_replace(ligand,"IFNg","IFNG"),
+         ligand = str_replace(ligand,"TGFb","TGFB"),
+         replicate = as.integer(pert_batch_internal_replicate),
+         replicate = LETTERS[replicate],
+         collection = "C2",
+         experimentalTimePoint = pert_time,
+         specimenName=paste(ligand, experimentalTimePoint, collection, replicate, sep="_")) %>%
+  select(specimenName, matches("^H3K")) %>%
+  mutate_at(vars(matches("^H3K")), as.numeric) %>%
+  inner_join(mddMetadata, by = "specimenName") %>%
+  select(specimenID, matches("^H3K")) %>%
+  gather(key = histone, value = value, -specimenID)
+  
+  l2_synapse<- l2 %>%
+  select(specimenID, histone, value) %>%
+  spread(key = specimenID, value = value) %>%
+  select(histone, str_sort(colnames(.), numeric=TRUE)) %>%
+  write_csv("MDD_GCP_Level2.csv")
+
+#create EGF normalized level 4 data
+#Reformat the file from the Broad to match the MDD format
+#Select the histone names and sample identifiers then
+#use the 20th row as the column names
+GCP_level4_file <- read_csv("Data/MCF10a_GCP_data_with_OHSU_metadata_vocabulary.csv") 
+GCP_level4_file[(GCP_level4_file$id == "sampleid"),] <- paste(GCP_level4_file[(GCP_level4_file$id == "condition"),],
+                    GCP_level4_file[(GCP_level4_file$id == "collection"),],
+                    GCP_level4_file[(GCP_level4_file$id == "replicate"),],
+                    sep="_")
+GCP_level4_file <- GCP_level4_file %>%
+  select(matches("histone|GMa")) %>%
+  rename(histone = pr_gcp_histone_mark)
+
+colnames(GCP_level4_file)[2:ncol(GCP_level4_file)] <- GCP_level4_file[20,2:ncol(GCP_level4_file)] 
+
+#Delete the first 23 rows since they contain unneeded metadata
+#match with MDD metadata file to use specimenID values
+GCP_l4 <- slice(GCP_level4_file, 24:nrow(GCP_level4_file)) %>%
+  gather(specimenName, value = value, -histone) %>%
+  inner_join(mddMetadata) %>%
+  select(specimenID, histone, value) %>%
+  mutate(value = as.numeric(value)) %>%
+  spread(key = specimenID, value = value) %>%
+  filter(!str_detect(histone,"[.(]")) %>%
+  write_csv("MDD_GCP_Level4.csv")
+```
+
+
+
+```{r getDatacycIFData}
+
+mddMetadata <- read_tsv("Metadata/MCF10A_MDD_sample_annotations.tsv")
+
+cycIF_Data <- read_csv("Data/biological_replicate_means.csv") %>%
+  mutate(condition = str_remove(X1, "_[ABCDE]"),
+         specimenName = paste0(condition, "_C3_",str_remove(X1,".*_"))) %>%
+  select(-X1, -condition) %>%
+  gather(key = feature, value = value, -specimenName) %>%
+  inner_join(mddMetadata, by = "specimenName") %>%
+  select(specimenID, feature, value) %>%
+  spread(specimenID, value) %>%
+  filter(!str_detect(feature, "background")) %>%
+  write_csv("MDD_cycIF_Level2.csv")
+
+#get EGF values for each feature within each time point and replicate
+egf <- cycIF_Data %>%
+  gather(specimenID, value, -feature) %>%
+  inner_join(mddMetadata, by = "specimenID") %>%
+  select(specimenName, feature, value, ligand, experimentalTimePoint, replicate) %>%
+  filter(str_detect(ligand, "EGF")) %>%
+  select(feature, value, experimentalTimePoint, replicate) %>%
+  rename(EGFValue = value)
+
+l4 <- cycIF_Data %>%
+  gather(specimenID, value, -feature) %>%
+  inner_join(mddMetadata, by = "specimenID") %>%
+  select(specimenName, feature, value, ligand, experimentalTimePoint, replicate) %>%
+  left_join(egf,by=c("feature","replicate","experimentalTimePoint")) %>%
+  filter(!str_detect(ligand, "ctrl")) %>%
+  mutate(value = value/EGFValue,
+         value = signif(value, 3)) %>%
+  select(specimenName, feature, value) %>%
+  inner_join(mddMetadata, by = "specimenName") %>%
+  select(specimenID, feature, value) %>%
+  spread(key = specimenID, value = value) %>%
+  write_csv("MDD_cycIF_Level4.csv")
+```
