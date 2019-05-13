@@ -16,7 +16,8 @@ library(circlize)
 
 ```
 
-###Overview
+
+## Overview{.tabset .tabset-fade}
 These figures are derived from data downloaded from the LINCS Molecular Deep Dive files on Synapse https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
 
 The data have been filtered for QC issues and normalized to the EGF timepoints.  
@@ -24,7 +25,7 @@ The data have been filtered for QC issues and normalized to the EGF timepoints.
 ```{r functions}
 #' Read an assay's csv or tsv data file 
 load_data <- function(assay_name){
-  file_name <- dir("Data",pattern = paste0(assay_name,".*Level4"),recursive = TRUE, full.names = TRUE)
+  file_name <- dir("Data",pattern = paste0("MDD_", assay_name,"_","Level4"),recursive = TRUE, full.names = TRUE)
   if(!length(file_name) == 1) stop("There was not one ", assay_name, " data file found")
     
   if(str_detect(file_name, "csv")) {
@@ -156,6 +157,9 @@ draw_one_track <- function(title_text){
          cex = .6)
 }
 
+```
+
+```{r standardFigureFunctions}
 get_win_probs <- function(df, low = .02, hi = .98){
   windsorize_probs <- df %>%
     select(-feature) %>%
@@ -234,6 +238,7 @@ plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE){
   Heatmap(matrix = select(df, -feature) %>%
             as.matrix(),
           name = "abundance",
+          column_title = paste(assay_name, " EGF timecourse normalized"),
           top_annotation = create_top_annotations(df, md),
           show_row_names = show_row_names,
           show_column_names = FALSE,
@@ -370,6 +375,7 @@ plot_introspect <- function(df, md, assay_name,
             as.matrix() %>%
             cor(use = "complete.obs"),
           name = "abundance",
+          column_title = paste("Introspect of",assay_name, "EGF timecourse normalized"),
           top_annotation = create_top_annotations(df, md),
           right_annotation = haRow,
           show_row_names = FALSE,
@@ -400,6 +406,9 @@ circos.clear()
 }
 ```
 
+### RPPA{.tabset .tabset-fade}
+
+#### Heatmap
 
 ```{r rppa_figures, eval = TRUE}
 
@@ -409,14 +418,36 @@ df <- load_data("RPPA") %>%
   rename(feature = antibody)
 
 plot_heatmap(df, md, assay_name = "RPPA")
+```
+
+#### UMAP
+
+```{r}
 
 plot_umap(df, md, assay_name = "RPPA")
 
+```
+
+#### PCA 
+
+```{r}
+
 plot_pca(df, md, assay_name = "RPPA")
+```
+
+#### Introspect
+
+```{r}
 
 plot_introspect(df, md, assay_name = "RPPA")
 
 ```
+
+###  
+
+### IF{.tabset .tabset-fade}
+
+#### Heatmap  
 
 ```{r IF_figures, eval = TRUE}
 
@@ -428,21 +459,67 @@ immunofluoresence <- load_data(assay_name = "IF") %>%
 plot_heatmap(immunofluoresence, md, assay_name = "IF")
 df <- immunofluoresence %>%
     filter(!feature == "EdUPositiveProportion")
+```
+
+#### UMAP
+
+```{r}
+
 plot_umap(df, md, assay_name = "IF")
+
+```
+
+#### PCA 
+
+```{r}
+
 plot_pca(df, md, assay_name = "IF")
+```
+
+#### Introspect
+
+```{r}
+
 plot_introspect(immunofluoresence, md, assay_name = "IF")
 
 ```
+
+### cycIF{.tabset .tabset-fade}
+
+#### Heatmap 
 
 ```{r cycIF_figures, eval = TRUE}
 cycIF <- load_data(assay_name = "cycIF") %>%
   filter(str_detect(feature, "_int_")) %>%
   mutate_if(is.numeric, log2)
 plot_heatmap(cycIF, md, assay_name = "cycIF")
+
+```
+
+#### UMAP
+
+```{r}
 plot_umap(cycIF, md, assay_name = "cycIF")
+
+```
+
+#### PCA 
+
+```{r}
+
 plot_pca(cycIF, md, assay_name = "cycIF")
+```
+
+#### Introspect
+
+```{r}
+
 plot_introspect(cycIF, md, assay_name = "cycIF")
 ```
+
+### RNAseq{.tabset .tabset-fade}
+
+#### Heatmap  
 
 ```{r rnaSeq_figures, eval = TRUE}
 RNAseq <- load_data(assay_name = "RNAseq") %>%
@@ -457,11 +534,35 @@ var_thresh <- quantile(RNAseq_vars, probs = .9)
 RNAseq_hi_vars <- RNAseq[RNAseq_vars > var_thresh,]
   
 plot_heatmap(RNAseq_hi_vars, md, assay_name = "RNAseq")
+
+```
+
+#### UMAP
+
+```{r}
+
 plot_umap(RNAseq, md, assay_name = "RNAseq")
+
+```
+
+#### PCA 
+
+```{r}
+
 plot_pca(RNAseq, md, assay_name = "RNAseq")
+```
+
+#### Introspect
+
+```{r}
+
 plot_introspect(RNAseq_hi_vars, md, assay_name = "RNAseq")
 
 ```
+
+### GCP{.tabset .tabset-fade}
+
+#### Heatmap  
 
 ```{r GCP_figures, eval = TRUE}
 ### delete histone when data is missing
@@ -470,11 +571,35 @@ GCP <- load_data(assay_name = "GCP") %>%
   drop_na()
   
 plot_heatmap(GCP, md, assay_name = "GCP")
+
+```
+
+#### UMAP
+
+```{r}
+
 plot_umap(GCP, md, assay_name = "GCP")
+
+```
+
+#### PCA 
+
+```{r}
+
 plot_pca(GCP, md, assay_name = "GCP")
+```
+
+#### Introspect
+
+```{r}
+
 plot_introspect(GCP, md, assay_name = "GCP")
 
 ```
+
+### ATACseq{.tabset .tabset-fade}
+
+#### Heatmap  
 
 ```{r ATACseq_figures, eval = TRUE}
 
@@ -490,13 +615,35 @@ var_thresh <- quantile(ATACseq_vars, probs = .95)
 ATACseq_hi_vars <- ATACseq[ATACseq_vars > var_thresh,]
   
 plot_heatmap(ATACseq_hi_vars, md, assay_name = "ATACseq")
+
+```
+
+#### UMAP
+
+```{r}
+
 plot_umap(ATACseq, md, assay_name = "ATACseq")
+
+```
+
+#### PCA 
+
+```{r}
+
 plot_pca(ATACseq, md, assay_name = "ATACseq")
+```
+
+#### Introspect
+
+```{r}
+
 plot_introspect(ATACseq_hi_vars, md, assay_name = "ATACseq")
 
 
 ```
-
+ 
+ ##  
+ 
 ```{r l1000_figures, eval = FALSE}
 
 
