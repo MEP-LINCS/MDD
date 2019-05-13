@@ -434,7 +434,7 @@ plot_introspect(immunofluoresence, md, assay_name = "IF")
 
 ```
 
-```{r cycIF_figures, eval = FALSE}
+```{r cycIF_figures, eval = TRUE}
 cycIF <- load_data(assay_name = "cycIF") %>%
   filter(str_detect(feature, "_int_")) %>%
   mutate_if(is.numeric, log2)
@@ -444,8 +444,22 @@ plot_pca(cycIF, md, assay_name = "cycIF")
 plot_introspect(cycIF, md, assay_name = "cycIF")
 ```
 
-```{r rnaSeq_figures, eval = FALSE}
+```{r rnaSeq_figures, eval = TRUE}
+RNAseq <- load_data(assay_name = "RNAseq") %>%
+  rename(feature = ensembl_gene_id)
 
+RNAseq_vars <- RNAseq %>%
+  select(-feature) %>%
+  as.matrix() %>%
+  apply(1, var)
+  
+var_thresh <- quantile(RNAseq_vars, probs = .9)
+RNAseq_hi_vars <- RNAseq[RNAseq_vars > var_thresh,]
+  
+plot_heatmap(RNAseq_hi_vars, md, assay_name = "RNAseq")
+plot_umap(RNAseq, md, assay_name = "RNAseq")
+plot_pca(RNAseq, md, assay_name = "RNAseq")
+plot_introspect(RNAseq_hi_vars, md, assay_name = "RNAseq")
 
 ```
 
@@ -462,7 +476,23 @@ plot_introspect(GCP, md, assay_name = "GCP")
 
 ```
 
-```{r ATACseq_figures, eval = FALSE}
+```{r ATACseq_figures, eval = TRUE}
+
+ATACseq <- load_data(assay_name = "ATACseq") %>%
+  rename(feature = peak)
+
+ATACseq_vars <- ATACseq %>%
+  select(-feature) %>%
+  as.matrix() %>%
+  apply(1, var)
+  
+var_thresh <- quantile(ATACseq_vars, probs = .95)
+ATACseq_hi_vars <- ATACseq[ATACseq_vars > var_thresh,]
+  
+plot_heatmap(ATACseq_hi_vars, md, assay_name = "ATACseq")
+plot_umap(ATACseq, md, assay_name = "ATACseq")
+plot_pca(ATACseq, md, assay_name = "ATACseq")
+plot_introspect(ATACseq_hi_vars, md, assay_name = "ATACseq")
 
 
 ```
