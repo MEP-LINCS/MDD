@@ -428,15 +428,20 @@ immunofluoresence <- load_data(assay_name = "IF") %>%
 plot_heatmap(immunofluoresence, md, assay_name = "IF")
 df <- immunofluoresence %>%
     filter(!feature == "EdUPositiveProportion")
-plot_umap(df, md, assay_name = "RPPA")
-plot_pca(df, md, assay_name = "RPPA")
-plot_introspect(immunofluoresence, md, assay_name = "RPPA")
+plot_umap(df, md, assay_name = "IF")
+plot_pca(df, md, assay_name = "IF")
+plot_introspect(immunofluoresence, md, assay_name = "IF")
 
 ```
 
 ```{r cycIF_figures, eval = FALSE}
-
-
+cycIF <- load_data(assay_name = "cycIF") %>%
+  filter(str_detect(feature, "_int_")) %>%
+  mutate_if(is.numeric, log2)
+plot_heatmap(cycIF, md, assay_name = "cycIF")
+plot_umap(cycIF, md, assay_name = "cycIF")
+plot_pca(cycIF, md, assay_name = "cycIF")
+plot_introspect(cycIF, md, assay_name = "cycIF")
 ```
 
 ```{r rnaSeq_figures, eval = FALSE}
@@ -444,8 +449,16 @@ plot_introspect(immunofluoresence, md, assay_name = "RPPA")
 
 ```
 
-```{r GCP_figures, eval = FALSE}
-
+```{r GCP_figures, eval = TRUE}
+### delete histone when data is missing
+GCP <- load_data(assay_name = "GCP") %>%
+  rename(feature = histone) %>%
+  drop_na()
+  
+plot_heatmap(GCP, md, assay_name = "GCP")
+plot_umap(GCP, md, assay_name = "GCP")
+plot_pca(GCP, md, assay_name = "GCP")
+plot_introspect(GCP, md, assay_name = "GCP")
 
 ```
 
