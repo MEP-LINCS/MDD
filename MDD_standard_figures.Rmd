@@ -115,7 +115,7 @@ prepare_data <- function(x){
 draw_one_track <- function(title_text){
   circos.par("track.height" = 0.2,
              "points.overflow.warning" = FALSE)
-  circos.initialize(factors = as.factor(rppa$Ligand), xlim =c(0,4), sector.width = 20)
+  circos.initialize(factors = as.factor(df$Ligand), xlim =c(0,4), sector.width = 20)
 
   circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
     xlim = CELL_META$xlim
@@ -214,7 +214,8 @@ create_top_annotations <- function(df, md){
 create_row_annotations <- function(df, md){
   df_ann <- prep_annotations(df, md) %>%
     select(Collection, Replicate, Time, Ligand2, Ligand)
-  
+  ####ha = rowAnnotation(foo = anno_mark(at = c(1:4, 20, 60, 97:100), labels = month.name[1:10])
+  ###
   haRow <- rowAnnotation(df = df_ann, show_legend = FALSE,
                              col = list(Ligand = c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072"),
                                         Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
@@ -226,7 +227,7 @@ create_row_annotations <- function(df, md){
 
   
 #####
-plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE){
+plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE, mark_rows = NULL){
   
   windsorize_probs <- get_win_probs(df, .01, .99)
   
@@ -234,12 +235,20 @@ plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE){
   df <- prep_data(df, md) %>%
     select(-matches("EGF"))
   
-  #Create the heatmap
+  if(!is.null(mark_rows)) {
+    row_nums <- which(df$feature %in% mark_rows)
+    ra <- rowAnnotation(foo = anno_mark(at = c(row_nums), labels = df$feature[row_nums]))
+  } else {
+    ra <- NULL
+  }
+  
+   #Create the heatmap
   Heatmap(matrix = select(df, -feature) %>%
             as.matrix(),
           name = "abundance",
           column_title = paste(assay_name, " EGF timecourse normalized"),
           top_annotation = create_top_annotations(df, md),
+          right_annotation = ra,
           show_row_names = show_row_names,
           show_column_names = FALSE,
           cluster_columns = FALSE,
@@ -377,7 +386,7 @@ plot_introspect <- function(df, md, assay_name,
           name = "abundance",
           column_title = paste("Introspect of",assay_name, "EGF timecourse normalized"),
           top_annotation = create_top_annotations(df, md),
-          right_annotation = haRow,
+          left_annotation = haRow,
           show_row_names = FALSE,
           show_column_names = FALSE,
           cluster_rows = FALSE,
@@ -390,7 +399,7 @@ plot_circos <- function(df){
  ####DEBUG refactor to match new data sturcture###### 
 #Assign colors to the ligands 
 col_ligands <- c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072", "ctrl" = "#ffffff66")
-names(col_ligands) <- unique(rppa$Ligand)
+#names(col_ligands) <- unique(rppa$Ligand)
 
 #Assign colors to conditions in the track
 track_col_names <- c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black") 
@@ -404,6 +413,65 @@ for(i in 1:nrow(df)){
 circos.clear()
 
 }
+
+#######load("Data/MCF10A_RPPA_GCP_CYCIF_condition_correlation.Rdata")
+
+rppa <- prepare_data(cormats[["RPPA"]])
+#cycIF <- prepare_data(cormats[["CYCIF"]])
+#GCP <- prepare_data(cormats[["GCP"]])
+
+#Assign ggplot colors to the ligands based on their order in the RPPA dataset
+col_ligands <- gg_color_hue(5)
+names(col_ligands) <- unique(rppa$Ligand)
+#Assign colors to conditions in the track
+track_col_names <- c("grey50", "grey25","red3","royalblue3")
+
+pdf("CircosPlots.pdf",width = 7, height = 7)
+# for(ligand in unique(rppa$Ligand)){
+#   res <- draw_one_track(title_text = "RPPA Correlations")
+#   df <- rppa %>%
+#     filter(Ligand == ligand)
+#   for(i in 1:nrow(df)){
+#     foo <- parseCorMatrix(df[i,])
+#     res <- apply(foo, 1, addLink)
+#   }
+#   circos.clear()
+# }
+res <- draw_one_track(title_text = "RPPA Correlations")
+df <- rppa
+for(i in 1:nrow(df)){
+  foo <- parseCorMatrix(df[i,])
+  res <- apply(foo, 1, addLink)
+}
+circos.clear()
+
+# for(ligand in unique(cycIF$Ligand)){
+#   res <- draw_one_track(title_text = "cycIF Correlations")
+#   df <- rppa %>%
+#     filter(Ligand == ligand)
+#   for(i in 1:nrow(df)){
+#     foo <- parseCorMatrix(df[i,])
+#     res <- apply(foo, 1, addLink)
+#   }
+#   circos.clear()
+# }
+res <- draw_one_track(title_text = "cycIF Correlations")
+df <- cycIF
+for(i in 1:nrow(df)){
+  foo <- parseCorMatrix(df[i,])
+  res <- apply(foo, 1, addLink)
+}
+circos.clear()
+
+res <- draw_one_track(title_text = "GCP Correlations")
+df <- GCP
+for(i in 1:nrow(df)){
+  foo <- parseCorMatrix(df[i,])
+  res <- apply(foo, 1, addLink)
+}
+circos.clear()
+
+##########
 ```
 
 ### RPPA{.tabset .tabset-fade}
@@ -421,7 +489,7 @@ RPPA <- load_data("RPPA") %>%
 
 ```{r}
 
-plot_heatmap(RPPA, md, assay_name = "RPPA")
+plot_heatmap(RPPA, md, assay_name = "RPPA", mark_rows = c("EGFR", "Smad3","HER2", "HER3", "Stat3", "Claudin-7", "YAP", "Notch1"))
 
 ```
 
@@ -440,6 +508,7 @@ plot_umap(RPPA, md, assay_name = "RPPA")
 ```{r}
 
 plot_pca(RPPA, md, assay_name = "RPPA")
+
 ```
 
 #### Introspect
@@ -464,7 +533,7 @@ immunofluoresence <- load_data(assay_name = "IF") %>%
   mutate_if(is.numeric, .funs = boundedLog2) %>%
   filter(!feature == "EdUPositiveProportion")
   
-plot_heatmap(immunofluoresence, md, assay_name = "IF")
+plot_heatmap(immunofluoresence, md, assay_name = "IF", mark_rows = immunofluoresence$feature)
 
 ```
 
