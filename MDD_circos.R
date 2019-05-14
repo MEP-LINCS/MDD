@@ -117,6 +117,7 @@ draw_one_track <- function(title_text){
                 col = c("black","red","black", "red", "red"))
   }) 
   
+
   title(title_text,
         outer = TRUE,
         cex.main = 1,
@@ -129,31 +130,65 @@ draw_one_track <- function(title_text){
          cex = .6)
 }
 
-######end of functions
+draw_two_tracks <- function(title_text){
+  circos.par("track.height" = 0.2,
+             "points.overflow.warning" = FALSE)
+  circos.initialize(factors = as.factor(rppa$Ligand), xlim =c(0,4), sector.width = 20)
+  
+  circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
+    xlim = CELL_META$xlim
+    ylim = CELL_META$ylim
+    breaks = seq(xlim[1], xlim[2], by = 1)
+    n_breaks = length(breaks)
+    circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
+                breaks[-1], rep(ylim[2], n_breaks - 1),
+                col = track_col_names,
+                border = NA)
+    circos.text(CELL_META$xcenter,
+                CELL_META$cell.ylim[2] + uy(3, "mm"),
+                CELL_META$sector.index)
+  })
+  
+  circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
+    xlim = CELL_META$xlim
+    ylim = CELL_META$ylim
+    breaks = seq(xlim[1], xlim[2], by = 1)
+    n_breaks = length(breaks)
+    circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
+                breaks[-1], rep(ylim[2], n_breaks - 1),
+                col = paired_with_EGF,
+                border = NA)
+   })
+  
+    title(title_text,
+          outer = TRUE,
+          cex.main = 1,
+          line = -1)
+    
+    legend(-1.1,
+           -.9,
+           "TGFB, BMP2 and IFNG\n are paired with EGF",
+           bty = "n",
+           cex = .6)
+  }
+  
+  
+###### end of functions
 
 load("Data/MCF10A_RPPA_GCP_CYCIF_condition_correlation.Rdata")
 
 rppa <- prepare_data(cormats[["RPPA"]])
-#cycIF <- prepare_data(cormats[["CYCIF"]])
-#GCP <- prepare_data(cormats[["GCP"]])
+cycIF <- prepare_data(cormats[["CYCIF"]])
+GCP <- prepare_data(cormats[["GCP"]])
 
 #Assign ggplot colors to the ligands based on their order in the RPPA dataset
 col_ligands <- gg_color_hue(5)
 names(col_ligands) <- unique(rppa$Ligand)
 #Assign colors to conditions in the track
-track_col_names <- c("grey50", "grey25","red3","royalblue3")
+track_col_names <- c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black")
 
 pdf("CircosPlots.pdf",width = 7, height = 7)
-# for(ligand in unique(rppa$Ligand)){
-#   res <- draw_one_track(title_text = "RPPA Correlations")
-#   df <- rppa %>%
-#     filter(Ligand == ligand)
-#   for(i in 1:nrow(df)){
-#     foo <- parseCorMatrix(df[i,])
-#     res <- apply(foo, 1, addLink)
-#   }
-#   circos.clear()
-# }
+
 res <- draw_one_track(title_text = "RPPA Correlations")
 df <- rppa
 for(i in 1:nrow(df)){
@@ -162,16 +197,6 @@ for(i in 1:nrow(df)){
 }
 circos.clear()
 
-# for(ligand in unique(cycIF$Ligand)){
-#   res <- draw_one_track(title_text = "cycIF Correlations")
-#   df <- rppa %>%
-#     filter(Ligand == ligand)
-#   for(i in 1:nrow(df)){
-#     foo <- parseCorMatrix(df[i,])
-#     res <- apply(foo, 1, addLink)
-#   }
-#   circos.clear()
-# }
 res <- draw_one_track(title_text = "cycIF Correlations")
 df <- cycIF
 for(i in 1:nrow(df)){
