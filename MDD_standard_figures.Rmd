@@ -22,20 +22,7 @@ These figures are derived from data downloaded from the LINCS Molecular Deep Div
 
 The data have been filtered for QC issues and normalized to the EGF timepoints.  
 
-```{r functions}
-#' Read an assay's csv or tsv data file 
-load_data <- function(assay_name){
-  file_name <- dir("Data",pattern = paste0("MDD_", assay_name,"_","Level4"),recursive = TRUE, full.names = TRUE)
-  if(!length(file_name) == 1) stop("There was not one ", assay_name, " data file found")
-    
-  if(str_detect(file_name, "csv")) {
-    df <- read_csv(file_name)
-  } else if (str_detect(file_name, "tsv")){
-    df <- read_tsv(file_name)
-  } else stop("The data file ",file_name, " must be a csv or tsv file type")
-} #end of function
-
-####circos functions
+```{r circosFunctions}
 
 parseCorMatrix <- function(x){
   alpha_factor <- 255
@@ -160,6 +147,19 @@ draw_one_track <- function(title_text){
 ```
 
 ```{r standardFigureFunctions}
+
+#' Read an assay's csv or tsv data file 
+load_data <- function(assay_name){
+  file_name <- dir("Data",pattern = paste0("MDD_", assay_name,"_","Level4"),recursive = TRUE, full.names = TRUE)
+  if(!length(file_name) == 1) stop("There was not one ", assay_name, " data file found")
+    
+  if(str_detect(file_name, "csv")) {
+    df <- read_csv(file_name)
+  } else if (str_detect(file_name, "tsv")){
+    df <- read_tsv(file_name)
+  } else stop("The data file ",file_name, " must be a csv or tsv file type")
+} #end of function
+
 get_win_probs <- function(df, low = .02, hi = .98){
   windsorize_probs <- df %>%
     select(-feature) %>%
@@ -286,8 +286,8 @@ p <- ggplot(df_UMAP, aes(x = UMAP_1,
                          size = Time,
                          colour = Ligand,
                          fill = Ligand2)) +
-    geom_point() +
-  geom_point(shape = 21, stroke = 4) +
+    geom_point(alpha = .8) +
+  geom_point(shape = 21, stroke = 4, alpha = .8) +
   scale_color_manual( values = ligand_cols) +
   scale_fill_manual( values = ligand_2_cols) +
   scale_size(breaks = c(1,4,8,24,48)) +
@@ -337,8 +337,8 @@ p <- ggplot(df_pca, aes(x = PC1,
                          size = Time,
                          colour = Ligand,
                          fill = Ligand2)) +
-    geom_point() +
-  geom_point(shape = 21, stroke = 4) +
+    geom_point(alpha = .8) +
+  geom_point(shape = 21, stroke = 4, alpha = .8) +
   scale_color_manual( values = ligand_cols) +
   scale_fill_manual( values = ligand_2_cols) +
   scale_size(breaks = c(1,4,8,24,48)) +
@@ -414,17 +414,24 @@ circos.clear()
 
 md <- read_tsv("metadata/MCF10A_MDD_sample_annotations.tsv")
 
-df <- load_data("RPPA") %>%
+RPPA <- load_data("RPPA") %>%
   rename(feature = antibody)
-
-plot_heatmap(df, md, assay_name = "RPPA")
 ```
+
+
+```{r}
+
+plot_heatmap(RPPA, md, assay_name = "RPPA")
+
+```
+
+All `r nrow(df)` proteins meaured in the RPPA assay are shown in the heatmap.  
 
 #### UMAP
 
 ```{r}
 
-plot_umap(df, md, assay_name = "RPPA")
+plot_umap(RPPA, md, assay_name = "RPPA")
 
 ```
 
@@ -432,14 +439,14 @@ plot_umap(df, md, assay_name = "RPPA")
 
 ```{r}
 
-plot_pca(df, md, assay_name = "RPPA")
+plot_pca(RPPA, md, assay_name = "RPPA")
 ```
 
 #### Introspect
 
 ```{r}
 
-plot_introspect(df, md, assay_name = "RPPA")
+plot_introspect(RPPA, md, assay_name = "RPPA")
 
 ```
 
@@ -452,20 +459,22 @@ plot_introspect(df, md, assay_name = "RPPA")
 ```{r IF_figures, eval = TRUE}
 
 boundedLog2 <- function(x) log2(x + .0001)
-#filter out missing C1 24 hour samples
+
 immunofluoresence <- load_data(assay_name = "IF") %>%
-  mutate_if(is.numeric, .funs = boundedLog2)
+  mutate_if(is.numeric, .funs = boundedLog2) %>%
+  filter(!feature == "EdUPositiveProportion")
   
 plot_heatmap(immunofluoresence, md, assay_name = "IF")
-df <- immunofluoresence %>%
-    filter(!feature == "EdUPositiveProportion")
+
 ```
+
+The row features in the heatmap are `r knitr::combine_words(immunofluoresence$feature)`
 
 #### UMAP
 
 ```{r}
 
-plot_umap(df, md, assay_name = "IF")
+plot_umap(immunofluoresence, md, assay_name = "IF")
 
 ```
 
@@ -473,7 +482,7 @@ plot_umap(df, md, assay_name = "IF")
 
 ```{r}
 
-plot_pca(df, md, assay_name = "IF")
+plot_pca(immunofluoresence, md, assay_name = "IF")
 ```
 
 #### Introspect
@@ -489,9 +498,11 @@ plot_introspect(immunofluoresence, md, assay_name = "IF")
 #### Heatmap 
 
 ```{r cycIF_figures, eval = TRUE}
+
 cycIF <- load_data(assay_name = "cycIF") %>%
   filter(str_detect(feature, "_int_")) %>%
   mutate_if(is.numeric, log2)
+
 plot_heatmap(cycIF, md, assay_name = "cycIF")
 
 ```
