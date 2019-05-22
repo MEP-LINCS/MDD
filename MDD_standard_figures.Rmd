@@ -146,6 +146,8 @@ draw_one_track <- function(title_text){
 
 ```
 
+
+
 ```{r standardFigureFunctions}
 
 #' Read an assay's csv or tsv data file 
@@ -174,7 +176,7 @@ prep_data <- function(df, md){
     select(feature, specimenName, value) %>%
     spread(specimenName, value)
   #Set the order of the columns
-  condition_order <-  paste(rep(c("BMP2", "IFNG", "TGFB","PBS", "HGF", "OSM", "EGF"), each = 25, times = 3), rep(c(1, 4 ,8, 24, 48), each = 5, times = 3), rep(c("C1", "C2", "C3"), each = 175), rep(c("A", "B", "C", "D", "E"), times = 105),  sep = "_") %>%
+  condition_order <-  paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 25, times = 3), rep(c(1, 4 ,8, 24, 48), each = 5, times = 3), rep(c("C1", "C2", "C3"), each = 175), rep(c("A", "B", "C", "D", "E"), times = 105),  sep = "_") %>%
     intersect(colnames(df))
   
   #Arrange columns by standard condition order
@@ -200,15 +202,14 @@ prep_annotations <- function(df, md){
  #Create the heatmap column annotations
 create_top_annotations <- function(df, md){
   df_ann <- prep_annotations(df, md)
-  
   haTop <- HeatmapAnnotation(df = df_ann,
-                             col = list(Ligand = c( "BMP2" = "#ffffb3",
-                                                    "IFNG" = "#bebada",
-                                                    "TGFB" = "#b3de69",
-                                                    "PBS" = "#8dd3c7",
+                             col = list(Ligand = c( "PBS" = "#8dd3c7",
                                                     "HGF" = "#80b1d3",
                                                     "OSM" = "#fdb462",
-                                                    "EGF" = "#fb8072"),
+                                                    "EGF" = "#fb8072",
+                                                    "BMP2" = "#b3de69",
+                                                    "IFNG" = "#bebada",
+                                                    "TGFB" = "#ffd92f"),
                                         Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
                                         Ligand2 = c("EGF" = "#9E79A3", "none" = "#BE7249"),
                                         Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a", "D" = "#33a02c", "E" = 
@@ -223,13 +224,13 @@ create_row_annotations <- function(df, md){
   ####ha = rowAnnotation(foo = anno_mark(at = c(1:4, 20, 60, 97:100), labels = month.name[1:10])
   ###
   haRow <- rowAnnotation(df = df_ann, show_legend = FALSE,
-                             col = list(Ligand = c("BMP2" = "#ffffb3",
-                                                   "IFNG" = "#bebada",
-                                                   "TGFB" = "#b3de69",
-                                                   "PBS" = "#8dd3c7",
-                                                   "HGF" = "#80b1d3",
-                                                   "OSM" = "#fdb462",
-                                                   "EGF" = "#fb8072"),
+                             col = list(Ligand = c( "PBS" = "#8dd3c7",
+                                                    "HGF" = "#80b1d3",
+                                                    "OSM" = "#fdb462",
+                                                    "EGF" = "#fb8072",
+                                                    "BMP2" = "#b3de69",
+                                                    "IFNG" = "#bebada",
+                                                    "TGFB" = "#ffd92f"),
                                         Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
                                         Ligand2 = c("EGF" = "#9E79A3", "none" = "#BE7249"),
                                         Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a", "D" = "#33a02c", "E" = "#fb9a99"),
@@ -269,14 +270,13 @@ plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE, mark_rows =
 }
 
 plot_umap <- function(df, md, assay_name,
-                      ligand_cols = c(
-                   "BMP2" = "#ffffb3",
-                   "IFNG" = "#bebada",
-                   "TGFB" = "#b3de69",
-                   "PBS" = "#8dd3c7",
-                   "HGF" = "#80b1d3",
-                   "OSM" = "#fdb462",
-                   "EGF" = "#fb8072"),
+                      ligand_cols = c( "PBS" = "#8dd3c7",
+                                       "HGF" = "#80b1d3",
+                                       "OSM" = "#fdb462",
+                                       "EGF" = "#fb8072",
+                                       "BMP2" = "#b3de69",
+                                       "IFNG" = "#bebada",
+                                       "TGFB" = "#ffd92f"),
                    ligand_2_cols = c("EGF" = "#ff0000",
                      "None" = "#00000000")){
   #Generate a 2d scatterplot of the UMAP dimensions
@@ -320,14 +320,13 @@ p
 }
 
 plot_pca <- function(df, md, assay_name,
-                      ligand_cols = c(
-                   "BMP2" = "#ffffb3",
-                   "IFNG" = "#bebada",
-                   "TGFB" = "#b3de69",
-                   "PBS" = "#8dd3c7",
-                   "HGF" = "#80b1d3",
-                   "OSM" = "#fdb462",
-                   "EGF" = "#fb8072"),
+                     ligand_cols = c( "PBS" = "#8dd3c7",
+                                      "HGF" = "#80b1d3",
+                                      "OSM" = "#fdb462",
+                                      "EGF" = "#fb8072",
+                                      "BMP2" = "#b3de69",
+                                      "IFNG" = "#bebada",
+                                      "TGFB" = "#ffd92f"),
                    ligand_2_cols = c("EGF" = "#ff0000",
                      "None" = "#00000000")){
   #Generate a 2d scatterplot of the first two princpal components
@@ -372,15 +371,14 @@ p
 }
 
 
-plot_introspect <- function(df, md, assay_name,
-                      ligand_cols = c(
-                   "BMP2" = "#ffffb3",
-                   "IFNG" = "#bebada",
-                   "TGFB" = "#b3de69",
-                   "PBS" = "#8dd3c7",
-                   "HGF" = "#80b1d3",
-                   "OSM" = "#fdb462",
-                   "EGF" = "#fb8072"),
+plot_correlation <- function(df, md, assay_name,
+                      ligand_cols = c( "PBS" = "#8dd3c7",
+                                      "HGF" = "#80b1d3",
+                                      "OSM" = "#fdb462",
+                                      "EGF" = "#fb8072",
+                                      "BMP2" = "#b3de69",
+                                      "IFNG" = "#bebada",
+                                      "TGFB" = "#ffd92f"),
                    ligand_2_cols = c("EGF" = "#ff0000",
                      "None" = "#00000000")){
   #calculate correlations across the conditions and show in a heatmap
@@ -401,7 +399,7 @@ plot_introspect <- function(df, md, assay_name,
             as.matrix() %>%
             cor(use = "complete.obs"),
           name = "abundance",
-          column_title = paste("Introspect of",assay_name, "EGF timecourse normalized"),
+          column_title = paste("Correlation of",assay_name, "EGF timecourse normalized"),
           top_annotation = create_top_annotations(df, md),
           left_annotation = haRow,
           show_row_names = FALSE,
@@ -415,7 +413,7 @@ plot_introspect <- function(df, md, assay_name,
 # plot_circos <- function(df){
 #  ####DEBUG refactor to match new data sturcture###### 
 # #Assign colors to the ligands 
-# col_ligands <- c("PBS" = "#8dd3c7", "BMP2" = "#ffffb3", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072", "ctrl" = "#ffffff66")
+# col_ligands <- c("PBS" = "#8dd3c7", "BMP2" = "#b3de69", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072", "ctrl" = "#ffffff66")
 # #names(col_ligands) <- unique(rppa$Ligand)
 # 
 # #Assign colors to conditions in the track
@@ -586,11 +584,11 @@ plot_pca(RPPA, md, assay_name = "RPPA")
 
 ```
 
-#### Introspect
+#### Correlation
 
 ```{r}
 
-plot_introspect(RPPA, md, assay_name = "RPPA")
+plot_correlation(RPPA, md, assay_name = "RPPA")
 
 ```
 
@@ -629,11 +627,11 @@ plot_umap(immunofluoresence, md, assay_name = "IF")
 plot_pca(immunofluoresence, md, assay_name = "IF")
 ```
 
-#### Introspect
+#### Correlation
 
 ```{r}
 
-plot_introspect(immunofluoresence, md, assay_name = "IF")
+plot_correlation(immunofluoresence, md, assay_name = "IF")
 
 ```
 
@@ -685,11 +683,11 @@ plot_umap(cycIF, md, assay_name = "cycIF")
 plot_pca(cycIF, md, assay_name = "cycIF")
 ```
 
-#### Introspect
+#### Correlation
 
 ```{r}
 
-plot_introspect(cycIF, md, assay_name = "cycIF")
+plot_correlation(cycIF, md, assay_name = "cycIF")
 ```
 
 ### RNAseq{.tabset .tabset-fade}
@@ -730,11 +728,11 @@ plot_umap(RNAseq, md, assay_name = "RNAseq")
 plot_pca(RNAseq, md, assay_name = "RNAseq")
 ```
 
-#### Introspect
+#### Correlation
 
 ```{r}
 
-plot_introspect(RNAseq_hi_vars, md, assay_name = "RNAseq")
+plot_correlation(RNAseq_hi_vars, md, assay_name = "RNAseq")
 
 ```
 
@@ -745,9 +743,8 @@ plot_introspect(RNAseq_hi_vars, md, assay_name = "RNAseq")
 ```{r GCP_figures, eval = TRUE}
 ### delete histone when data is missing
 GCP <- load_data(assay_name = "GCP") %>%
-  rename(feature = histone) %>%
-  drop_na()
-  
+  rename(feature = histone)
+
 plot_heatmap(GCP, md, assay_name = "GCP")
 
 ```
@@ -765,8 +762,9 @@ plot_line_graphs(GCP, md, assay_name = "GCP")
 #### UMAP
 
 ```{r}
-
-plot_umap(GCP, md, assay_name = "GCP")
+df <- GCP %>%
+  drop_na()
+plot_umap(df, md, assay_name = "GCP")
 
 ```
 
@@ -774,14 +772,14 @@ plot_umap(GCP, md, assay_name = "GCP")
 
 ```{r}
 
-plot_pca(GCP, md, assay_name = "GCP")
+plot_pca(df, md, assay_name = "GCP")
 ```
 
-#### Introspect
+#### Correlation
 
 ```{r}
 
-plot_introspect(GCP, md, assay_name = "GCP")
+plot_correlation(GCP, md, assay_name = "GCP")
 
 ```
 
@@ -825,11 +823,11 @@ plot_umap(ATACseq, md, assay_name = "ATACseq")
 plot_pca(ATACseq, md, assay_name = "ATACseq")
 ```
 
-#### Introspect
+#### Correlation
 
 ```{r}
 
-plot_introspect(ATACseq_hi_vars, md, assay_name = "ATACseq")
+plot_correlation(ATACseq_hi_vars, md, assay_name = "ATACseq")
 
 
 ```
