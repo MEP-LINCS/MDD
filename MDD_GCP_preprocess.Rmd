@@ -61,12 +61,12 @@ z_score <- function(x) (x-mean(x, na.rm = TRUE))/sqrt(var(x, na.rm = TRUE))
 
 ```{r getDataGCPData}
 
-ProbeMetadata <- read_delim("Data/ProbeMetadata.txt", 
+ProbeMetadata <- read_delim("Data/GCP/ProbeMetadata.txt", 
                             "\t", escape_double = FALSE, trim_ws = TRUE)
 
-mddMetadata <- read_tsv("Metadata/MCF10A_MDD_sample_annotations.tsv")
+mddMetadata <- read_csv("metadata/MDD_sample_annotations.csv")
 
-GCP_Data <- read_tsv("Data/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
+GCP_Data <- read_tsv("Data/GCP/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
   t() %>%
   as.tibble()
 colnames(GCP_Data) <- GCP_Data[1,]
@@ -98,7 +98,7 @@ l2 <- GCP_Data %>%
 #Reformat the file from the Broad to match the MDD format
 #Select the histone names and sample identifiers then
 #use the 20th row as the column names
-GCP_level4_file <- read_csv("Data/MCF10a_GCP_data_with_OHSU_metadata_vocabulary.csv") 
+GCP_level4_file <- read_tsv("Data/GCP/MCF10a_EGFtimepointnorm_RepRemoved_withPBS_OHSU_metadata.txt", skip = 2) 
 GCP_level4_file[(GCP_level4_file$id == "sampleid"),] <- paste(GCP_level4_file[(GCP_level4_file$id == "condition"),],
                     GCP_level4_file[(GCP_level4_file$id == "collection"),],
                     GCP_level4_file[(GCP_level4_file$id == "replicate"),],
@@ -113,6 +113,8 @@ colnames(GCP_level4_file)[2:ncol(GCP_level4_file)] <- GCP_level4_file[20,2:ncol(
 #match with MDD metadata file to use specimenID values
 GCP_l4 <- slice(GCP_level4_file, 24:nrow(GCP_level4_file)) %>%
   gather(specimenName, value = value, -histone) %>%
+  mutate(specimenName = str_replace(specimenName,"IFNg","IFNG"),
+         specimenName = str_replace(specimenName,"TGFb","TGFB")) %>%
   inner_join(mddMetadata) %>%
   select(specimenID, histone, value) %>%
   mutate(value = as.numeric(value)) %>%
