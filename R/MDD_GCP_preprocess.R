@@ -21,16 +21,17 @@ l2_long <- GCP_Data %>%
          collection = "C2",
          experimentalTimePoint = pert_time,
          specimenName=paste(ligand, experimentalTimePoint, collection, replicate, sep="_")) %>%
-  select(specimenName, matches("^H3K")) %>%
-  mutate_at(vars(matches("^H3K")), as.numeric) %>%
+ select(specimenName, matches("^H3K|^H4")) %>%
+  mutate_at(vars(matches("^H3K|H4")), as.numeric) %>%
   inner_join(mddMetadata, by = "specimenName") %>%
-  select(specimenID, matches("^H3K")) %>%
+  select(specimenID, matches("^H3K|H4")) %>%
   gather(key = histone, value = value, -specimenID)
 
 l2 <- l2_long %>%
   select(specimenID, histone, value) %>%
   spread(key = specimenID, value = value) %>%
-  select(histone, str_sort(colnames(.), numeric=TRUE)) %>%
+  mutate(histone = factor(histone, levels = unique(l2_long$histone))) %>%
+  arrange(histone) %>%
   write_csv("../GCP/Data/MDD_GCP_Level2.csv")
 
 #create EGF normalized level 4 data
