@@ -1,8 +1,7 @@
 #Author: Mark Dane, copyright 2015-2019
 library(tidyverse)
-library(scales)
-
-#Modify MEMA package function to process vectors of NA
+library(readxl)
+#library(scales)
 
 localMinima <- function(x, probs=c(.2,.8)){
   #Finds the local minima between the probs quantiles
@@ -133,7 +132,7 @@ field <- l1 %>%
   mutate(FieldCellCount=n()) %>%
   mutate(DNA2nProportion = sum(CellCycleState==1)/n()) %>%
   mutate(EdUPositiveProportion = sum(EdUPositive==2)/n()) %>%
-  summarise_at(c(parameterNames,"FieldCellCount","DNA2nProportion","EdUPositiveProportion"),numericMedian) %>%
+  summarise_at(c(parameterNames,"FieldCellCount","DNA2nProportion","EdUPositiveProportion","CellCycleState"),median) %>%
   mutate(Field=Position) %>%
   ungroup() %>%
   select(-Position)
@@ -145,7 +144,7 @@ parameterNames <- grep("Intensity|Elongation|Perimeter|Area|Proportion|Count|Thr
 well <- field %>%
   group_by(barcode, WellIndex, specimenID, specimenName) %>%
   mutate(WellCellCount = median(FieldCellCount)) %>%
-  summarise_at(c(parameterNames,"FieldCellCount","DNA2nProportion","EdUPositiveProportion", "WellCellCount"),numericMedian) %>%
+  summarise_at(c(parameterNames,"FieldCellCount","DNA2nProportion","EdUPositiveProportion", "WellCellCount","CellCycleState"),median) %>%
   ungroup() %>%
   mutate(replicate = str_remove(specimenName, ".*_"),
          experimentalTimePoint = str_extract(specimenName,"0|24|48"),
@@ -163,7 +162,7 @@ well_EGFNorm <- well %>%
          AreaEGF = Area,
          PerimeterEGF = Perimeter) %>%
   group_by(specimenName) %>%
-  summarise_all(mean) %>%
+  summarise_all(median) %>%
   ungroup() %>%
   mutate(replicate = str_remove(specimenName, ".*_"),
          experimentalTimePoint = str_extract(specimenName,"24|48"),
@@ -180,7 +179,7 @@ well_EGFNorm <- well %>%
          Perimeter = Perimeter/PerimeterEGF) %>%
   select(specimenID, WellCellCount, DNA2nProportion, EdUPositiveProportion, MeanIntensity_KRT5, ElongationFactor, Area, Perimeter) %>%
   group_by(specimenID) %>%
-  summarise_all(mean) %>%
+  summarise_all(median) %>%
   ungroup %>%
   gather(key = "feature", value = "value", -specimenID) %>%
   spread(key = specimenID, value = value)
