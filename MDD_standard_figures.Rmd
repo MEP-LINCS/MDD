@@ -170,7 +170,9 @@ prep_data <- function(df, md){
     gather(specimenID, value, -feature) %>%
     inner_join(md, by = "specimenID") %>%
     select(feature, specimenName, value) %>%
-    spread(specimenName, value)
+    spread(specimenName, value) %>%
+    mutate(feature = factor(feature, levels = unique(df$feature))) %>%
+      arrange(feature,)
   #Set the order of the columns
   condition_order <-  paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 25, times = 3), rep(c(1, 4 ,8, 24, 48), each = 5, times = 3), rep(c("C1", "C2", "C3"), each = 175), rep(c("A", "B", "C", "D", "E"), times = 105),  sep = "_") %>%
     intersect(colnames(df))
