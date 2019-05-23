@@ -1,36 +1,16 @@
 library(scales)
 library(RColorBrewer)
-#library(MDDRPPA)
 library(classInt)
 library(tidyverse)
-
-
-#Values used for out of bounds values
-lowProb <- .02
-upProb <- .98
-
-#Filter threshold for Biomarker variances
-varianceCut <- 0.04
-
-#fold change threshold
-fcThresh <- 1.5
-z_score_thresh <- 1.5
-
-#Create a function that takes in a vector and returns a same-length vector of z scores 
-z_score <- function(x) (x-mean(x, na.rm = TRUE))/sqrt(var(x, na.rm = TRUE))
-
-
-ProbeMetadata <- read_delim("../GCP/Metadata/ProbeMetadata.txt", 
-                            "\t", escape_double = FALSE, trim_ws = TRUE)
 
 mddMetadata <- read_csv("../Metadata/MDD_sample_annotations.csv")
 
 GCP_Data <- read_tsv("../GCP/Data/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2) %>%
   t() %>%
-  as.tibble()
+  as_tibble()
 colnames(GCP_Data) <- GCP_Data[1,]
 
-l2 <- GCP_Data %>%
+l2_long <- GCP_Data %>%
   slice(-1) %>%
   filter(!is.na(id)) %>%
   mutate(ligand = pert_iname,
@@ -47,7 +27,7 @@ l2 <- GCP_Data %>%
   select(specimenID, matches("^H3K")) %>%
   gather(key = histone, value = value, -specimenID)
 
-l2_synapse<- l2 %>%
+l2 <- l2_long %>%
   select(specimenID, histone, value) %>%
   spread(key = specimenID, value = value) %>%
   select(histone, str_sort(colnames(.), numeric=TRUE)) %>%
@@ -70,7 +50,7 @@ colnames(GCP_level4_file)[2:ncol(GCP_level4_file)] <- GCP_level4_file[20,2:ncol(
 
 #Delete the first 23 rows since they contain unneeded metadata
 #match with MDD metadata file to use specimenID values
-GCP_l4 <- slice(GCP_level4_file, 24:nrow(GCP_level4_file)) %>%
+l4 <- slice(GCP_level4_file, 24:nrow(GCP_level4_file)) %>%
   gather(specimenName, value = value, -histone) %>%
   mutate(specimenName = str_replace(specimenName,"IFNg","IFNG"),
          specimenName = str_replace(specimenName,"TGFb","TGFB")) %>%
