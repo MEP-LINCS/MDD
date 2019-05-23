@@ -10,10 +10,6 @@ suppressMessages(library(tidyverse))
 suppressMessages(library(ComplexHeatmap))
 suppressMessages(library(circlize))
 library(umap)
-library(pheatmap)
-library(circlize)
-#library(synapser)
-
 ```
 
 
@@ -152,7 +148,7 @@ draw_one_track <- function(title_text){
 
 #' Read an assay's csv or tsv data file 
 load_data <- function(assay_name){
-  file_name <- dir("Data",pattern = paste0("MDD_", assay_name,"_","Level4"),recursive = TRUE, full.names = TRUE)
+  file_name <- dir(pattern = paste0("MDD_", assay_name,"_","Level4"),recursive = TRUE, full.names = TRUE)
   if(!length(file_name) == 1) stop("There was not one ", assay_name, " data file found")
     
   if(str_detect(file_name, "csv")) {
@@ -240,7 +236,7 @@ create_row_annotations <- function(df, md){
 
   
 #####
-plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE, mark_rows = NULL){
+plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE){
   
   windsorize_probs <- get_win_probs(df, .02, .98)
   
@@ -254,29 +250,24 @@ plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE, mark_rows =
   } else {
     ra <- NULL
   }
-  
+  df_as_matrix <- select(df, -feature) %>%
+            as.matrix()
+  rownames(df_as_matrix) <- df$feature
    #Create the heatmap
-  Heatmap(matrix = select(df, -feature) %>%
-            as.matrix(),
+  Heatmap(matrix = df_as_matrix,
           name = "abundance",
           column_title = paste(assay_name, " EGF timecourse normalized"),
           top_annotation = create_top_annotations(df, md),
-          right_annotation = ra,
+#          right_annotation = ra,
           show_row_names = show_row_names,
           show_column_names = FALSE,
           cluster_columns = FALSE,
+          cluster_rows = cluster_rows,
           col = colorRamp2(c(windsorize_probs[1], 0, windsorize_probs[2]), c("blue", "white", "red")),
           na_col = "grey")
 }
 
-plot_umap <- function(df, md, assay_name,
-                      ligand_cols = c( "PBS" = "#8dd3c7",
-                                       "HGF" = "#80b1d3",
-                                       "OSM" = "#fdb462",
-                                       "EGF" = "#fb8072",
-                                       "BMP2" = "#b3de69",
-                                       "IFNG" = "#bebada",
-                                       "TGFB" = "#ffd92f"),
+plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name,
                    ligand_2_cols = c("EGF" = "#ff0000",
                      "None" = "#00000000")){
   #Generate a 2d scatterplot of the UMAP dimensions
@@ -301,7 +292,8 @@ plot_umap <- function(df, md, assay_name,
   data.frame() %>%
   rename(UMAP_1 = X1,
          UMAP_2 = X2) %>%
-    cbind(df_ann)
+    cbind(df_ann) %>%
+    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
   
 p <- ggplot(df_UMAP, aes(x = UMAP_1,
                          y = UMAP_2,
@@ -319,14 +311,7 @@ p
   
 }
 
-plot_pca <- function(df, md, assay_name,
-                     ligand_cols = c( "PBS" = "#8dd3c7",
-                                      "HGF" = "#80b1d3",
-                                      "OSM" = "#fdb462",
-                                      "EGF" = "#fb8072",
-                                      "BMP2" = "#b3de69",
-                                      "IFNG" = "#bebada",
-                                      "TGFB" = "#ffd92f"),
+plot_pca <- function(df, md, ligand_cols = ligand_cols, assay_name,
                    ligand_2_cols = c("EGF" = "#ff0000",
                      "None" = "#00000000")){
   #Generate a 2d scatterplot of the first two princpal components
@@ -334,7 +319,7 @@ plot_pca <- function(df, md, assay_name,
 
   windsorize_probs <- get_win_probs(df, .01, .99)
   
-  #convert specimenID column names to specimanName and reorder
+  #convert specimenID column names to specimenName and reorder
   df <- prep_data(df, md) %>%
     select(-matches("EGF"))
   
@@ -353,7 +338,8 @@ plot_pca <- function(df, md, assay_name,
     
   df_pca <- prcomp(df_mat)$x %>%
   data.frame() %>%
-    cbind(df_ann)
+    cbind(df_ann) %>%
+    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
   
 p <- ggplot(df_pca, aes(x = PC1,
                          y = PC2,
@@ -489,16 +475,27 @@ plot_correlation <- function(df, md, assay_name,
 ##########
 ```
 
+```{r globalVariables}
+ligand_cols <- c( "PBS" = "#8dd3c7",
+                  "HGF" = "#80b1d3",
+                  "OSM" = "#fdb462",
+                  "EGF" = "#fb8072",
+                  "BMP2" = "#b3de69",
+                  "IFNG" = "#bebada",
+                  "TGFB" = "#ffd92f")
+
+md <- read_csv("metadata/MDD_sample_annotations.csv")
+```
+
 ### RPPA{.tabset .tabset-fade}
 
 #### Heatmap
 
-```{r rppa_figures, eval = TRUE}
-
-md <- read_csv("metadata/MDD_sample_annotations.csv")
+```{r rppa_figures}
 
 RPPA <- load_data("RPPA") %>%
   rename(feature = antibody)
+
 ```
 
 
@@ -514,19 +511,8 @@ All `r nrow(df)` proteins measured in the RPPA assay are shown in the heatmap.
 
 ```{r, fig.height=15, fig.width=15}
 
-
-
-plot_line_graphs <- function(df, md, assay_name){
-
-     ligand_cols = c(
-                   "BMP2" = "#ffffb3",
-                   "IFNG" = "#bebada",
-                   "TGFB" = "#b3de69",
-                   "PBS" = "#8dd3c7",
-                   "HGF" = "#80b1d3",
-                   "OSM" = "#fdb462",
-                   "EGF" = "#fb8072")
-   
+plot_line_graphs <- function(df, md, ligand_cols, fc_thresh = 1, assay_name){
+  
   windsorize_probs <- get_win_probs(df, .01, .99)
   
   df_med <- df %>%
@@ -544,35 +530,46 @@ plot_line_graphs <- function(df, md, assay_name){
     summarise(value = median(value)) %>%
     ungroup() 
   
-  p <- ggplot(df_med, aes(x=Time, y=value, colour=Ligand))+
+  fc_set <- df_med %>%
+    group_by(Time, Ligand) %>%
+    filter(abs(value) > fc_thresh) %>%
+    ungroup() %>%
+    select(feature) %>%
+    distinct() %>%
+    inner_join(df_med, by = "feature") %>%
+    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
+  
+  
+  p <- ggplot(fc_set, aes(x=Time, y=value, colour=Ligand))+
     geom_line()+
     labs(title="EGF Normalized Line Graphs",
          x = "Time (hours)",
          y="Intensity (AU)") +
     scale_x_continuous(breaks = c(0,8,24,48)) +
-    scale_color_manual( values = ligand_cols) +
+    scale_color_manual(values = ligand_cols) +
     theme(axis.text.x = element_text(angle=90),
           axis.text.y=element_blank(),
           axis.ticks.y=element_blank(),
-          strip.text = element_text(size=6, hjust=0),
+          strip.text = element_text(size=10, hjust=0),
             panel.background = element_rect(fill = NA),
   panel.grid.major = element_line(colour = "gray95"))+
-    facet_wrap(~feature,scales = "free_y")
-  
+    facet_wrap(~feature)
   p
   
 }
+fc_thresh = 1.5
 
-plot_line_graphs(df = RPPA, md, assay_name = "RPPA")
-
+plot_line_graphs(df = RPPA, md, ligand_cols = ligand_cols, fc_thresh = fc_thresh, assay_name = "RPPA")
 
 ```
+
+The line graphs show the antibodies that have at least one response greater than `r fc_thresh` the EGF response. All values are the median summary of the biological replicates.  
 
 #### UMAP
 
 ```{r}
 
-plot_umap(RPPA, md, assay_name = "RPPA")
+plot_umap(RPPA, md, ligand_cols = ligand_cols, assay_name = "RPPA")
 
 ```
 
@@ -580,7 +577,7 @@ plot_umap(RPPA, md, assay_name = "RPPA")
 
 ```{r}
 
-plot_pca(RPPA, md, assay_name = "RPPA")
+plot_pca(RPPA, md, ligand_cols = ligand_cols, assay_name = "RPPA")
 
 ```
 
@@ -616,7 +613,7 @@ The row features in the heatmap are `r knitr::combine_words(immunofluoresence$fe
 
 ```{r}
 
-plot_umap(immunofluoresence, md, assay_name = "IF")
+plot_umap(immunofluoresence, md, ligand_cols = ligand_cols, assay_name = "IF")
 
 ```
 
@@ -624,7 +621,8 @@ plot_umap(immunofluoresence, md, assay_name = "IF")
 
 ```{r}
 
-plot_pca(immunofluoresence, md, assay_name = "IF")
+plot_pca(immunofluoresence, md, ligand_cols = ligand_cols, assay_name = "IF")
+
 ```
 
 #### Correlation
@@ -664,7 +662,7 @@ Intensity features included in the heatmap have a variance above the `r names(va
 
 ```{r, fig.height=15, fig.width=15}
 
-plot_line_graphs(cycIF, md, assay_name = "cycIF")
+plot_line_graphs(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
 
 ```
 
@@ -672,7 +670,7 @@ plot_line_graphs(cycIF, md, assay_name = "cycIF")
 #### UMAP
 
 ```{r}
-plot_umap(cycIF, md, assay_name = "cycIF")
+plot_umap(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
 
 ```
 
@@ -680,7 +678,7 @@ plot_umap(cycIF, md, assay_name = "cycIF")
 
 ```{r}
 
-plot_pca(cycIF, md, assay_name = "cycIF")
+plot_pca(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
 ```
 
 #### Correlation
@@ -717,7 +715,7 @@ Genes included in the heatmap have a variance above the `r names(var_thresh) %>%
 
 ```{r}
 
-plot_umap(RNAseq, md, assay_name = "RNAseq")
+plot_umap(RNAseq, md, ligand_cols = ligand_cols, assay_name = "RNAseq")
 
 ```
 
@@ -725,7 +723,7 @@ plot_umap(RNAseq, md, assay_name = "RNAseq")
 
 ```{r}
 
-plot_pca(RNAseq, md, assay_name = "RNAseq")
+plot_pca(RNAseq, md, ligand_cols = ligand_cols, assay_name = "RNAseq")
 ```
 
 #### Correlation
@@ -747,6 +745,8 @@ GCP <- load_data(assay_name = "GCP") %>%
 
 plot_heatmap(GCP, md, assay_name = "GCP")
 
+plot_heatmap(GCP, md, assay_name = "GCP", show_row_names = TRUE, cluster_rows = FALSE)
+
 ```
 
 Histone probes with NA values in any sample are dropped from the GCP dataset.
@@ -755,7 +755,7 @@ Histone probes with NA values in any sample are dropped from the GCP dataset.
 
 ```{r, fig.height=15, fig.width=15}
 
-plot_line_graphs(GCP, md, assay_name = "GCP")
+plot_line_graphs(GCP, md, ligand_cols = ligand_cols, assay_name = "GCP")
 
 ```
 
@@ -764,7 +764,7 @@ plot_line_graphs(GCP, md, assay_name = "GCP")
 ```{r}
 df <- GCP %>%
   drop_na()
-plot_umap(df, md, assay_name = "GCP")
+plot_umap(df, md, ligand_cols = ligand_cols, assay_name = "GCP")
 
 ```
 
@@ -772,7 +772,7 @@ plot_umap(df, md, assay_name = "GCP")
 
 ```{r}
 
-plot_pca(df, md, assay_name = "GCP")
+plot_pca(df, md, ligand_cols = ligand_cols, assay_name = "GCP")
 ```
 
 #### Correlation
@@ -812,7 +812,7 @@ Peaks included in the heatmap have a variance above the `r names(var_thresh) %>%
 
 ```{r}
 
-plot_umap(ATACseq, md, assay_name = "ATACseq")
+plot_umap(ATACseq, md, ligand_cols = ligand_cols, assay_name = "ATACseq")
 
 ```
 
@@ -820,7 +820,7 @@ plot_umap(ATACseq, md, assay_name = "ATACseq")
 
 ```{r}
 
-plot_pca(ATACseq, md, assay_name = "ATACseq")
+plot_pca(ATACseq, md, ligand_cols = ligand_cols, assay_name = "ATACseq")
 ```
 
 #### Correlation
