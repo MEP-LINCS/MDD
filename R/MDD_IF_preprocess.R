@@ -149,6 +149,7 @@ well <- field %>%
   mutate(replicate = str_remove(specimenName, ".*_"),
          experimentalTimePoint = str_extract(specimenName,"0|24|48"),
          collection = str_extract(specimenName, "C[12]"))
+write_csv(well, "../IF/Data/MDD_IF_Level3.csv")
 
 #add EGF timecourse normalized values
 well_EGFNorm <- well %>%
