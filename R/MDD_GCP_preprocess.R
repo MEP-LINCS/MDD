@@ -55,10 +55,11 @@ l4 <- slice(GCP_level4_file, 24:nrow(GCP_level4_file)) %>%
   gather(specimenName, value = value, -histone) %>%
   mutate(specimenName = str_replace(specimenName,"IFNg","IFNG"),
          specimenName = str_replace(specimenName,"TGFb","TGFB")) %>%
-  inner_join(mddMetadata) %>%
+  inner_join(mddMetadata, by = "specimenName") %>%
   select(specimenID, histone, value) %>%
   mutate(value = as.numeric(value)) %>%
   spread(key = specimenID, value = value) %>%
-  filter(!str_detect(histone,"[.(]")) %>%
+  mutate(histone = factor(histone, levels = unique(GCP_level4_file$histone))) %>%
+  arrange(histone) %>%
   write_csv("../GCP/Data/MDD_GCP_Level4.csv")
 
