@@ -108,10 +108,10 @@ prepare_data <- function(x){
     rename(Replicate = replicate)
 }
 
-draw_one_track <- function(title_text){
+draw_one_track <- function(x, title_text){
   circos.par("track.height" = 0.2,
              "points.overflow.warning" = FALSE)
-  circos.initialize(factors = as.factor(df$Ligand), xlim =c(0,4), sector.width = 20)
+  circos.initialize(factors = as.factor(x), xlim =c(0,4), sector.width = 20)
 
   circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
     xlim = CELL_META$xlim
@@ -140,6 +140,64 @@ draw_one_track <- function(title_text){
          cex = .6)
 }
 
+plot_circos <- function(df, md, assay_name, ligand_cols, ligand_2_cols) {
+  ####DEBUG refactor to match new data sturcture######
+ df_matrix = select(df, -feature) %>%
+            as.matrix() %>%
+            cor(use = "complete.obs")
+  #Assign colors to conditions in the track
+  track_col_names <- c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black")
+  
+  res <- draw_one_track(unique(md$ligand), title_text = paste(assay_name, "Correlations"))
+  
+  df <- rppa
+  for(i in 1:nrow(df)){
+    foo <- parseCorMatrix(df[i,])
+    res <- apply(foo, 1, addLink)
+  }
+  circos.clear()
+  
+  
+  rppa <- prepare_data(cormats[["RPPA"]])
+  cycIF <- prepare_data(cormats[["CYCIF"]])
+  GCP <- prepare_data(cormats[["GCP"]])
+  
+  #Assign ggplot colors to the ligands based on their order in the RPPA dataset
+  col_ligands <- gg_color_hue(5)
+  names(col_ligands) <- unique(rppa$Ligand)
+  #Assign colors to conditions in the track
+  track_col_names <- c("grey50", "grey25","red3","royalblue3")
+  
+  for(ligand in unique(rppa$Ligand)){
+    res <- draw_one_track(title_text = "RPPA Correlations")
+    df <- rppa %>%
+      filter(Ligand == ligand)
+    for(i in 1:nrow(df)){
+      foo <- parseCorMatrix(df[i,])
+      res <- apply(foo, 1, addLink)
+    }
+    circos.clear()
+  }
+  res <- draw_one_track(df, md, title_text = "RPPA Correlations")
+  df <- rppa
+  for(i in 1:nrow(df)){
+    foo <- parseCorMatrix(df[i,])
+    res <- apply(foo, 1, addLink)
+  }
+  circos.clear()
+  
+  for(ligand in unique(cycIF$Ligand)){
+    res <- draw_one_track(title_text = "cycIF Correlations")
+    df <- rppa %>%
+      filter(Ligand == ligand)
+    for(i in 1:nrow(df)){
+      foo <- parseCorMatrix(df[i,])
+      res <- apply(foo, 1, addLink)
+    }
+    circos.clear()
+  }
+}
+
 ```
 
 
@@ -147,8 +205,8 @@ draw_one_track <- function(title_text){
 ```{r standardFigureFunctions}
 
 #' Read an assay's csv or tsv data file 
-load_data <- function(assay_name){
-  file_name <- dir(pattern = paste0("MDD_", assay_name,"_","Level4"),recursive = TRUE, full.names = TRUE)
+load_data <- function(assay_name, level = 4){
+  file_name <- dir(pattern = paste0("MDD_", assay_name,"_","Level",level),recursive = TRUE, full.names = TRUE)
   if(!length(file_name) == 1) stop("There was not one ", assay_name, " data file found")
     
   if(str_detect(file_name, "csv")) {
@@ -238,14 +296,26 @@ create_row_annotations <- function(df, md){
 
   
 #####
-plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE){
+plot_heatmap <- function(df, md, assay_name, EGF_normed = TRUE, var_thresh_percentile = 0, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE){
   
+  df_vars <- df %>%
+  select(-feature) %>%
+  as.matrix() %>%
+  apply(1, var, na.rm = TRUE)
+  
+var_thresh <- quantile(df_vars, probs = var_thresh_percentile)
+df <- df[df_vars > var_thresh,]
+
   windsorize_probs <- get_win_probs(df, .02, .98)
   
   #convert specimenID column names to specimanName and reorder
-  df <- prep_data(df, md) %>%
+  df <- prep_data(df, md)
+title_suffix <- ""
+  if(EGF_normed){
+    title_suffix = ", EGF timecourse normalized"
+    df <- df %>%
     select(-matches("EGF"))
-  
+  }
   if(!is.null(mark_rows)) {
     row_nums <- which(df$feature %in% mark_rows)
     ra <- rowAnnotation(foo = anno_mark(at = c(row_nums), labels = df$feature[row_nums]))
@@ -258,7 +328,7 @@ plot_heatmap <- function(df, md, assay_name, show_row_names = FALSE, mark_rows =
    #Create the heatmap
   Heatmap(matrix = df_as_matrix,
           name = "abundance",
-          column_title = paste(assay_name, " EGF timecourse normalized"),
+          column_title = paste0(assay_name, title_suffix),
           top_annotation = create_top_annotations(df, md),
 #          right_annotation = ra,
           show_row_names = show_row_names,
@@ -352,14 +422,14 @@ p <- ggplot(df_pca, aes(x = PC1,
   geom_point(shape = 21, stroke = 4, alpha = .8) +
   scale_color_manual( values = ligand_cols) +
   scale_fill_manual( values = ligand_2_cols) +
-  scale_size(breaks = c(1,4,8,24,48)) +
+  scale_size_area(max_size = 10, breaks = c(1,4,8,24,48)) +
   labs(title = paste("PCA of ", assay_name, " data")) + 
   theme_bw()
 p
 }
 
 
-plot_correlation <- function(df, md, assay_name,
+plot_correlation <- function(df, md, assay_name, EGF_normed = TRUE,
                       ligand_cols = c( "PBS" = "#8dd3c7",
                                       "HGF" = "#80b1d3",
                                       "OSM" = "#fdb462",
@@ -374,9 +444,14 @@ plot_correlation <- function(df, md, assay_name,
   windsorize_probs <- get_win_probs(df, .01, .99)
   
   #convert specimenID column names to specimanName, reorder delete EGF samples
-  df <- prep_data(df, md) %>%
-    select(-matches("EGF"))
+  df <- prep_data(df, md) 
   
+  title_suffix <- ""
+  if(EGF_normed){
+    title_suffix <- ", EGF Normalized"
+    df <- df %>%
+    select(-matches("EGF"))
+  }
   #Create annotation values
   #df_ann <-prep_annotations(df, md)
   
@@ -386,93 +461,18 @@ plot_correlation <- function(df, md, assay_name,
   Heatmap(matrix = select(df, -feature) %>%
             as.matrix() %>%
             cor(use = "complete.obs"),
-          name = "abundance",
-          column_title = paste("Correlation of",assay_name, "EGF timecourse normalized"),
+          name = "correlation",
+          column_title = paste0("Correlation of ",assay_name, title_suffix),
           top_annotation = create_top_annotations(df, md),
           left_annotation = haRow,
           show_row_names = FALSE,
           show_column_names = FALSE,
           cluster_rows = FALSE,
           cluster_columns = FALSE,
-          col = colorRamp2(c(windsorize_probs[1], 0, windsorize_probs[2]), c("blue", "white", "red")),
+          col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
           na_col = "grey")
 }
 
-# plot_circos <- function(df){
-#  ####DEBUG refactor to match new data sturcture###### 
-# #Assign colors to the ligands 
-# col_ligands <- c("PBS" = "#8dd3c7", "BMP2" = "#b3de69", "IFNG" = "#bebada", "TGFB" = "#b3de69", "HGF" = "#80b1d3", "OSM" = "#fdb462", "EGF" = "#fb8072", "ctrl" = "#ffffff66")
-# #names(col_ligands) <- unique(rppa$Ligand)
-# 
-# #Assign colors to conditions in the track
-# track_col_names <- c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black") 
-# 
-# res <- draw_one_track(title_text = "RPPA Correlations")
-# df <- rppa
-# for(i in 1:nrow(df)){
-#   foo <- parseCorMatrix(df[i,])
-#   res <- apply(foo, 1, addLink)
-# }
-# circos.clear()
-# 
-# }
-# 
-# load("Data/MCF10A_RPPA_GCP_CYCIF_condition_correlation.Rdata")
-# 
-# rppa <- prepare_data(cormats[["RPPA"]])
-# #cycIF <- prepare_data(cormats[["CYCIF"]])
-# #GCP <- prepare_data(cormats[["GCP"]])
-# 
-# #Assign ggplot colors to the ligands based on their order in the RPPA dataset
-# col_ligands <- gg_color_hue(5)
-# names(col_ligands) <- unique(rppa$Ligand)
-# #Assign colors to conditions in the track
-# track_col_names <- c("grey50", "grey25","red3","royalblue3")
-# 
-# pdf("CircosPlots.pdf",width = 7, height = 7)
-# for(ligand in unique(rppa$Ligand)){
-#   res <- draw_one_track(title_text = "RPPA Correlations")
-#   df <- rppa %>%
-#     filter(Ligand == ligand)
-#   for(i in 1:nrow(df)){
-#     foo <- parseCorMatrix(df[i,])
-#     res <- apply(foo, 1, addLink)
-#   }
-#   circos.clear()
-# }
-# res <- draw_one_track(title_text = "RPPA Correlations")
-# df <- rppa
-# for(i in 1:nrow(df)){
-#   foo <- parseCorMatrix(df[i,])
-#   res <- apply(foo, 1, addLink)
-# }
-# circos.clear()
-
-# for(ligand in unique(cycIF$Ligand)){
-#   res <- draw_one_track(title_text = "cycIF Correlations")
-#   df <- rppa %>%
-#     filter(Ligand == ligand)
-#   for(i in 1:nrow(df)){
-#     foo <- parseCorMatrix(df[i,])
-#     res <- apply(foo, 1, addLink)
-#   }
-#   circos.clear()
-# }
-# res <- draw_one_track(title_text = "cycIF Correlations")
-# df <- cycIF
-# for(i in 1:nrow(df)){
-#   foo <- parseCorMatrix(df[i,])
-#   res <- apply(foo, 1, addLink)
-# }
-# circos.clear()
-# 
-# res <- draw_one_track(title_text = "GCP Correlations")
-# df <- GCP
-# for(i in 1:nrow(df)){
-#   foo <- parseCorMatrix(df[i,])
-#   res <- apply(foo, 1, addLink)
-# }
-# circos.clear()
 
 ##########
 ```
@@ -498,22 +498,33 @@ md <- read_csv("metadata/MDD_sample_annotations.csv")
 RPPA <- load_data("RPPA") %>%
   rename(feature = antibody)
 
+RPPA_l1 <- load_data(assay_name = "RPPA", level = 1) %>%
+  rename(feature = antibody) %>%
+  gather(key = specimenID, value = value, -feature) %>%
+  group_by(feature) %>%
+  mutate(value = value - median(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+    spread(key = specimenID, value = value)
+
 ```
 
 
 ```{r}
+var_thresh_percentile <- 0.1
 
-plot_heatmap(RPPA, md, assay_name = "RPPA", mark_rows = c("EGFR", "Smad3","HER2", "HER3", "Stat3", "Claudin-7", "YAP", "Notch1"))
+plot_heatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, mark_rows = c("EGFR", "Smad3","HER2", "HER3", "Stat3", "Claudin-7", "YAP", "Notch1"))
+
+plot_heatmap(RPPA, md, assay_name = "RPPA", var_thresh_percentile = var_thresh_percentile, mark_rows = c("EGFR", "Smad3","HER2", "HER3", "Stat3", "Claudin-7", "YAP", "Notch1"))
 
 ```
 
-All `r nrow(df)` proteins measured in the RPPA assay are shown in the heatmap.  
+The top `r var_thresh_percentile*100` percentile varying proteins measured in the RPPA assay are shown in the heatmaps.  
 
 #### Line graphs
 
 ```{r, fig.height=15, fig.width=15}
 
-plot_line_graphs <- function(df, md, ligand_cols, fc_thresh = 1, assay_name){
+plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh = 1, assay_name){
   
   windsorize_probs <- get_win_probs(df, .01, .99)
   
@@ -541,10 +552,11 @@ plot_line_graphs <- function(df, md, ligand_cols, fc_thresh = 1, assay_name){
     inner_join(df_med, by = "feature") %>%
     mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
   
-  
+  title_suffix <- ""
+  if(EGF_normed) title_suffix <- ", EGF normalized"
   p <- ggplot(fc_set, aes(x=Time, y=value, colour=Ligand))+
     geom_line()+
-    labs(title="EGF Normalized Line Graphs",
+    labs(title=paste0("Line Graphs",title_suffix),
          x = "Time (hours)",
          y="Intensity (AU)") +
     scale_x_continuous(breaks = c(0,8,24,48)) +
@@ -560,6 +572,9 @@ plot_line_graphs <- function(df, md, ligand_cols, fc_thresh = 1, assay_name){
   
 }
 fc_thresh = 1.5
+
+
+plot_line_graphs(df = RPPA_l1, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 
 plot_line_graphs(df = RPPA, md, ligand_cols = ligand_cols, fc_thresh = fc_thresh, assay_name = "RPPA")
 
@@ -587,9 +602,38 @@ plot_pca(RPPA, md, ligand_cols = ligand_cols, assay_name = "RPPA")
 
 ```{r}
 
-plot_correlation(RPPA, md, assay_name = "RPPA")
+#plot_correlation(RPPA, md, assay_name = "RPPA")
+
+var_thresh_percentile <- .5
+
+RPPA_l1_vars <- RPPA_l1 %>%
+  select(-feature) %>%
+  as.matrix() %>%
+  apply(1, var, na.rm = TRUE)
+  
+var_thresh <- quantile(RPPA_l1_vars, probs = var_thresh_percentile)
+RPPA_l1_hi_vars <- RPPA_l1[RPPA_l1_vars > var_thresh,]
+
+plot_correlation(RPPA_l1_hi_vars, md, EGF_normed = FALSE, assay_name = "RPPA")
+
+RPPA_vars <- RPPA %>%
+  select(-feature) %>%
+  as.matrix() %>%
+  apply(1, var, na.rm = TRUE)
+  
+var_thresh <- quantile(RPPA_vars, probs = var_thresh_percentile)
+RPPA_hi_vars <- RPPA[RPPA_vars > var_thresh,]
+
+plot_correlation(RPPA_hi_vars, md, EGF_normed = TRUE, assay_name = "RPPA")
+
+
+
 
 ```
+
+
+The heatmap shows the pearson correlation values of the top `r var_thresh_percentile*100`th percentile varying features.
+
 
 ###  
 
@@ -672,6 +716,7 @@ plot_line_graphs(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
 #### UMAP
 
 ```{r}
+
 plot_umap(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
 
 ```
@@ -681,6 +726,7 @@ plot_umap(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
 ```{r}
 
 plot_pca(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
+
 ```
 
 #### Correlation
@@ -688,6 +734,7 @@ plot_pca(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
 ```{r}
 
 plot_correlation(cycIF, md, assay_name = "cycIF")
+
 ```
 
 ### RNAseq{.tabset .tabset-fade}
@@ -726,6 +773,7 @@ plot_umap(RNAseq, md, ligand_cols = ligand_cols, assay_name = "RNAseq")
 ```{r}
 
 plot_pca(RNAseq, md, ligand_cols = ligand_cols, assay_name = "RNAseq")
+
 ```
 
 #### Correlation
@@ -740,18 +788,35 @@ plot_correlation(RNAseq_hi_vars, md, assay_name = "RNAseq")
 
 #### Heatmap  
 
-```{r GCP_figures, eval = TRUE}
-### delete histone when data is missing
+```{r GCP_figures}
+
+var_thresh_percentile <- 0
+
 GCP <- load_data(assay_name = "GCP") %>%
   rename(feature = histone)
 
-plot_heatmap(GCP, md, assay_name = "GCP")
+GCP_level2 <- load_data(assay_name = "GCP", level = 2) %>%
+  rename(feature = histone) %>%
+  gather(key = specimenID, value = value, -feature) %>%
+  group_by(feature) %>%
+  mutate(value = value - median(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+    spread(key = specimenID, value = value) %>%
+  mutate(feature = factor(feature, levels = GCP$feature)) %>%
+  arrange(feature)
+  
 
-plot_heatmap(GCP, md, assay_name = "GCP", show_row_names = TRUE, cluster_rows = FALSE)
+plot_heatmap(GCP_level2, md, assay_name = "GCP", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile)
+
+plot_heatmap(GCP_level2, md, assay_name = "GCP", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, show_row_names = TRUE, cluster_rows = FALSE)
+
+plot_heatmap(GCP, md, assay_name = "GCP", var_thresh_percentile = var_thresh_percentile)
+
+plot_heatmap(GCP, md, assay_name = "GCP", show_row_names = TRUE, cluster_rows = FALSE, var_thresh_percentile = var_thresh_percentile)
 
 ```
 
-Histone probes with NA values in any sample are dropped from the GCP dataset.
+The unnormalized values are row-median centered. 
 
 #### Line graphs
 
@@ -773,17 +838,42 @@ plot_umap(df, md, ligand_cols = ligand_cols, assay_name = "GCP")
 #### PCA 
 
 ```{r}
-
+df <- GCP %>%
+  drop_na()
 plot_pca(df, md, ligand_cols = ligand_cols, assay_name = "GCP")
+
 ```
 
 #### Correlation
 
 ```{r}
 
-plot_correlation(GCP, md, assay_name = "GCP")
+var_thresh_percentile <- .5
+
+GCP_vars <- GCP %>%
+  select(-feature) %>%
+  as.matrix() %>%
+  apply(1, var, na.rm = TRUE)
+  
+var_thresh <- quantile(GCP_vars, probs = var_thresh_percentile)
+GCP_hi_vars <- GCP[GCP_vars > var_thresh,]
+
+plot_correlation(GCP_hi_vars, md, assay_name = "GCP")
+
+GCP_level2_vars <- GCP_level2 %>%
+  select(-feature) %>%
+  as.matrix() %>%
+  apply(1, var, na.rm = TRUE)
+  
+var_thresh <- quantile(GCP_level2_vars, probs = var_thresh_percentile)
+GCP_level2_hi_vars <- GCP_level2[GCP_level2_vars > var_thresh,]
+
+plot_correlation(GCP_level2_hi_vars, md, assay_name = "GCP")
 
 ```
+
+
+The heatmap shows the pearson correlation values of the top `r var_thresh_percentile*100`th percentile varying features.  
 
 ### ATACseq{.tabset .tabset-fade}
 
@@ -823,6 +913,7 @@ plot_umap(ATACseq, md, ligand_cols = ligand_cols, assay_name = "ATACseq")
 ```{r}
 
 plot_pca(ATACseq, md, ligand_cols = ligand_cols, assay_name = "ATACseq")
+
 ```
 
 #### Correlation
@@ -831,36 +922,50 @@ plot_pca(ATACseq, md, ligand_cols = ligand_cols, assay_name = "ATACseq")
 
 plot_correlation(ATACseq_hi_vars, md, assay_name = "ATACseq")
 
+```
+ 
+
+### L1000{.tabset .tabset-fade}
+
+#### Heatmap  
+ 
+```{r l1000_figures}
+
+L1000 <- load_data("L1000") %>%
+  rename(feature = probeset)
+
+```
+
+
+
+```{r}
+
+plot_heatmap(L1000, md, "L1000")
+
+```
+
+#### UMAP
+
+```{r}
+
+plot_umap(L1000, md, ligand_cols = ligand_cols, assay_name = "L1000")
+
+```
+
+#### PCA 
+
+```{r}
+
+plot_pca(L1000, md, ligand_cols = ligand_cols, assay_name = "L1000")
+
+```
+
+#### Correlation
+
+```{r}
+
+plot_correlation(L1000, md, assay_name = "L1000")
 
 ```
  
- ##  
- 
-```{r l1000_figures, eval = FALSE}
-
-
-```
-
-
-
-```{r eval = FALSE}
-df <- data.frame(time = as.factor(c(0,1,4,8,24,48)),
-                 assay = factor(rep(c("RPPA","cycIF","L1000", "GCP","IF","ATACseq","RNAseq"), each = 6), levels = c("ATACseq","RNAseq","IF", "GCP","L1000","cycIF","RPPA"), ordered = TRUE),
-                 dataPresent = c(
-                   rep(TRUE, 6),
-                   rep(TRUE, 6),
-                   rep(TRUE, 6),
-                   c(TRUE, FALSE, TRUE, TRUE, TRUE, TRUE),
-                   c(TRUE, FALSE, FALSE, FALSE, TRUE, TRUE),
-                   c(TRUE, FALSE, FALSE, FALSE, TRUE, TRUE),
-                   c(TRUE, FALSE, FALSE, FALSE, TRUE, TRUE)),
-                 ligand = rep(c("BMP2", "IFNG", "TGFB","PBS", "HGF", "OSM", "EGF"), times = 36)
-                 )
-p <- ggplot(df, aes(x = time, y = assay,  fill = dataPresent)) +
-  geom_tile(colour = "black") + 
-  scale_fill_manual(values = c("TRUE" =  "#68D7F3", "FALSE" ="#193A43")) +
-  theme_bw()
-p  
-
-
-```
+##
