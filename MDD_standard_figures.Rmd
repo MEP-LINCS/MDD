@@ -232,7 +232,7 @@ prep_data <- function(df, md){
     mutate(feature = factor(feature, levels = unique(df$feature))) %>%
       arrange(feature,)
   #Set the order of the columns
-  condition_order <-  paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 25, times = 3), rep(c(1, 4 ,8, 24, 48), each = 5, times = 3), rep(c("C1", "C2", "C3"), each = 175), rep(c("A", "B", "C", "D", "E"), times = 105),  sep = "_") %>%
+  condition_order <-  paste(rep(c("ctrl","PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 30, times = 3), rep(c(0, 1, 4 ,8, 24, 48), each = 5, times = 3), rep(c("C1", "C2", "C3"), each = 240), rep(c("A", "B", "C", "D", "E"), times = 109),  sep = "_") %>%
     intersect(colnames(df))
   
   #Arrange columns by standard condition order
@@ -259,20 +259,21 @@ prep_annotations <- function(df, md){
 create_top_annotations <- function(df, md){
   df_ann <- prep_annotations(df, md)
   haTop <- HeatmapAnnotation(df = df_ann,
-                             col = list(Ligand = c( "PBS" = "#8dd3c7",
+                             col = list(Ligand = c("ctrl" = "#7A4A2A",
+                                                   "PBS" = "#8dd3c7",
                                                     "HGF" = "#80b1d3",
                                                     "OSM" = "#fdb462",
                                                     "EGF" = "#fb8072",
                                                     "BMP2" = "#b3de69",
                                                     "IFNG" = "#bebada",
                                                     "TGFB" = "#ffd92f"),
-                                        Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
+                                        Time = c("0" = "white", "1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
                                         Ligand2 = c("EGF" = "#9E79A3", "none" = "#BE7249"),
-                                        Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a", "D" = "#33a02c", "E" = 
-"#fb9a99"),
+                                        Replicate = c("A" = "#F794BD","B" = "#8EB5E3", "C" = "#41C6AD", "D" = "#9DBD5B", "E" = "#F19E58"),
                                         Collection = c("C1" = "#D79FD4", "C2" = "#3CC3B9", "C3" = "#B9B34C")))
   return(haTop)
 }
+####5 colors for replicates #F794BD,#8EB5E3,#41C6AD,#9DBD5B,#F19E58 
 
 create_row_annotations <- function(df, md){
   df_ann <- prep_annotations(df, md) %>%
@@ -280,16 +281,17 @@ create_row_annotations <- function(df, md){
   ####ha = rowAnnotation(foo = anno_mark(at = c(1:4, 20, 60, 97:100), labels = month.name[1:10])
   ###
   haRow <- rowAnnotation(df = df_ann, show_legend = FALSE,
-                             col = list(Ligand = c( "PBS" = "#8dd3c7",
+                             col = list(Ligand = c( "ctrl" = "#7A4A2A",
+                                                    "PBS" = "#8dd3c7",
                                                     "HGF" = "#80b1d3",
                                                     "OSM" = "#fdb462",
                                                     "EGF" = "#fb8072",
                                                     "BMP2" = "#b3de69",
                                                     "IFNG" = "#bebada",
                                                     "TGFB" = "#ffd92f"),
-                                        Time = c("1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
+                                        Time = c("0" = "white", "1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
                                         Ligand2 = c("EGF" = "#9E79A3", "none" = "#BE7249"),
-                                        Replicate = c("A" = "#a6cee3","B" = "#1f78b4", "C" = "#b2df8a", "D" = "#33a02c", "E" = "#fb9a99"),
+                                        Replicate = c("A" = "#F794BD","B" = "#8EB5E3", "C" = "#41C6AD", "D" = "#9DBD5B", "E" = "#F19E58"),
                                         Collection = c("C1" = "#D79FD4", "C2" = "#3CC3B9", "C3" = "#B9B34C")))
   return(haRow)
 }
@@ -330,7 +332,7 @@ title_suffix <- ""
           name = "abundance",
           column_title = paste0(assay_name, title_suffix),
           top_annotation = create_top_annotations(df, md),
-#          right_annotation = ra,
+          right_annotation = ra,
           show_row_names = show_row_names,
           show_column_names = FALSE,
           cluster_columns = FALSE,
@@ -478,7 +480,8 @@ plot_correlation <- function(df, md, assay_name, EGF_normed = TRUE,
 ```
 
 ```{r globalVariables}
-ligand_cols <- c( "PBS" = "#8dd3c7",
+ligand_cols <- c("ctrl" = "#7A4A2A",
+                 "PBS" = "#8dd3c7",
                   "HGF" = "#80b1d3",
                   "OSM" = "#fdb462",
                   "EGF" = "#fb8072",
@@ -510,19 +513,19 @@ RPPA_l1 <- load_data(assay_name = "RPPA", level = 1) %>%
 
 
 ```{r}
-var_thresh_percentile <- 0.1
+var_thresh_percentile <- 0
 
-plot_heatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, mark_rows = c("EGFR", "Smad3","HER2", "HER3", "Stat3", "Claudin-7", "YAP", "Notch1"))
+plot_heatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, mark_rows = c("Caspase-7-cleaved", "c-Myc",  "Connexin-43", "DUSP4", "EGFR", "EMA", "HER2", "IRF-1", "PD-L1", "Stat3_pY705"))
 
-plot_heatmap(RPPA, md, assay_name = "RPPA", var_thresh_percentile = var_thresh_percentile, mark_rows = c("EGFR", "Smad3","HER2", "HER3", "Stat3", "Claudin-7", "YAP", "Notch1"))
+plot_heatmap(RPPA, md, assay_name = "RPPA", var_thresh_percentile = var_thresh_percentile, mark_rows = c("Caspase-7-cleaved", "c-Myc",  "Connexin-43", "DUSP4", "EGFR", "EMA", "HER2", "IRF-1", "PD-L1", "Stat3_pY705"))
 
 ```
 
-The top `r var_thresh_percentile*100` percentile varying proteins measured in the RPPA assay are shown in the heatmaps.  
+Antibodies with variances above the `r var_thresh_percentile*100` percentile are shown in the heatmaps.  
 
 #### Line graphs
 
-```{r, fig.height=15, fig.width=15}
+```{r, fig.height=30, fig.width=15}
 
 plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh = 1, assay_name){
   
@@ -567,12 +570,11 @@ plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh =
           strip.text = element_text(size=10, hjust=0),
             panel.background = element_rect(fill = NA),
   panel.grid.major = element_line(colour = "gray95"))+
-    facet_wrap(~feature)
+    facet_wrap(~feature, ncol = 10)
   p
   
 }
-fc_thresh = 1.5
-
+fc_thresh = 0
 
 plot_line_graphs(df = RPPA_l1, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 
@@ -625,9 +627,6 @@ var_thresh <- quantile(RPPA_vars, probs = var_thresh_percentile)
 RPPA_hi_vars <- RPPA[RPPA_vars > var_thresh,]
 
 plot_correlation(RPPA_hi_vars, md, EGF_normed = TRUE, assay_name = "RPPA")
-
-
-
 
 ```
 
@@ -694,7 +693,7 @@ cycIF_vars <- cycIF %>%
   as.matrix() %>%
   apply(1, var)
   
-var_thresh <- quantile(cycIF_vars, probs = .5)
+var_thresh <- quantile(cycIF_vars, probs = var_thresh_percentile)
 cycIF_hi_vars <- cycIF[cycIF_vars > var_thresh,]
 
 plot_heatmap(cycIF_hi_vars, md, assay_name = "cycIF", mark_rows = c("egfr_2_af488fitc_int_mean_nuc","stat3_4_af488fitc_int_med_cytoplasm","met_6_af488fitc_int_mean_nuc"))
@@ -702,7 +701,7 @@ plot_heatmap(cycIF_hi_vars, md, assay_name = "cycIF", mark_rows = c("egfr_2_af48
 ```
 
 
-Intensity features included in the heatmap have a variance above the `r names(var_thresh) %>% str_remove("%")` percentile . 
+Intensity features included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
 
 #### Line graphs
 
@@ -750,7 +749,8 @@ RNAseq_vars <- RNAseq %>%
   as.matrix() %>%
   apply(1, var)
   
-var_thresh <- quantile(RNAseq_vars, probs = .9)
+var_thresh_percentile <- .75
+var_thresh <- quantile(RNAseq_vars, probs = var_thresh_percentile)
 RNAseq_hi_vars <- RNAseq[RNAseq_vars > var_thresh,]
   
 plot_heatmap(RNAseq_hi_vars, md, assay_name = "RNAseq")
@@ -758,7 +758,7 @@ plot_heatmap(RNAseq_hi_vars, md, assay_name = "RNAseq")
 ```
 
 
-Genes included in the heatmap have a variance above the `r names(var_thresh) %>% str_remove("%")` percentile . 
+Genes included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
 
 #### UMAP
 
@@ -816,13 +816,12 @@ plot_heatmap(GCP, md, assay_name = "GCP", show_row_names = TRUE, cluster_rows = 
 
 ```
 
-The unnormalized values are row-median centered. 
 
 #### Line graphs
 
 ```{r, fig.height=15, fig.width=15}
 
-plot_line_graphs(GCP, md, ligand_cols = ligand_cols, assay_name = "GCP")
+plot_line_graphs(GCP, md, ligand_cols = ligand_cols, assay_name = "GCP", fc_thresh = 0)
 
 ```
 
@@ -889,7 +888,8 @@ ATACseq_vars <- ATACseq %>%
   as.matrix() %>%
   apply(1, var)
   
-var_thresh <- quantile(ATACseq_vars, probs = .95)
+var_thresh_percentile <- .95
+var_thresh <- quantile(ATACseq_vars, probs = var_thresh_percentile)
 ATACseq_hi_vars <- ATACseq[ATACseq_vars > var_thresh,]
   
 plot_heatmap(ATACseq_hi_vars, md, assay_name = "ATACseq")
@@ -897,7 +897,7 @@ plot_heatmap(ATACseq_hi_vars, md, assay_name = "ATACseq")
 ```
 
 
-Peaks included in the heatmap have a variance above the `r names(var_thresh) %>% str_remove("%")` percentile . 
+Peaks included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
 
 
 #### UMAP
@@ -937,10 +937,12 @@ L1000 <- load_data("L1000") %>%
 ```
 
 
+Genes included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
 
 ```{r}
 
-plot_heatmap(L1000, md, "L1000")
+var_thresh_percentile <- .5
+plot_heatmap(L1000, md, "L1000",var_thresh_percentile = var_thresh_percentile)
 
 ```
 
