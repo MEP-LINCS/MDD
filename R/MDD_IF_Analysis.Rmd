@@ -1,5 +1,5 @@
 ---
-title: "MDD supplemental figure 2"
+title: "MDD figure 2 panel"
 date: "`r Sys.Date()`"
 output: pdf_document
 
@@ -82,7 +82,7 @@ df <- l3_T0 %>%
   
 
 p <- ggplot(df, aes(x=experimentalCondition, y=WellCellCountT0Norm, fill=Ligand))+
-  geom_boxplot(position = position_dodge(width=0.9), lwd = 1.1, outlier.colour = NA)+
+  geom_boxplot(position = position_dodge(width=0.9), lwd = .5, outlier.colour = NA)+
   scale_fill_manual(values = ligand_cols) +
   scale_x_discrete(labels = c("ctrl", "PBS",  "HGF",  "OSM", "EGF",  "BMP\n+EGF2", "IFNG\n+EGF", "TGFB\n+EGF", "PBS",  "HGF",  "OSM", "EGF",  "BMP2\n+EGF", "IFNG\n+EGF", "TGFB\n+EGF")) +
   coord_cartesian(y = c(0,9)) +
@@ -96,7 +96,7 @@ p <- ggplot(df, aes(x=experimentalCondition, y=WellCellCountT0Norm, fill=Ligand)
         plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
         legend.title=element_text(size = rel(1)))
 p <- p + geom_vline(xintercept = c(1.5, 8.5), linetype="dashed")
-p <- p +  geom_point(aes(shape=collection), color = "black", size = 3, position=position_jitterdodge(dodge.width=0.9), alpha=.6)
+p <- p +  geom_point(aes(shape=collection), color = "black", size = 3, position=position_jitterdodge(dodge.width=0.9), alpha=.8)
 
 p
 
