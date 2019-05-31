@@ -2,10 +2,8 @@
 title: "MCF10A Immunofluroescence Analysis"
 author: "Mark Dane"
 date: "`r Sys.Date()`"
-output: 
-  flexdashboard::flex_dashboard:
-    storyboard: true
-    source_code: embed
+output: pdf_document
+
 ---
 
 
@@ -33,24 +31,6 @@ load_data <- function(assay_name, level = 4){
   } else stop("The data file ",file_name, " must be a csv or tsv file type")
 } #end of function
 
-prep_data <- function(df, md){
-    df <- df %>%
-    gather(specimenID, value, -feature) %>%
-    inner_join(md, by = "specimenID") %>%
-    select(feature, specimenName, value) %>%
-    spread(specimenName, value) %>%
-    mutate(feature = factor(feature, levels = unique(df$feature))) %>%
-      arrange(feature,)
-  #Set the order of the columns
-  condition_order <-  paste(rep(c("ctrl","PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 30, times = 3), rep(c(0, 1, 4 ,8, 24, 48), each = 5, times = 3), rep(c("C1", "C2", "C3"), each = 240), rep(c("A", "B", "C", "D", "E"), times = 109),  sep = "_") %>%
-    intersect(colnames(df))
-  
-  #Arrange columns by standard condition order
-  df <- df %>%
-    select(feature, condition_order)
-  return(df)
-}
-
 ```
 
 ```{r globalVariables}
@@ -63,20 +43,23 @@ ligand_cols <- c("ctrl" = "#7A4A2A",
                   "IFNG" = "#bebada",
                   "TGFB" = "#ffd92f")
 
-md <- read_csv("../Metadata/MDD_sample_annotations.csv")
-```
-
-```{r readGateSummarize, echo=FALSE}
-
-l3 <- load_data(assay_name = "IF", level = 3)
+ ligand2_cols <- c("EGF" = "#9E79A3", "none" = "#BE7249")
 
 ```
 
+```{r readDataMetadata, echo=FALSE}
+
+l3_data <- load_data(assay_name = "IF", level = 3)
+
+l3 <- read_csv("../Metadata/MDD_sample_annotations.csv") %>%
+  select(specimenID, ligand, experimentalCondition, secondLigand) %>%
+  right_join(l3_data, by=c("specimenID"))
+
+```
 
 
-###Cell Count and Intensity Boxplots
 
-```{r boxplots, eval=TRUE}
+```{r boxplots}
 
 #Add T0 normalized well cell count
 l3_T0 <- l3 %>%
@@ -89,571 +72,53 @@ l3_T0 <- l3 %>%
   right_join(l3, by = c("collection", "replicate")) %>%
   mutate(WellCellCountT0Norm = WellCellCount/WellCellCountT0Median,
          Ligand = str_remove(specimenName, "_.*"),
-         Ligand = factor(Ligand, levels = names(ligand_cols)))
-  
-p <- ggplot(l3_T0, aes(x=Ligand, y=WellCellCountT0Norm))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="Well Cell Count",
-       fill="Media",
-       title="Cell Count by ligand and time point")+
-    theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
+         Ligand = factor(Ligand, levels = names(ligand_cols)),
+         Ligand2 = secondLigand)
+```
 
-  facet_wrap(~experimentalTimePoint)
-p <- p +  geom_point(aes(shape=collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)
-print(p)
+```{r cellCountBoxplots}
 
 df <- l3_T0 %>%
-  filter(experimentalTimePoint == 0)
+  filter(experimentalTimePoint %in% c(0,24))
 
-p <- ggplot(df, aes(x=Ligand, y=WellCellCountT0Norm))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="Well Cell Count")+
-    theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))
-p <- p +  geom_point(aes(shape=collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)
-print(p)
-
-df <- l3_T0 %>%
-  filter(experimentalTimePoint == 24)
-
-p <- ggplot(df, aes(x=Ligand, y=WellCellCountT0Norm, fill=Ligand))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
+p <- ggplot(df, aes(x=Ligand, y=WellCellCountT0Norm, fill=Ligand, color = Ligand2))+
+  geom_boxplot(position = position_dodge(width=0.9), lwd = 1.1, outlier.colour = NA)+
   scale_fill_manual(values = ligand_cols) +
+  scale_color_manual(values = ligand2_cols) +
+  coord_cartesian(y = c(0,9)) +
+  scale_y_continuous(breaks = c(1,3,5,7,9)) +
   labs(x="Ligand",
        y="Well Cell Count",
-       title = paste("Time", unique(df$experimentalTimePoint)))+
-    theme_bw() +
+       title = paste("Time 0 and 24"))+
+  theme_bw() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
         axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
         plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
         legend.title=element_text(size = rel(1)))
-p <- p +  geom_point(aes(shape=collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)
-print(p)
+p <- p +  geom_point(aes(shape=collection), color = "black", size = 3, position=position_jitterdodge(dodge.width=0.9), alpha=.6) + 
+    guides(fill = FALSE,
+           color = FALSE,
+           shape = FALSE)
+p
 
 df <- l3_T0 %>%
   filter(experimentalTimePoint == 48)
 
-p <- ggplot(df, aes(x=Ligand, y=WellCellCountT0Norm))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
+p <- ggplot(df, aes(x=Ligand, y=WellCellCountT0Norm, fill=Ligand, color = Ligand2))+
+  geom_boxplot(position = position_dodge(width=0.9), lwd = 1.1, outlier.colour = NA)+
+  scale_fill_manual(values = ligand_cols) +
+  scale_color_manual(values = ligand2_cols) +
+  scale_y_continuous(breaks = c(1,3,5,7,9)) +
+  coord_cartesian(y = c(0,9)) +
   labs(x="Ligand",
-       y="Well Cell Count",
-       title = paste("Time", experimentalTimePoint))+
-    theme_bw() +
+       color = "Paired\nwith EGF",
+       title = paste("Time", unique(df$experimentalTimePoint)))+
+  theme_bw() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
+        axis.title.y = element_blank(),
         plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
         legend.title=element_text(size = rel(1)))
-p <- p +  geom_point(aes(shape=collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)
-print(p)
-
-
-
-```
-
-
-***
-Each boxplot summarizes the replicates from `r length(unique(dt$Barcode))` different plates. The points show the individual data. The KRT5 Mean Intensity is measured in a 10 pixel annulus around each nucleus.  
-
-###Cell Count and Intensity Boxplots, T0 normalized
-
-```{r boxplotsT0Norm, eval=TRUE}
-
-#Development notes:
-#reorder ligands with controls first
-
-dt <- well
-dt$Ligand <- factor(dt$Ligand, levels = c("ctrl","PBS","BMP2","IFNg","TGFb","HGF","OSM","EGF"))
-dt$PairedWithEGF <- factor(dt$PairedWithEGF, labels=c("PBS","EGF"))
-dt$Media <- ""
-dt$Media[dt$Ligand %in% c("BMP2", "IFNg","TGFb")] <- "+EGF"
-dt$Ligand_Media <- paste0(dt$Ligand, dt$Media)
-dt$Ligand_Media <- factor(dt$Ligand_Media, levels = c("ctrl","PBS","BMP2+EGF","IFNg+EGF","TGFb+EGF","HGF","OSM","EGF"))
-
-p <- ggplot(dt, aes(x=Ligand_Media, y=WellCellCountT0Norm, fill=factor(PairedWithEGF)))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="Well Cell Count",
-       fill="Media",
-       title="Cell Count by ligand and time point",
-       subtitle = "T0 normalized") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
-  facet_wrap(~TimePoint)
-p <- p +  geom_point(aes(colour=Collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
-  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
-print(p)
-
-p <- ggplot(dt, aes(x=factor(Ligand_Media), y=MeanIntensity485T0Norm, fill=factor(PairedWithEGF)))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="KRT5 Mean Intensity",
-       fill="Media",
-       title="KRT5 Mean Intensity by ligand and time point",
-       subtitle = "T0 normalized") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
-  facet_wrap(~TimePoint)
-p <- p +  geom_point(aes(colour=Collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
-  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
-print(p)
-
-p <- ggplot(dt, aes(x=factor(Ligand_Media), y=DNA2nProportionT0Norm, fill=factor(PairedWithEGF)))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="DNA 2n Proportion",
-       fill="Media",
-       title="DNA 2n proportion by ligand and time point",
-       subtitle = "T0 normalized") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
-  facet_wrap(~TimePoint)
-p <- p +  geom_point(aes(colour=Collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
-  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
-print(p)
-
-
-```
-
-
-***
-Each boxplot summarizes the replicates from `r length(unique(dt$Barcode))` different plates. The points show the individual data. The KRT5 Mean Intensity is measured in a 10 pixel annulus around each nucleus.  
-
-
-###Cell Count and Intensity Boxplots, EGF timecourse normalized
-
-```{r boxplotsEGFNorm, eval=TRUE}
-
-#Development notes:
-#reorder ligands with controls first
-
-dt <- well
-dt$Ligand <- factor(dt$Ligand, levels = c("ctrl","PBS","BMP2","IFNg","TGFb","HGF","OSM","EGF"))
-dt$PairedWithEGF <- factor(dt$PairedWithEGF, labels=c("PBS","EGF"))
-dt$Media <- ""
-dt$Media[dt$Ligand %in% c("BMP2", "IFNg","TGFb")] <- "+EGF"
-dt$Ligand_Media <- paste0(dt$Ligand, dt$Media)
-dt$Ligand_Media <- factor(dt$Ligand_Media, levels = c("ctrl","PBS","BMP2+EGF","IFNg+EGF","TGFb+EGF","HGF","OSM","EGF"))
-
-p <- ggplot(dt, aes(x=Ligand_Media, y=WellCellCountEGFNorm, fill=factor(PairedWithEGF)))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="Well Cell Count",
-       fill="Media",
-       title="Cell Count by ligand and time point",
-       subtitle = "EGF timecourse normalized") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
-  facet_wrap(~TimePoint)
-p <- p +  geom_point(aes(colour=Collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
-  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
-print(p)
-
-p <- ggplot(dt, aes(x=Ligand_Media, y=EdUPositiveProportionEGFNorm, fill=factor(PairedWithEGF)))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="EdU Positive Proportion",
-       fill="Media",
-       title="EdU Positive Proportion by ligand and time point",
-       subtitle = "EGF timecourse normalized")+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
-  facet_wrap(~TimePoint)
-p <- p +  geom_point(aes(colour=Collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
-  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
-print(p)
-
-p <- ggplot(dt, aes(x=factor(Ligand_Media), y=MeanIntensity485EGFNorm, fill=factor(PairedWithEGF)))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="KRT5 Mean Intensity",
-       fill="Media",
-       title="KRT5 Mean Intensity by ligand and time point, T0 normalized",
-       subtitle = "EGF timecourse normalized") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
-  facet_wrap(~TimePoint)
-p <- p +  geom_point(aes(colour=Collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
-  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
-print(p)
-
-p <- ggplot(dt, aes(x=factor(Ligand_Media), y=DNA2nProportionEGFNorm, fill=factor(PairedWithEGF)))+
-  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
-  labs(x="Ligand",
-       y="DNA 2n Proportion",
-       fill="Media",
-       title="DNA 2n proportion by ligand and time point, T0 normalized",
-       subtitle = "EGF timecourse normalized") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
-        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
-  facet_wrap(~TimePoint)
-p <- p +  geom_point(aes(colour=Collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
-  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
-print(p)
-
-
-```
-
-
-***
-Each boxplot summarizes the replicates from `r length(unique(dt$Barcode))` different plates. The points show the individual data. The KRT5 Mean Intensity is measured in a 10 pixel annulus around each nucleus.  
-
-
-
-###Cell Count and Intensity Scatterplots
-
-```{r scatterplots, eval=TRUE}
-dt <- well
-dt$Ligand <- factor(dt$Ligand, levels = c("ctrl","PBS","BMP2","IFNg","TGFb","HGF","OSM","EGF"))
-
-p <- ggplot(dt, aes(x=WellCellCount, y=MeanIntensity485, colour=Ligand))+
-  geom_point()+
-  labs(x="Well Cell Count",
-       y="KRT5 Mean Intensity",
-       colour="Ligand",
-       title="KRT5 Intensity vs Cell Count")+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.9)),
-        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
-        plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)))+
-  facet_wrap(~TimePoint)
-print(p)
-
-dt <- cell %>%
-  filter(TimePoint==48) %>%
-  group_by(Ligand)
-
-dt$EdUPositive <- factor(dt$EdUPositive, labels=c("Negative","Positive"))
-
-p <- ggplot(dt, aes(x=Ligand, y=MeanIntensity485, colour=factor(EdUPositive)))+
-  geom_boxplot()+
-   labs(x="Ligand",
-       y="KRT5 Mean Intensity",
-       colour="EdU Status",
-       title="KRT5 Intensity by EdU Status")
+p <- p +  geom_point(aes(shape=collection), color = "black", size = 3, position=position_jitterdodge(dodge.width=0.9), alpha=.6)
 p
 
-dt <- well %>%
-  filter(TimePoint==48)
-dt$Ligand <- factor(dt$Ligand, levels = c("ctrl","PBS","BMP2","IFNg","TGFb","HGF","OSM","EGF"))
-
-p <- ggplot(dt, aes(x=EdUPositiveProportion, y=MeanIntensity485, colour=Ligand))+
-  geom_point(alpha=1, size=3)+
-  labs(x="EdU Positive Proportion",
-       y="KRT5 Mean Intensity",
-       colour="Ligand",
-       title="KRT5 Intensity vs EdU Positive Proportion")
-p
-
-```
-
-
-***
-Each scatterplot or boxplot summarizes the replicates from five different plates. The points show the individual data. 
-
-
-
-###QA Plots
-
-```{r histograms, eval=TRUE}
-
-dt <- cell
-
-for(timePoint in unique(dt$TimePoint)){
-  dti <- filter(dt,TimePoint==timePoint) %>%
-    filter(TotalIntensity377>quantile(TotalIntensity377,probs=.002)&TotalIntensity377<quantile(TotalIntensity377,probs=.998))
-  p <- ggplot(dti, aes(x=log2(TotalIntensity377)))+
-    geom_histogram(binwidth = .02)+
-    labs(x="Total DAPI Intensity (log2)",
-         y= "count",
-         title = paste0("Histograms of Total DAPI, T",timePoint," Plates"))+
-    theme(axis.text.x = element_blank(),
-          strip.text = element_text(size = 13))+
-    facet_grid(Barcode~Well+Ligand)
-  p <- p + geom_vline(aes(xintercept=log2(DNAThresh)), colour="blue")
-  print(p)
-}
-
-
-dti <- filter(dt,TimePoint==48) %>% 
-  filter(MeanIntensity650>quantile(MeanIntensity650,probs=.002)&MeanIntensity650<quantile(MeanIntensity650,probs=.998))
-
-p <- ggplot(dti, aes(x=log2(MeanIntensity650)))+
-  geom_histogram(binwidth = .02)+
-  labs(x="Mean EdU Intensity (log2)",
-       y= "count",
-       title = paste0("Histograms of Mean Intensity EdU, T48 Plates"))+
-  theme(axis.text.x = element_blank(),
-        strip.text = element_text(size = 13))+
-  facet_grid(Barcode~Well+Ligand)
-p <- p + geom_vline(aes(xintercept=log2(EdUThresh)), colour="blue")
-print(p)
-
-for(timePoint in unique(dt$TimePoint)){
-  dti <- filter(dt,TimePoint==timePoint) %>%
-    filter(MeanIntensity485>quantile(MeanIntensity485,probs=.002)&MeanIntensity485<quantile(MeanIntensity485,probs=.998))
-  p <- ggplot(dti, aes(x=log10(MeanIntensity485)))+
-    geom_histogram(bins = 200)+
-    labs(x="Mean KRT5 Intensity (log10)",
-         y= "count",
-         title = paste0("Histograms of Mean Intensity KRT5, T",timePoint," Plates"))+
-    theme(axis.text.x = element_blank(),
-          strip.text = element_text(size = 13))+
-    facet_grid(Barcode~Well+Ligand)
-  print(p)
-}
-
-```
-
-***
-
-###Datatable with Image Links
-
-
-```{r datatable, eval=TRUE}
-dt <- field
-
-colNames <- c("Barcode","Well","Field","Ligand","FieldCellCount","EdUPositiveProportion", "MeanIntensity485","DNA2nProportion")
-colNamesDisplay <- c("Barcode","Well","Field","Ligand","Field Cell Count", "EdU Positive Fraction", "KRT5 Mean Intensity","DNA 2n Fraction")
-
-#Setup for spots to display images
-colNamesSpots <- c(colNames,"OmeroDetailURL")
-colNamesDisplaySpots <- c(colNamesDisplay,"Image Link")
-dt <- setorder(dt, -FieldCellCount)
-datatable(dt[,colNamesSpots, with=FALSE], options = list(pageLength = 25), colnames =colNamesDisplaySpots, escape = FALSE)
-
-```
-
-
-
-```{r images, fig.width=20, fig.height=4, eval=FALSE}
-#TODO fix the images so they work for both collections
-###Sampled Images
-
-# Development notes
-# add a large, single image of each condition
-
-
-getOmeroImages <- function(x, sn, idCol="ImageID"){
-  res1 <- lapply(x[[idCol]], function(i){
-    #Manage a cache of the images
-    if(file.exists(paste0("ImageCache/",sn,"/",i))){
-      #Read file from cache
-      message("reading from cache")
-      rimage <- readImage(paste0("ImageCache/",sn,"/",i),type = "JPEG")
-      resize(rimage,160,160)
-    } else{
-      #Get file from omero and store in cache
-      message("reading from omero and caching")
-      omeroR <-GET(paste0("https://meplincs.ohsu.edu/webclient/render_image/",
-                          i,"/"))
-      rimage <- content(omeroR,as = "parsed",type = "image/JPEG")
-      writeJPEG(rimage, paste0("ImageCache/",sn,"/",i), quality=.7)
-      rimage <- readImage(paste0("ImageCache/",sn,"/",i),type = "JPEG")
-      resize(rimage,160,160)
-    }
-  })
-}
-
-getScanROmeroIDs <- function(path){
-  dt <- fread(path)
-  dt$Well <- wellAN(2,4)[(dt$Row-1)*4+dt$Column]
-  setnames(dt, "PlateID", "Barcode")
-  return(dt)
-}
-
-#Debug Write a version of sample_n that can run with replace =FALSE when there are
-#less than n samples in some of the groups
-robustSample_n <- function(x, size){
-  #identify groups less than size
-  small <- x %>%
-    count() %>%
-    filter(n<size)
-  #copy blank images into small groups to = size
-  if(nrow(small)>0){
-      #use image ID 2853045, ArrayRow 16, column 15, A02
-  xSampled <- apply(small, MARGIN = 1, FUN=function(x){
-    tibble(Barcode=x[["Barcode"]],Ligand=x[["Ligand"]],ImageID=2853045,N=1:(size-as.numeric(x[["n"]])))
-  }) %>%
-    bind_rows(x) %>%
-    group_by(Barcode,Ligand) %>%
-    sample_n(size) %>%
-    select(-N)
-  } else {
-    xSampled <- x %>%
-      group_by(Barcode, Ligand) %>%
-      sample_n(size) 
-  }
-return(xSampled)
-}
-
-createImageTile <- function(dt, rowType="ECMp", colType="CellLine", nrImages = 2){
-  #generate an image tile with nrImages samples of rowType and colType spots 
-  #Build a dataframe of image IDs and sample by cell line and ECMp
-  set.seed(42)
-  imageDF <- dt %>%
-    group_by(Barcode, Ligand) %>%
-    robustSample_n(nrImages)
-  
-
-  #Get the images and cache if they are new
-  images <- imageDF %>%
-    arrange(TimePoint, Barcode) %>%
-#    filter(ECMp=="AlCAM")%>%
-    getOmeroImages(sn="mdd_if")
-  #Combine the images a row at a time to avoid nesting too deeply error
-  imagesL <- lapply(seq(1,length(images),by=nrImages*length(unique(dt[[colType]]))), function(i){
-    EBImage::combine(images[i:(i+nrImages*length(unique(dt[[colType]]))-1)])
-  })
-  imagesC <- EBImage::combine(imagesL)
-  imageTile <- tile(imagesC,n=nrImages*length(unique(dt[[colType]])),lwd=1.8, fg.col="gray") %>%
-    rotate(-90)
-   # imageTile <- tile(imagesC)
-
-  return(imageTile)
-}
-
-#Create a tile of images that has barcode_image samples in the columns
-#ligand in the rows
-
-#Plot the Time 0 tile separately from the T24 and T48
-dt <-field  %>%
-  filter(TimePoint==0) %>%
-  select(Barcode, Well, Field, CellLine, TimePoint, Ligand, ImageID, Row, Column )
-dt$Ligand <- factor(dt$Ligand, levels = c("ctrl","PBS","BMP2","IFNg","TGFb","HGF","OSM","EGF")[8:1])
-
-  dt <- setorder(dt, TimePoint, Ligand, Barcode)
-  if(file.exists(paste0(studyName,"T0.jpg"))){
-    img <- readJPEG(paste0(studyName,"T0.jpg")) #jpg from memory is rotated 90 from disk
-  }  else { #get the images from omero, tile them and write the tile to disk
-    #log into omero
-    source("OmeroLogin.R")
-    img <- createImageTile(dt, rowType = "Barcode",colType = "Ligand",nrImages = 21)
-    writeJPEG(img, paste0(studyName,"T0.jpg")) 
-  }
-  
-  labels <- dt %>%
-  select(Ligand,TimePoint, Barcode) %>%
-  distinct()
-
-
-labels$Ligand <- factor(labels$Ligand,levels = sort(unique(labels$Ligand),decreasing = TRUE))
-labels$Ligand <- factor(labels$Ligand, levels = c("ctrl","PBS","BMP2","IFNg","TGFb","HGF","OSM","EGF"))
-labels$TimePoint <- factor(labels$TimePoint,levels = sort(unique(labels$TimePoint),decreasing = TRUE))
-
-p <- ggplot(labels, aes(x=Ligand, y=TimePoint))+
-  geom_point()+
-labs(y="Time Point",
-     title=paste0("Sampled images from MDD IF T0 Plates"))+
-  annotation_raster(img,  -Inf, Inf, -Inf, Inf)+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(3)),
-        axis.text.y = element_text(size=rel(3)),
-        axis.title.x = element_text(size=rel(4)),
-        axis.title.y = element_text(size=rel(3)),
-        plot.title = element_text(size = rel(4)),
-        legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)),
-        strip.text = element_text(size = 5))
-print(p)
-
-
-
-#Plot the T24 and T48 images
-dt <-field  %>%
-  filter(!TimePoint==0) %>%
-  select(Barcode, Well, Field, CellLine, TimePoint, Ligand, ImageID, Row, Column )
-dt$Ligand <- factor(dt$Ligand, levels = c("ctrl","PBS","BMP2","IFNg","TGFb","HGF","OSM","EGF")[8:1])
-
-  dt <- setorder(dt, TimePoint, Ligand, Barcode)
-  if(file.exists(paste0(studyName,".jpg"))){
-    img <- readJPEG(paste0(studyName,".jpg")) #jpg from memory is rotated 90 from disk
-  }  else { #get the images from omero, tile them and write the tile to disk
-    #log into omero
-    source("OmeroLogin.R")
-    img <- createImageTile(dt, rowType = "Barcode",colType = "Ligand",nrImages = 6)
-    writeJPEG(img, paste0(studyName,".jpg")) 
-  }
-  
-  labels <- dt %>%
-  select(Ligand,TimePoint, Barcode) %>%
-  distinct()
-
-
-labels$Ligand <- factor(labels$Ligand,levels = sort(unique(labels$Ligand),decreasing = TRUE))
-labels$Ligand <- factor(labels$Ligand, levels = c("ctrl","PBS","BMP2","IFNg","TGFb","HGF","OSM","EGF"))
-labels$TimePoint <- factor(labels$TimePoint,levels = sort(unique(labels$TimePoint),decreasing = TRUE))
-
-p <- ggplot(labels, aes(x=Ligand, y=TimePoint))+
-  geom_point()+
-labs(x = "",
-     y="Incubation\nTime",
-     title=paste0("Sampled images from MDD IF T24 and T48 plates"))+
-  annotation_raster(img,  -Inf, Inf, -Inf, Inf)+
-  geom_vline(xintercept = c(1.4,2.44,3.51,4.52,5.55, 6.56),color="#E4AF2B", size=1)+
-  geom_hline(yintercept = 1.5,color="#E4AF2B", size=1)+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(3)),
-        axis.text.y = element_text(size=rel(3)),
-        axis.title.x = element_text(size=rel(4)),
-        axis.title.y = element_text(size=rel(3)),
-        plot.title = element_text(size = rel(4)),
-        legend.text=element_text(size = rel(1)),
-        legend.title=element_text(size = rel(1)),
-        strip.text = element_text(size = 5))
-print(p)
-
-# ***
-# These images are randomly selected from the replicates of time points and ligands.  
-# Each row in the image tiles comes from a different plate. There are five plate replicates for each condition.  
-
-
-```
-
-
-```{r compareNucArea, fig.height=4, fig.width=5}
-pdf("NucArea.pdf", width = 6, height = 3)
-df <- well %>%
-  filter(Ligand %in% c("EGF","IFNg"))
-
-df <- well
-
-p <- ggplot(df, aes(x = Ligand, y = Area, colour = factor(TimePoint))) +
-  geom_boxplot() +
-  labs(colour = "Time (hrs)")
-p
-
-p <- ggplot(df, aes(x = Ligand, y = WellCellCount, colour = factor(TimePoint))) +
-  geom_boxplot() +
-  labs(colour = "Time (hrs)")
-
-p
-
-p <- ggplot(df, aes(x = WellCellCount, y = Area, colour = Ligand)) +
-  geom_point() +
-  facet_wrap(~TimePoint, labeller = label_both) +
-  theme(axis.text.x = element_text(angle = 90))
-p
-  
-dev.off()
 ```
