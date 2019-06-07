@@ -148,7 +148,14 @@ well <- field %>%
   ungroup() %>%
   mutate(replicate = str_remove(specimenName, ".*_"),
          experimentalTimePoint = str_extract(specimenName,"0|24|48"),
-         collection = str_extract(specimenName, "C[12]"))
+         collection = str_extract(specimenName, "C[12]"))  %>%
+  select(specimenID, WellCellCount, DNA2nProportion, EdUPositiveProportion, MeanIntensity_KRT5, ElongationFactor, Area, Perimeter) %>%
+  group_by(specimenID) %>%
+  summarise_all(median) %>%
+  ungroup %>%
+  gather(key = "feature", value = "value", -specimenID) %>%
+  spread(key = specimenID, value = value)
+
 write_csv(well, "../IF/Data/MDD_IF_Level3.csv")
 
 #add EGF timecourse normalized values
