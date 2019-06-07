@@ -320,7 +320,7 @@ title_suffix <- ""
             as.matrix()
   rownames(df_as_matrix) <- df$feature
    #Create the heatmap
-  Heatmap(matrix = df_as_matrix,
+  hm <- Heatmap(matrix = df_as_matrix,
           name = "abundance",
           column_title = paste0(assay_name, title_suffix),
           top_annotation = create_top_annotations(df, md),
@@ -331,67 +331,8 @@ title_suffix <- ""
           cluster_rows = cluster_rows,
           col = colorRamp2(c(windsorize_probs[1], 0, windsorize_probs[2]), c("blue", "white", "red")),
           na_col = "grey")
-}
-
-plot_iheatmap <- function(df, md, assay_name, EGF_normed = TRUE, var_thresh_percentile = 0, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE){
-  
-  df_vars <- df %>%
-    select(-feature) %>%
-    as.matrix() %>%
-    apply(1, var, na.rm = TRUE)
-  
-  var_thresh <- quantile(df_vars, probs = var_thresh_percentile)
-  df <- df[df_vars > var_thresh,]
-  
-  windsorize_probs <- get_win_probs(df, .02, .98)
-  
-  #convert specimenID column names to specimanName and reorder
-  df <- prep_data(df, md)
-  
-  #Create annotation values
-  df_ann <-prep_annotations(df, md) %>%
-    select(Collection, Replicate, Time, Ligand2, Ligand)
-  
-  
-  title_suffix <- ""
-  if(EGF_normed){
-    title_suffix = ", EGF timecourse normalized"
-    df <- df %>%
-      select(-matches("EGF"))
-  }
-  if(!is.null(mark_rows)) {
-    row_nums <- which(df$feature %in% mark_rows)
-    ra <- rowAnnotation(foo = anno_mark(at = c(row_nums), labels = df$feature[row_nums]))
-  } else {
-    ra <- NULL
-  }
-  df_as_matrix <- select(df, -feature) %>%
-    as.matrix()
-  rownames(df_as_matrix) <- df$feature
-  #Create the heatmap
-  hm <- main_heatmap(data = df_as_matrix,
-                     name = "abundance",
-                     zmid = 0,
-                     zmin = windsorize_probs[1],  
-                     zmax = windsorize_probs[2]) %>%
-    add_row_clustering() %>%
-    add_col_annotation(df_ann,
-                       colors = list(Ligand = c( "ctrl" = "#7A4A2A",
-                                                 "PBS" = "#8dd3c7",
-                                                 "HGF" = "#80b1d3",
-                                                 "OSM" = "#fdb462",
-                                                 "EGF" = "#fb8072",
-                                                 "BMP2" = "#b3de69",
-                                                 "IFNG" = "#bebada",
-                                                 "TGFB" = "#ffd92f"),
-                                     Time = c("0" = "white", "1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black"), 
-                                     Ligand2 = c("EGF" = "#9E79A3", "none" = "#BE7249"),
-                                     Replicate = c("A" = '#80b1d3',"B" = '#fdb462',"C" = '#ffd92f',"D" = '#8dd3c7',"E" = '#bebada'),
-                                     Collection = c("C1" = "#D79FD4", "C2" = "#3CC3B9", "C3" = "#B9B34C")),
-                       size = 0.02)
   hm
 }
-
 
 plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name,
                    ligand_2_cols = c("EGF" = "#ff0000",
@@ -550,9 +491,6 @@ md <- read_csv("metadata/MDD_sample_annotations.csv")
 
 ```{r rppa_figures}
 
-RPPA <- load_data("RPPA") %>%
-  rename(feature = antibody)
-
 RPPA_l1 <- load_data(assay_name = "RPPA", level = 1) %>%
   rename(feature = antibody) %>%
   gather(key = specimenID, value = value, -feature) %>%
@@ -568,12 +506,6 @@ RPPA_l1 <- load_data(assay_name = "RPPA", level = 1) %>%
 var_thresh_percentile <- 0
 
 plot_heatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, mark_rows = c("Caspase-7-cleaved", "c-Myc",  "Connexin-43", "DUSP4", "EGFR", "EMA", "HER2", "IRF-1", "PD-L1", "Stat3_pY705"))
-
-plot_iheatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile)
-
-plot_heatmap(RPPA, md, assay_name = "RPPA", var_thresh_percentile = var_thresh_percentile, mark_rows = c("Caspase-7-cleaved", "c-Myc",  "Connexin-43", "DUSP4", "EGFR", "EMA", "HER2", "IRF-1", "PD-L1", "Stat3_pY705"))
-
-plot_iheatmap(RPPA, md, assay_name = "RPPA", var_thresh_percentile = var_thresh_percentile)
 
 ```
 
@@ -634,8 +566,6 @@ fc_thresh = 0
 
 plot_line_graphs(df = RPPA_l1, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 
-plot_line_graphs(df = RPPA, md, ligand_cols = ligand_cols, fc_thresh = fc_thresh, assay_name = "RPPA")
-
 ```
 
 The line graphs show the antibodies that have at least one response greater than `r fc_thresh` the EGF response. All values are the median summary of the biological replicates.  
@@ -644,7 +574,7 @@ The line graphs show the antibodies that have at least one response greater than
 
 ```{r}
 
-plot_umap(RPPA, md, ligand_cols = ligand_cols, assay_name = "RPPA")
+plot_umap(RPPA_l1, md, ligand_cols = ligand_cols, assay_name = "RPPA")
 
 ```
 
@@ -652,7 +582,7 @@ plot_umap(RPPA, md, ligand_cols = ligand_cols, assay_name = "RPPA")
 
 ```{r}
 
-plot_pca(RPPA, md, ligand_cols = ligand_cols, assay_name = "RPPA")
+plot_pca(RPPA_l1, md, ligand_cols = ligand_cols, assay_name = "RPPA")
 
 ```
 
@@ -673,16 +603,6 @@ var_thresh <- quantile(RPPA_l1_vars, probs = var_thresh_percentile)
 RPPA_l1_hi_vars <- RPPA_l1[RPPA_l1_vars > var_thresh,]
 
 plot_correlation(RPPA_l1_hi_vars, md, EGF_normed = FALSE, assay_name = "RPPA")
-
-RPPA_vars <- RPPA %>%
-  select(-feature) %>%
-  as.matrix() %>%
-  apply(1, var, na.rm = TRUE)
-  
-var_thresh <- quantile(RPPA_vars, probs = var_thresh_percentile)
-RPPA_hi_vars <- RPPA[RPPA_vars > var_thresh,]
-
-plot_correlation(RPPA_hi_vars, md, EGF_normed = TRUE, assay_name = "RPPA")
 
 ```
 
@@ -705,8 +625,6 @@ immunofluoresence <- load_data(assay_name = "IF") %>%
   filter(!feature == "EdUPositiveProportion")
   
 plot_heatmap(immunofluoresence, md, assay_name = "IF", mark_rows = immunofluoresence$feature)
-
-plot_iheatmap(immunofluoresence, md, assay_name = "IF", mark_rows = immunofluoresence$feature)
 
 ```
 
@@ -755,8 +673,6 @@ var_thresh <- quantile(cycIF_vars, probs = var_thresh_percentile)
 cycIF_hi_vars <- cycIF[cycIF_vars > var_thresh,]
 
 plot_heatmap(cycIF_hi_vars, md, assay_name = "cycIF", mark_rows = c("egfr_2_af488fitc_int_mean_nuc","stat3_4_af488fitc_int_med_cytoplasm","met_6_af488fitc_int_mean_nuc"))
-
-plot_iheatmap(cycIF_hi_vars, md, assay_name = "cycIF")
 
 ```
 
@@ -814,7 +730,6 @@ var_thresh <- quantile(RNAseq_vars, probs = var_thresh_percentile)
 RNAseq_hi_vars <- RNAseq[RNAseq_vars > var_thresh,]
   
 plot_heatmap(RNAseq_hi_vars, md, assay_name = "RNAseq")
-plot_iheatmap(RNAseq_hi_vars, md, assay_name = "RNAseq")
 
 ```
 
@@ -868,12 +783,10 @@ GCP_level2 <- load_data(assay_name = "GCP", level = 2) %>%
   
 
 plot_heatmap(GCP_level2, md, assay_name = "GCP", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile)
-plot_iheatmap(GCP_level2, md, assay_name = "GCP", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile)
 
 plot_heatmap(GCP_level2, md, assay_name = "GCP", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, show_row_names = TRUE, cluster_rows = FALSE)
 
 plot_heatmap(GCP, md, assay_name = "GCP", var_thresh_percentile = var_thresh_percentile)
-plot_iheatmap(GCP, md, assay_name = "GCP", var_thresh_percentile = var_thresh_percentile)
 
 plot_heatmap(GCP, md, assay_name = "GCP", show_row_names = TRUE, cluster_rows = FALSE, var_thresh_percentile = var_thresh_percentile)
 
@@ -956,7 +869,6 @@ var_thresh <- quantile(ATACseq_vars, probs = var_thresh_percentile)
 ATACseq_hi_vars <- ATACseq[ATACseq_vars > var_thresh,]
   
 plot_heatmap(ATACseq_hi_vars, md, assay_name = "ATACseq")
-plot_iheatmap(ATACseq_hi_vars, md, assay_name = "ATACseq")
 
 ```
 
@@ -1007,7 +919,6 @@ Genes included in the heatmap have a variance above the `r var_thresh_percentile
 
 var_thresh_percentile <- .5
 plot_heatmap(L1000, md, "L1000",var_thresh_percentile = var_thresh_percentile)
-plot_iheatmap(L1000, md, "L1000",var_thresh_percentile = var_thresh_percentile)
 
 ```
 
