@@ -17,164 +17,6 @@ library(umap)
 ## Overview{.tabset .tabset-fade}
 These figures are derived from the level 4 data downloaded from the LINCS Molecular Deep Dive files on Synapse https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
 
-The level 4 data have been filtered for QC issues and normalized to the EGF timepoints.  
-
-```{r circosFunctions}
-
-parseCorMatrix <- function(x){
-  alpha_factor <- 255
-  from_condition <- x$Condition
-  to_condition <- setdiff(names(x), c("Condition", "Ligand","Time"))
-  #remove metadata from correlations
-  cors <- x[to_condition] %>%
-    unlist()
-  #remove correlations within the ligand conditions
-  cors[str_detect(names(cors), x[["Ligand"]])] <- 0
-  #Remove negative correlations
-  cors[cors<0] <- 0
-  #scale alpha based on correlations
-  alpha <- (cors * alpha_factor) %% 256
-  alpha <- as.integer(alpha) %>%
-    as.character.hexmode()
-  col <- paste0(ligand_cols[x$Ligand],alpha)
-  df <- tibble(From_Condition = x$Condition,
-               To_Condition =  to_condition,
-               From_sector = str_remove(from_condition, "_.*"),
-               To_sector = str_remove(to_condition, "_.*"),
-               From_timepoint = str_remove(from_condition, ".*_"),
-               To_timepoint = str_remove(to_condition, ".*_"),
-               Col = col,
-               Cors = as.numeric(cors)) %>%
-    mutate(From_timepoint = str_replace(From_timepoint,"^4$",".5"),
-           From_timepoint = str_replace(From_timepoint,"^8$","1.5"),
-           From_timepoint = str_replace(From_timepoint,"^24$","2.5"),
-           From_timepoint = str_replace(From_timepoint,"^48$","3.5"),
-           From_timepoint = as.numeric(From_timepoint),
-           To_timepoint = str_replace(To_timepoint,"^4$",".5"),
-           To_timepoint = str_replace(To_timepoint,"^8$","1.5"),
-           To_timepoint = str_replace(To_timepoint,"^24$","2.5"),
-           To_timepoint = str_replace(To_timepoint,"^48$","3.5"),
-           To_timepoint = as.numeric(To_timepoint),
-           From_timepoint_st = From_timepoint - .45,
-           From_timepoint_end = From_timepoint + .45,
-           To_timepoint_st = To_timepoint - .45,
-           To_timepoint_end = To_timepoint + .45)
-}
-
-
-addLink <- function(x){
-  cor_thresh <- .45
-  if(x["Cors"] > cor_thresh&!is.na(x["Cors"])) {
-    lwd <- max(0, as.numeric(x["Cors"])-cor_thresh)*30
-    #cat("lwd ",lwd, "col ", x["Col"])
-    circos.link(x["From_sector"], as.numeric(x["From_timepoint"]), x["To_sector"], as.numeric(x["To_timepoint"]), h = 0.4, lwd = lwd, col =x["Col"])
-  }
-}
-
-prepare_data <- function(x){
-  df <- x %>%
-    data.frame() %>%
-    rownames_to_column(var ="Condition") %>%
-    mutate(Time = str_remove(Condition, ".*_"),
-           Time = str_replace_all(Time, "^4$","1"),
-           Time = str_replace_all(Time, "^8$","2"),
-           Time = str_replace_all(Time, "^24$","3"),
-           Time = str_replace_all(Time, "^48$","4"),
-           Ligand = str_remove(Condition, "_.*")
-           ) %>%
-    rename(Replicate = replicate)
-}
-
-draw_one_track <- function(x, title_text){
-  circos.par("track.height" = 0.2,
-             "points.overflow.warning" = FALSE)
-  circos.initialize(factors = as.factor(x), xlim =c(0,4), sector.width = 20)
-
-  circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
-    xlim = CELL_META$xlim
-    ylim = CELL_META$ylim
-    breaks = seq(xlim[1], xlim[2], by = 1)
-    n_breaks = length(breaks)
-    circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
-                breaks[-1], rep(ylim[2], n_breaks - 1),
-                col = track_col_names,
-                border = NA)
-    circos.text(CELL_META$xcenter,
-                CELL_META$cell.ylim[2] + uy(3, "mm"),
-                CELL_META$sector.index,
-                col = c("black","red","black", "red", "red"))
-  }) 
-  
-  title(title_text,
-        outer = TRUE,
-        cex.main = 1,
-        line = -1)
-  
-  legend(-1.1,
-         -.9,
-         "TGFB, BMP2 and IFNG\n are paired with EGF",
-         bty = "n",
-         cex = .6)
-}
-
-plot_circos <- function(df, md, assay_name, ligand_cols, ligand_2_cols = c("EGF" = "#9E79A3", "none" = "#BE7249")) {
-
-      ####DEBUG refactor to match new data structure######
-  
-           # Collection = str_remove(specimenName, "[[:alnum:]]*_{1}[[:digit:]]*_{1}"),
-           # Collection = str_remove(Collection, "_.*"),
-           # Replicate = str_remove(specimenName, ".*_")
-           # Time = str_replace_all(Time, "^4$","1"),
-           # Time = str_replace_all(Time, "^8$","2"),
-           # Time = str_replace_all(Time, "^24$","3"),
-           # Time = str_replace_all(Time, "^48$","4")
-  #convert specimenID column names to specimanName, 
-  #reorder, median summarizes replicates
-  df_sum <- prep_data(df, md) %>%
-    gather(specimenName, value = value, -feature) %>%
-    mutate(Ligand = str_remove(specimenName, "_.*"),
-           Time = str_remove(specimenName, "[[:alnum:]]*_{1}"),
-           Time = str_remove(Time, "_.*")) %>%
-    group_by(feature, Ligand, Time) %>%
-    summarise_if(is.numeric, median, na.rm = TRUE) %>%
-    ungroup() %>%
-        mutate(Condition = paste(Ligand, Time, sep = "_"))%>%
-  select(-Ligand, -Time)  %>%
-    spread(key = Condition, value = value)
-  
-  df_cors <- df_sum %>%
-    select(-feature) %>%
-    as.matrix() %>%
-    cor(use = "complete.obs") %>%
-    as.data.frame %>%
-    rownames_to_column("Condition") %>%
-    mutate(Ligand = str_remove(Condition, "_.*"),
-           Time = str_remove(Condition, ".*_")) %>%
-  ####DEBUG
-    select(-matches("_1|_0")) %>%
-    filter(!Time %in% c("0","1"))
-  ######
-    
-  #Assign colors to conditions in the track
-  track_col_names <- c("4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black")
-   Time = c( "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black")
-   
-  # res <- draw_one_track(unique(md$ligand), title_text = paste(assay_name, "Correlations"))
-
-  for(ligand in unique(df_cors$Ligand)){
-    res <- draw_one_track(ligand, title_text = "Correlations")
-    df <-df_cors %>%
-      filter(Ligand == ligand)
-    for(i in 1:nrow(df)){
-      foo <- parseCorMatrix(df[i,]) #
-      res <- apply(foo, 1, addLink)
-    }
-    circos.clear()
-  }
-}
-
-```
-
 
 
 ```{r standardFigureFunctions}
@@ -270,8 +112,6 @@ prep_top_annotations <- function(df, md){
 create_row_annotations <- function(df, md){
   df_ann <- prep_annotations(df, md) %>%
     select(Collection, Replicate, Time, Ligand2, Ligand)
-  ####ha = rowAnnotation(foo = anno_mark(at = c(1:4, 20, 60, 97:100), labels = month.name[1:10])
-  ###
   haRow <- rowAnnotation(df = df_ann, show_legend = FALSE,
                              col = list(Ligand = c( "ctrl" = "#7A4A2A",
                                                     "PBS" = "#8dd3c7",
@@ -289,7 +129,6 @@ create_row_annotations <- function(df, md){
 }
 
   
-#####
 plot_heatmap <- function(df, md, assay_name, EGF_normed = TRUE, var_thresh_percentile = 0, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE){
   
   df_vars <- df %>%
@@ -334,6 +173,53 @@ title_suffix <- ""
   hm
 }
 
+plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh = 1, assay_name){
+  
+  windsorize_probs <- get_win_probs(df, .01, .99)
+  
+  df_med <- df %>%
+    prep_data(md = md) %>%
+    gather("specimenName", "value", -feature) %>%
+    inner_join(md, by = "specimenName") %>%
+    select(ligand, secondLigand, experimentalTimePoint, replicate, collection, feature, value) %>%
+    filter(!ligand == "EGF") %>%
+    rename(Time = experimentalTimePoint,
+           Ligand = ligand,
+           Ligand2 = secondLigand,
+           Replicate = replicate,
+           Collection = collection) %>%
+    group_by(feature, Collection, Time, Ligand) %>%
+    summarise(value = median(value)) %>%
+    ungroup() 
+  
+  fc_set <- df_med %>%
+    group_by(Time, Ligand) %>%
+    filter(abs(value) > fc_thresh) %>%
+    ungroup() %>%
+    select(feature) %>%
+    distinct() %>%
+    inner_join(df_med, by = "feature") %>%
+    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
+  
+  title_suffix <- ""
+  if(EGF_normed) title_suffix <- ", EGF normalized"
+  p <- ggplot(fc_set, aes(x=Time, y=value, colour=Ligand))+
+    geom_line()+
+    labs(title=paste0("Line Graphs",title_suffix),
+         x = "Time (hours)",
+         y="Intensity (AU)") +
+    scale_x_continuous(breaks = c(0,8,24,48)) +
+    scale_color_manual(values = ligand_cols) +
+    theme(axis.text.x = element_text(angle=90),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          strip.text = element_text(size=10, hjust=0),
+            panel.background = element_rect(fill = NA),
+  panel.grid.major = element_line(colour = "gray95"))+
+    facet_wrap(~feature, ncol = 10,scales = "free_y")
+  p
+  
+}
 plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name,
                    ligand_2_cols = c("EGF" = "#ff0000",
                      "None" = "#00000000")){
@@ -515,53 +401,6 @@ Antibodies with variances above the `r var_thresh_percentile*100` percentile are
 
 ```{r, fig.height=30, fig.width=15}
 
-plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh = 1, assay_name){
-  
-  windsorize_probs <- get_win_probs(df, .01, .99)
-  
-  df_med <- df %>%
-    prep_data(md = md) %>%
-    gather("specimenName", "value", -feature) %>%
-    inner_join(md, by = "specimenName") %>%
-    select(ligand, secondLigand, experimentalTimePoint, replicate, collection, feature, value) %>%
-    filter(!ligand == "EGF") %>%
-    rename(Time = experimentalTimePoint,
-           Ligand = ligand,
-           Ligand2 = secondLigand,
-           Replicate = replicate,
-           Collection = collection) %>%
-    group_by(feature, Collection, Time, Ligand) %>%
-    summarise(value = median(value)) %>%
-    ungroup() 
-  
-  fc_set <- df_med %>%
-    group_by(Time, Ligand) %>%
-    filter(abs(value) > fc_thresh) %>%
-    ungroup() %>%
-    select(feature) %>%
-    distinct() %>%
-    inner_join(df_med, by = "feature") %>%
-    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
-  
-  title_suffix <- ""
-  if(EGF_normed) title_suffix <- ", EGF normalized"
-  p <- ggplot(fc_set, aes(x=Time, y=value, colour=Ligand))+
-    geom_line()+
-    labs(title=paste0("Line Graphs",title_suffix),
-         x = "Time (hours)",
-         y="Intensity (AU)") +
-    scale_x_continuous(breaks = c(0,8,24,48)) +
-    scale_color_manual(values = ligand_cols) +
-    theme(axis.text.x = element_text(angle=90),
-          axis.text.y=element_blank(),
-          axis.ticks.y=element_blank(),
-          strip.text = element_text(size=10, hjust=0),
-            panel.background = element_rect(fill = NA),
-  panel.grid.major = element_line(colour = "gray95"))+
-    facet_wrap(~feature, ncol = 10,scales = "free_y")
-  p
-  
-}
 fc_thresh = 0
 
 plot_line_graphs(df = RPPA_l1, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
