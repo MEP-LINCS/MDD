@@ -129,7 +129,7 @@ create_row_annotations <- function(df, md){
 }
 
   
-plot_heatmap <- function(df, md, assay_name, EGF_normed = TRUE, var_thresh_percentile = 0, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE){
+plot_heatmap <- function(df, md, assay_name, EGF_normed = TRUE, var_thresh_percentile = 0, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE, select_timepoint = FALSE){
   
   df_vars <- df %>%
   select(-feature) %>%
@@ -147,6 +147,12 @@ title_suffix <- ""
     df <- df %>%
     select(-matches("EGF"))
   }
+
+  if(select_timepoint){
+    df <- df %>%
+    select(matches(paste0("_",select_timepoint,"_","|feature")))
+  }
+
   if(!is.null(mark_rows)) {
     row_nums <- which(df$feature %in% mark_rows)
     ra <- rowAnnotation(foo = anno_mark(at = c(row_nums), labels = df$feature[row_nums]))
@@ -228,7 +234,7 @@ plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh =
 }
 plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name,
                    ligand_2_cols = c("EGF" = "#ff0000",
-                     "None" = "#00000000")){
+                     "None" = "#00000000"), select_timepoint = FALSE){
   #Generate a 2d scatterplot of the UMAP dimensions
   #Use size to represent timepoint, dot in center to represent ligand_2 == EGF
 
@@ -238,6 +244,11 @@ plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name,
   df <- prep_data(df, md) %>%
     select(-matches("EGF"))
   
+    if(select_timepoint){
+    df <- df %>%
+    select(matches(paste0("_",select_timepoint,"_","|feature")))
+  }
+
    #Create annotation values
   df_ann <-prep_annotations(df, md)
 
@@ -328,8 +339,6 @@ plot_correlation <- function(df, md, assay_name, EGF_normed = TRUE,
                      "None" = "#00000000")){
   #calculate correlations across the conditions and show in a heatmap
 
-  windsorize_probs <- get_win_probs(df, .01, .99)
-  
   #convert specimenID column names to specimanName, reorder delete EGF samples
   df <- prep_data(df, md) 
   
@@ -347,7 +356,10 @@ plot_correlation <- function(df, md, assay_name, EGF_normed = TRUE,
   #Create the heatmap
   Heatmap(matrix = select(df, -feature) %>%
             as.matrix() %>%
-            cor(use = "complete.obs"),
+            t %>%
+            scale(scale = FALSE) %>%
+            t %>%
+            cor(use = "complete.obs",method = "spearman"),
           name = "correlation",
           column_title = paste0("Correlation of ",assay_name, title_suffix),
           top_annotation = create_top_annotations(df, md),
@@ -359,7 +371,6 @@ plot_correlation <- function(df, md, assay_name, EGF_normed = TRUE,
           col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
           na_col = "grey")
 }
-
 
 ##########
 ```
@@ -373,6 +384,9 @@ ligand_cols <- c("ctrl" = "#7A4A2A",
                   "BMP2" = "#b3de69",
                   "IFNG" = "#bebada",
                   "TGFB" = "#ffd92f")
+
+ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")
 
 md <- read_csv("metadata/MDD_sample_annotations.csv")
 ```
@@ -450,6 +464,7 @@ plot_correlation(RPPA_l1_hi_vars, md, EGF_normed = FALSE, assay_name = "RPPA")
 
 ```
 
+Spearman (rank-based) correlations using all available pairwise data points.  
 
 #### Pathways
 
@@ -482,7 +497,7 @@ immunofluoresence <- load_data(assay_name = "IF", level = 3) %>%
   mutate_if(is.numeric, .funs = boundedLog2) %>%
   filter(!feature == "EdUPositiveProportion")
   
-plot_heatmap(immunofluoresence, md, assay_name = "IF", mark_rows = immunofluoresence$feature)
+plot_heatmap(immunofluoresence, md, assay_name = "IF", EGF_normed = FALSE, mark_rows = immunofluoresence$feature)
 
 ```
 
@@ -512,15 +527,29 @@ plot_correlation(immunofluoresence, md, assay_name = "IF")
 
 ```
 
+Spearman (rank-based) correlations using all available pairwise data points.  
+
+
 ### cycIF{.tabset .tabset-fade}
 
 #### Heatmap 
 
 ```{r cycIF_figures, eval = TRUE}
 
-cycIF <- load_data(assay_name = "cycIF") %>%
+cycIF <- load_data(assay_name = "cycIF", level = 3) %>%
   filter(str_detect(feature, "_int_")) %>%
   mutate_if(is.numeric, log2)
+
+cycIF <- prep_data(cycIF, md = md) %>%
+  gather(specimenName, value, -feature) %>%
+  mutate(Replicate = str_remove(specimenName, ".*_")) %>%
+  group_by(Replicate, feature) %>%
+  mutate(MedCenter = value-median(value, na.rm = TRUE),
+         ZScore = MedCenter/sd(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+    left_join(md) %>%
+  select(feature, specimenID, ZScore) %>%
+  spread(key = specimenID, value = ZScore)
 
 cycIF_vars <- cycIF %>%
   select(-feature) %>%
@@ -530,18 +559,18 @@ cycIF_vars <- cycIF %>%
 var_thresh <- quantile(cycIF_vars, probs = var_thresh_percentile)
 cycIF_hi_vars <- cycIF[cycIF_vars > var_thresh,]
 
-plot_heatmap(cycIF_hi_vars, md, assay_name = "cycIF", mark_rows = c("egfr_2_af488fitc_int_mean_nuc","stat3_4_af488fitc_int_med_cytoplasm","met_6_af488fitc_int_mean_nuc"))
+plot_heatmap(cycIF_hi_vars, md, assay_name = "cycIF", EGF_normed = FALSE)
 
 ```
 
 
-Intensity features included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
+Intensity features included in the heatmap have a variance above the `r var_thresh_percentile` percentile . Feature values are median centered within their replicate set. 
 
 #### Line graphs
 
 ```{r, fig.height=15, fig.width=15}
 
-plot_line_graphs(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
+plot_line_graphs(cycIF, md, EGF_normed = FALSE, ligand_cols = ligand_cols, assay_name = "cycIF")
 
 ```
 
@@ -566,9 +595,12 @@ plot_pca(cycIF, md, ligand_cols = ligand_cols, assay_name = "cycIF")
 
 ```{r}
 
-plot_correlation(cycIF, md, assay_name = "cycIF")
+plot_correlation(cycIF, md, EGF_normed = FALSE, assay_name = "cycIF")
 
 ```
+
+Spearman (rank-based) correlations using all available pairwise data points.  
+
 
 ### RNAseq{.tabset .tabset-fade}
 
@@ -618,6 +650,9 @@ plot_correlation(RNAseq_hi_vars, md, assay_name = "RNAseq")
 
 ```
 
+Spearman (rank-based) correlations using all available pairwise data points.  
+
+
 ### GCP{.tabset .tabset-fade}
 
 #### Heatmap  
@@ -639,6 +674,16 @@ GCP_level2 <- load_data(assay_name = "GCP", level = 2) %>%
   mutate(feature = factor(feature, levels = GCP$feature)) %>%
   arrange(feature)
   
+GCP_level2 <- prep_data(GCP_level2, md = md) %>%
+  gather(specimenName, value, -feature) %>%
+  mutate(Replicate = str_remove(specimenName, ".*_")) %>%
+  group_by(Replicate, feature) %>%
+  mutate(MedCenter = value-median(value, na.rm = TRUE),
+         ZScore = MedCenter/sd(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+    left_join(md) %>%
+  select(feature, specimenID, ZScore) %>%
+  spread(key = specimenID, value = ZScore)
 
 plot_heatmap(GCP_level2, md, assay_name = "GCP", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile)
 
@@ -697,12 +742,23 @@ GCP_level2_vars <- GCP_level2 %>%
 var_thresh <- quantile(GCP_level2_vars, probs = var_thresh_percentile)
 GCP_level2_hi_vars <- GCP_level2[GCP_level2_vars > var_thresh,]
 
-plot_correlation(GCP_level2_hi_vars, md, assay_name = "GCP")
+countNAs <- GCP_level2_hi_vars %>%
+  mutate_all(is.na) %>%
+  summarise_all(sum) %>%
+  unlist
+
+GCP_level2_hi_vars <- GCP_level2_hi_vars[,!countNAs==nrow(GCP_level2_hi_vars)]
+
+plot_correlation(GCP_level2_hi_vars, md, EGF_normed = FALSE, assay_name = "GCP")
 
 ```
 
+Spearman (rank-based) correlations using all available pairwise data points.  
 
-The heatmap shows the pearson correlation values of the top `r var_thresh_percentile*100`th percentile varying features.  
+
+
+
+The heatmap shows the spearman correlation values of the top `r var_thresh_percentile*100`th percentile varying features.  
 
 ### ATACseq{.tabset .tabset-fade}
 
@@ -710,7 +766,7 @@ The heatmap shows the pearson correlation values of the top `r var_thresh_percen
 
 ```{r ATACseq_figures, eval = TRUE}
 
-ATACseq <- load_data(assay_name = "ATACseq") %>%
+ATACseq <- load_data(assay_name = "ATACseq", level = 2) %>%
   rename(feature = peak)
 
 ATACseq_vars <- ATACseq %>%
@@ -722,7 +778,7 @@ var_thresh_percentile <- .98
 var_thresh <- quantile(ATACseq_vars, probs = var_thresh_percentile)
 ATACseq_hi_vars <- ATACseq[ATACseq_vars > var_thresh,]
   
-plot_heatmap(ATACseq_hi_vars, md, assay_name = "ATACseq")
+plot_heatmap(ATACseq_hi_vars, md, EGF_normed = FALSE, assay_name = "ATACseq")
 
 ```
 
@@ -753,7 +809,9 @@ plot_pca(ATACseq, md, ligand_cols = ligand_cols, assay_name = "ATACseq")
 plot_correlation(ATACseq_hi_vars, md, assay_name = "ATACseq")
 
 ```
- 
+
+Spearman (rank-based) correlations using all available pairwise data points.  
+
 
 ### L1000{.tabset .tabset-fade}
 
@@ -761,7 +819,7 @@ plot_correlation(ATACseq_hi_vars, md, assay_name = "ATACseq")
  
 ```{r l1000_figures}
 
-L1000 <- load_data("L1000") %>%
+L1000 <- load_data("L1000", level = 2) %>%
   rename(feature = probeset)
 
 ```
@@ -772,17 +830,120 @@ Genes included in the heatmap have a variance above the `r var_thresh_percentile
 ```{r}
 
 var_thresh_percentile <- .5
-plot_heatmap(L1000, md, "L1000",var_thresh_percentile = var_thresh_percentile)
+plot_heatmap(L1000, md, "L1000",EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile)
+
+
+```
+
+#### Heatmap  T48
+
+Genes included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
+
+```{r}
+df <- L1000 %>%
+  filter()
+var_thresh_percentile <- .5
+plot_heatmap(L1000, md, "L1000",EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile)
+
 
 ```
 
 #### UMAP
 
-```{r}
+```{r, fig.height=8, fig.width=9}
 
 plot_umap(L1000, md, ligand_cols = ligand_cols, assay_name = "L1000")
 
+df <- L1000
+assay_name <- "L1000 T48"
+  #Use size to represent timepoint, dot in center to represent ligand_2 == EGF
+
+  windsorize_probs <- get_win_probs(df, .01, .99)
+  
+  #convert specimenID column names to specimanName and reorder
+  df <- prep_data(df, md) %>%
+    select(matches("_48_|feature"))
+ 
+   #Create annotation values
+  df_ann <-prep_annotations(df, md)
+
+   df_mat <- df %>%
+    select(-feature) %>%
+     t() %>%
+  as.matrix()
+  colnames(df_mat) <- df$feature
+
+  df_UMAP <- umap(df_mat, na.rm = TRUE)$layout %>%
+  data.frame() %>%
+  rename(UMAP_1 = X1,
+         UMAP_2 = X2) %>%
+    cbind(df_ann) %>%
+    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
+  
+p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                         y = UMAP_2,
+                         colour = Ligand,
+                         fill = Ligand2,
+                         shape = Collection)) +
+  geom_point(size = 12, alpha = .8) +
+  geom_point(shape = 21, size = 2, alpha = .8) +
+  scale_color_manual( values = ligand_cols) +
+  scale_fill_manual( values = ligand_2_cols) +
+  labs(title = paste("UMAP embedding of ", assay_name, " data")) +
+  theme_bw()
+p
+
+
 ```
+
+#### UMAP T48
+
+```{r, fig.height=8, fig.width=9}
+
+df <- L1000
+  #Use size to represent timepoint, dot in center to represent ligand_2 == EGF
+
+  windsorize_probs <- get_win_probs(df, .01, .99)
+  
+  #convert specimenID column names to specimanName and reorder
+  df <- prep_data(df, md) %>%
+    select(matches("_48_|feature"))
+ 
+   #Create annotation values
+  df_ann <-prep_annotations(df, md)
+
+   df_mat <- df %>%
+    select(-feature) %>%
+     t() %>%
+  as.matrix()
+  colnames(df_mat) <- df$feature
+
+
+  df_UMAP <- umap(df_mat, na.rm = TRUE, n_epochs = 5000, min_dist = .01, n_neighbors = 15, random_state = 42)$layout %>%
+  data.frame() %>%
+  rename(UMAP_1 = X1,
+         UMAP_2 = X2) %>%
+    cbind(df_ann) %>%
+    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
+  
+p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                         y = UMAP_2,
+                         colour = Ligand,
+                         fill = Ligand2,
+                         shape = Collection)) +
+  geom_point(size = 10, alpha = .8) +
+  geom_point(shape = 21, size = 4, alpha = .8) +
+  scale_color_manual( values = ligand_cols) +
+  scale_fill_manual( values = ligand_2_cols) +
+  coord_cartesian(x = c(-3.2, 3.2), y = c(-3.2, 3.2)) +
+  labs(title = paste("UMAP embedding of L1000 T48 data")) +
+  theme_bw()
+p
+pdf("L1000_T48_UMAP.pdf", width = 9, height = 8)
+print(p)
+dev.off()
+```
+
 
 #### PCA 
 
@@ -796,8 +957,12 @@ plot_pca(L1000, md, ligand_cols = ligand_cols, assay_name = "L1000")
 
 ```{r}
 
-plot_correlation(L1000, md, assay_name = "L1000")
+plot_correlation(L1000, md, EGF_normed = FALSE, assay_name = "L1000")
 
 ```
+
+Spearman (rank-based) correlations using all available pairwise data points.  
+
+
  
 ##
