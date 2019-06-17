@@ -2,7 +2,7 @@ library(tidyverse)
 
 mddMetadata <- read_csv("../Metadata/MDD_sample_annotations.csv")
 
-cycIF_Data <- read_csv("../cycIF/Data/biological_replicate_means.csv") %>%
+cycIF_Data <- read_csv("../cycIF/Data/proper_FFC_biological_replicate_mean.csv") %>%
   mutate(condition = str_remove(X1, "_[ABCDE]"),
          specimenName = paste0(condition, "_C3_",str_remove(X1,".*_"))) %>%
   select(-X1, -condition) %>%
@@ -13,15 +13,15 @@ cycIF_Data <- read_csv("../cycIF/Data/biological_replicate_means.csv") %>%
   filter(!str_detect(feature, "background")) %>%
   write_csv("../cycIF/Data/MDD_cycIF_Level3.csv")
 
-cycIF_Data_archive <- read_csv("../cycIF/Data/biological_replicate_means(archive).csv") %>%
-  mutate(condition = str_remove(X1, "_[ABCDE]"),
-         specimenName = paste0(condition, "_C3_",str_remove(X1,".*_"))) %>%
-  select(-X1, -condition) %>%
-  gather(key = feature, value = value, -specimenName) %>%
-  inner_join(mddMetadata, by = "specimenName") %>%
-  select(specimenID, feature, value) %>%
-  spread(specimenID, value) %>%
-  filter(!str_detect(feature, "background"))
+# cycIF_Data_archive <- read_csv("../cycIF/Data/biological_replicate_means(archive).csv") %>%
+#   mutate(condition = str_remove(X1, "_[ABCDE]"),
+#          specimenName = paste0(condition, "_C3_",str_remove(X1,".*_"))) %>%
+#   select(-X1, -condition) %>%
+#   gather(key = feature, value = value, -specimenName) %>%
+#   inner_join(mddMetadata, by = "specimenName") %>%
+#   select(specimenID, feature, value) %>%
+#   spread(specimenID, value) %>%
+#   filter(!str_detect(feature, "background"))
 
 #get EGF values for each feature within each time point and replicate
 egf <- cycIF_Data %>%
