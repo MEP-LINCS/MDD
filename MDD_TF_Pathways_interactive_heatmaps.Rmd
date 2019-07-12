@@ -618,27 +618,60 @@ reverseTFScore <- function(x, max_TF_mean_rank){
   
 TF_pathways <-  TFs %>%
   bind_rows(RPPA_l1_pathways) %>%
-  spread(key = condition, value = value)
+  spread(key = condition, value = value) %>%
+  select(matches("_24|_48|feature"), -matches("PBS"))
   
-#plot_iheatmap(TF_pathways, md, assay_name = "TFs and RPPA pathways")
+TF_pathways_cor <- TF_pathways %>%
+  gather(key = "condition", value = value, -feature) %>%
+  spread(key = feature, value = value) %>%
+  select(-condition) %>%
+  cor(method = "spearman")
+
+```
+
+
+
+```{r TFxPathwayCorrelations}
+
+df <- TF_pathways_cor %>%
+  as_tibble(rownames="TF") %>%
+  dplyr::select(matches("_Score|^TF$")) %>%
+  filter(!str_detect(TF,"_Score"))
+
+df_as_matrix <- df %>%
+  select(-TF) %>%
+  as.matrix()
+
+Heatmap(matrix = df_as_matrix,
+          name = "correlations",
+          column_title = paste0("Correlation of all TFs and pathways"),
+          show_row_names = FALSE,
+          show_column_names = TRUE,
+          cluster_rows = TRUE,
+          cluster_columns = TRUE,
+          col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+          na_col = "grey")
 
 ```
 
 
 Method Summary  
 
-Z score RNAseq genes across all conditions  
-For each specimen, feed genes with Z score > 2.5 into ChEA3  
+Start with DCIC's preprocessed RNAseq values  
+Filter to genes with logFC >1  
+For each specimen, feed selected into ChEA3  
 Reverse ChEa3 TF mean rankings so that high values represent highly scored TFs  
-Combine RPPA pathway z score with TF Z scores  
+Mean summarize replicate RPPA pathway scores  
+Find the correlations betwwen all TFs and pathways across all 24 and 48 hour conditions and display as a heatmap  
 
 
-#### Heatmap Top TFs  
+#### Top TFs correlations  
 
 ```{r top_TF_pathways_figures, eval = TRUE}
 
   #Select top TFs of each ligand
   top_TF_names <- TFs %>%
+  spread(key = feature, value = value) %>%
     mutate(Ligand = str_remove(condition, "_.*")) %>%
     group_by(Ligand) %>%
     summarise_if(is.numeric, max) %>%
@@ -651,23 +684,49 @@ Combine RPPA pathway z score with TF Z scores
     dplyr::select(-Ligand)
   
   top_TFs <- TFs %>%
+  spread(key = feature, value = value)  %>%
     dplyr::select(condition, colnames(top_TF_names))
   
-TF_pathways <- RPPA_l1_pathways %>%
-    gather(specimenID, value, -feature) %>%
-  inner_join(md, by = "specimenID") %>%
-   dplyr::select(specimenName, feature, value) %>%
-  spread(key = feature, value = value) %>%
-  inner_join(top_TFs) %>%
-  gather(key = feature, value = "value", -specimenName) %>%
-   inner_join(md, by = "specimenName") %>%
-     dplyr::select(specimenID, feature, value) %>%
-  spread(key = specimenID, value = value)
+  top_TF_pathways <-  top_TFs %>%
+    gather(key = feature,value = value, -condition) %>%
+  bind_rows(RPPA_l1_pathways) %>%
+  spread(key = condition, value = value) %>%
+  select(matches("_24|_48|feature"), -matches("PBS"))
   
-plot_iheatmap(TF_pathways, md, assay_name = "TFs and RPPA pathways")
+    
+top_TF_pathways_cor <- top_TF_pathways %>%
+  gather(key = "condition", value = value, -feature) %>%
+  spread(key = feature, value = value) %>%
+  select(-condition) %>%
+  cor(method = "spearman")
+
+  
+#plot_iheatmap(TF_pathways, md, assay_name = "TFs and RPPA pathways")
 
 ```
 
+```{r topTFxPathwayCorrelations}
+
+df <- top_TF_pathways_cor %>%
+  as_tibble(rownames="TF") %>%
+  dplyr::select(matches("_Score|^TF$")) %>%
+  filter(!str_detect(TF,"_Score"))
+
+df_as_matrix <- df %>%
+  select(-TF) %>%
+  as.matrix()
+
+Heatmap(matrix = df_as_matrix,
+          name = "correlations",
+          column_title = paste0("Correlation of top TFs and pathways"),
+          show_row_names = FALSE,
+          show_column_names = TRUE,
+          cluster_rows = TRUE,
+          cluster_columns = TRUE,
+          col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+          na_col = "grey")
+
+```
 
 Method Summary  
 
@@ -740,32 +799,4 @@ p
   
 ```
 
-
-#### UMAP
-
-```{r}
-
-plot_umap(TF_pathways, md, ligand_cols = ligand_cols, assay_name = "TF Pathways")
-
-```
-
-#### PCA 
-
-```{r}
-
-plot_pca(TF_pathways, md, ligand_cols = ligand_cols, assay_name = "TF Pathways")
-
-```
-
-#### Correlation
-
-```{r}
-
-plot_correlation(TF_pathways, md, EGF_normed = FALSE, assay_name = "TF Pathways")
-
-```
-
-Spearman (rank-based) correlations using all available pairwise data points.  
-
- 
 ##
