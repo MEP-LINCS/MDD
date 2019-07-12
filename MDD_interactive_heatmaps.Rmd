@@ -4,7 +4,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, cache=FALSE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
 
 suppressMessages(library(tidyverse))
 suppressMessages(library(ComplexHeatmap))
@@ -15,9 +15,7 @@ library(umap)
 
 
 ## Overview{.tabset .tabset-fade}
-These figures are derived from the level 4 data downloaded from the LINCS Molecular Deep Dive files on Synapse https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
-
-The level 4 data have been filtered for QC issues and normalized to the EGF timepoints.  
+These figures are derived from the data downloaded from the LINCS Molecular Deep Dive files on Synapse https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
 
 
 ```{r standardFigureFunctions}
@@ -144,7 +142,7 @@ windsorize_probs <- get_win_probs(mat = df_as_matrix, win_prob_low, win_prob_up)
                      zmin = windsorize_probs[1],  
                      zmax = windsorize_probs[2],
                      row_order = rowOrder) %>%
-    #add_row_clustering() %>%
+    add_row_clustering() %>%
     add_col_annotation(df_ann,
                        colors = list(Ligand = c( "ctrl" = "#7A4A2A",
                                                  "PBS" = "#8dd3c7",
@@ -176,6 +174,11 @@ ligand_cols <- c("ctrl" = "#7A4A2A",
                   "BMP2" = "#b3de69",
                   "IFNG" = "#bebada",
                   "TGFB" = "#ffd92f")
+
+
+ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")
+
 
 md <- read_csv("metadata/MDD_sample_annotations.csv")
 ```
@@ -258,7 +261,7 @@ Intensity features included in the heatmap have a variance above the `r var_thre
 #### Heatmap  
 
 ```{r rnaSeq_figures, eval = TRUE}
-RNAseq <- load_data(assay_name = "RNAseq") %>%
+RNAseq <- load_data(assay_name = "RNAseq", level = 2) %>%
   rename(feature = ensembl_gene_id)
 
 RNAseq_vars <- RNAseq %>%
@@ -278,6 +281,113 @@ plot_iheatmap(RNAseq_hi_vars, md, assay_name = "RNAseq")
 Genes included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
 
 
+### TF_Pathways{.tabset .tabset-fade}
+
+#### Heatmap  
+
+```{r TF_pathways_figures}
+reverseTFScore <- function(x, max_TF_mean_rank){
+  x <- max_TF_mean_rank - x
+}
+  TFs <- read_csv("RNAseq/Data/ChEA3_TFs.csv")
+#reverse the TF values so that higher values represent higher TF scores
+  max_TF_mean_rank <- TFs %>%
+    select(-specimenName) %>%
+    max
+  TFs <- TFs %>%
+    mutate_if(is.numeric, reverseTFScore, max_TF_mean_rank = max_TF_mean_rank)
+
+  RPPA_l1_pathways <- load_data("RPPA", "1_Pathways_Score") %>%
+  rename(specimenID = X1) %>%
+  gather(key = feature, value = Score, -specimenID) %>%
+  spread(key = specimenID, value = Score)
+  
+  
+TF_pathways <- RPPA_l1_pathways %>%
+    gather(specimenID, value, -feature) %>%
+  inner_join(md, by = "specimenID") %>%
+   select(specimenName, feature, value) %>%
+  spread(key = feature, value = value) %>%
+  inner_join(TFs) %>%
+  gather(key = feature, value = "value", -specimenName) %>%
+   inner_join(md, by = "specimenName") %>%
+     select(specimenID, feature, value) %>%
+  spread(key = specimenID, value = value)
+  
+
+plot_iheatmap(TF_pathways, md, assay_name = "TFs and RPPA pathways")
+
+```
+
+
+Method Summary  
+
+Z score RNAseq genes across all conditions  
+For each specimen, feed genes with Z score > 2.5 into ChEA3  
+Reverse ChEa3 TF mean rankings so that high values represent highly scored TFs  
+Combine RPPA pathway z score with TF Z scores  
+
+
+#### Heatmap Top TFs  
+
+```{r top_TF_pathways_figures, eval = TRUE}
+reverseTFScore <- function(x, max_TF_mean_rank){
+  x <- max_TF_mean_rank - x
+}
+  TFs <- read_csv("RNAseq/Data/ChEA3_TFs.csv")
+#reverse the TF values so that higher values represent higher TF scores
+  max_TF_mean_rank <- TFs %>%
+    select(-specimenName) %>%
+    max
+  TFs <- TFs %>%
+    mutate_if(is.numeric, reverseTFScore, max_TF_mean_rank = max_TF_mean_rank)
+  
+  #Select top TFs of each ligand
+  top_TF_names <- TFs %>%
+    mutate(Ligand = str_remove(specimenName, "_.*")) %>%
+    group_by(Ligand) %>%
+    summarise_if(is.numeric, max) %>%
+    ungroup %>%
+    gather(key = TF, value = Rank, -Ligand) %>%
+    group_by(Ligand) %>%
+    top_n(25, Rank) %>%
+    ungroup() %>%
+    spread(key = TF, value = Rank) %>%
+    select(-Ligand)
+  
+  top_TFs <- TFs %>%
+    select(specimenName, colnames(top_TF_names))
+    
+  RPPA_l1_pathways <- load_data("RPPA", "1_Pathways_Score") %>%
+  rename(specimenID = X1) %>%
+  gather(key = feature, value = Score, -specimenID) %>%
+  spread(key = specimenID, value = Score)
+  
+TF_pathways <- RPPA_l1_pathways %>%
+    gather(specimenID, value, -feature) %>%
+  inner_join(md, by = "specimenID") %>%
+   select(specimenName, feature, value) %>%
+  spread(key = feature, value = value) %>%
+  inner_join(top_TFs) %>%
+  gather(key = feature, value = "value", -specimenName) %>%
+   inner_join(md, by = "specimenName") %>%
+     select(specimenID, feature, value) %>%
+  spread(key = specimenID, value = value)
+  
+plot_iheatmap(TF_pathways, md, assay_name = "TFs and RPPA pathways")
+```
+
+
+Method Summary  
+
+Z score RNAseq genes across all conditions  
+For each specimen, feed genes with Z score > 2.5 into ChEA3  
+Reverse ChEa3 TF mean rankings so that high values represent highly scored TFs  
+Group by ligand  
+Select the top ranked 25 TFs in all timepoints of each ligand  
+Combine the top ranked TFs into one set  
+Filter the reversed TF rankings to only include the TFs in the top ranked set  
+Combine RPPA pathway z score with TF Z scores  
 
 ### GCP{.tabset .tabset-fade}
 
@@ -311,7 +421,7 @@ plot_iheatmap(GCP_level2, md, assay_name = "GCP", EGF_normed = FALSE, var_thresh
 
 ```{r ATACseq_figures, eval = TRUE}
 
-ATACseq <- load_data(assay_name = "ATACseq") %>%
+ATACseq <- load_data(assay_name = "ATACseq", level = 2) %>%
   rename(feature = peak)
 
 ATACseq_vars <- ATACseq %>%
@@ -339,7 +449,7 @@ Peaks included in the heatmap have a variance above the `r var_thresh_percentile
  
 ```{r l1000_figures}
 
-L1000 <- load_data("L1000") %>%
+L1000 <- load_data("L1000", level = 2) %>%
   rename(feature = probeset)
 
 ```
