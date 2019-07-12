@@ -821,13 +821,13 @@ for(specName in unique(RNAseq_zscores$specimenName)){
 
 ```{r getChEA3TFs}
 #read in TF scores
-getTFs <- function(x){
+getTFs <- function(x, logFC_thresh = 1){
   library(httr)
   library(jsonlite)
   genes <- read_tsv(paste0("./RNAseq/Data/",x)) %>%
-    distinct %>%
-    unlist 
-  genes <- genes[!is.na(genes)]
+    filter(abs(logFC) > logFC_thresh) %>%
+    dplyr::select(gene_symbol) %>%
+    unlist
   
   url = "https://amp.pharm.mssm.edu/chea3/api/enrich/"
   encode = "json"
@@ -846,16 +846,15 @@ getTFs <- function(x){
 }
 
 if(!file.exists("RNAseq/Data/ChEA3_TFs.csv")){
-  #gene_fns <- dir("RNAseq/Data/", pattern = "_[248]*h.txt")
-  gene_fns <- dir("RNAseq/Data/", pattern = "extreme_genes")
-  TFs <- map(gene_fns[1], getTFs) %>%
+  gene_fns <- dir("RNAseq/Data/", pattern = "_[248]*h.txt")
+  TFs <- map(gene_fns, getTFs, logFC_thresh = 1) %>%
     bind_rows()  %>%
   rename(Query_Name = 'Query Name') %>%
-  mutate(specimenName = str_remove(Query_Name, "_extreme_genes.txt"),
+  mutate(specimenName = str_remove(Query_Name, "h.txt"),
          Score = as.numeric(Score))%>%
-  select(specimenName, TF, Score) %>%
+  dplyr::select(specimenName, TF, Score) %>%
   spread(key = TF, value = Score)
-  write_csv(foo, "RNAseq/Data/ChEA3_TFs.csv")
+  write_csv(TFs, "RNAseq/Data/ChEA3_TFs.csv")
 } else{
   TFs <- read_csv("RNAseq/Data/ChEA3_TFs.csv")
 }
@@ -867,12 +866,12 @@ if(!file.exists("RNAseq/Data/ChEA3_TFs.csv")){
 TF_pathways <- RPPA_l1_pathways %>%
     gather(specimenID, value, -feature) %>%
   inner_join(md, by = "specimenID") %>%
-   select(specimenName, feature, value) %>%
+   dplyr::select(specimenName, feature, value) %>%
   spread(key = feature, value = value) %>%
   inner_join(TFs) %>%
   gather(key = feature, value = "value", -specimenName) %>%
    inner_join(md, by = "specimenName") %>%
-     select(specimenID, feature, value) %>%
+     dplyr::select(specimenID, feature, value) %>%
   spread(key = specimenID, value = value)
   
 plot_heatmap(TF_pathways, md, assay_name = "TFs and pathways",EGF_normed = FALSE,show_row_names = TRUE)
