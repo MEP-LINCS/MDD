@@ -4,7 +4,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, cache=FALSE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
 
 suppressMessages(library(tidyverse))
 suppressMessages(library(ComplexHeatmap))
@@ -84,6 +84,68 @@ prep_annotations <- function(df, md){
 #       as.data.frame()
 #       return(df_ann)
 # }
+
+
+plot_heatmap <- function(df, md, assay_name, EGF_normed = TRUE, var_thresh_percentile = 0, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE, select_timepoint = FALSE, zscore_rows = TRUE,...) {
+  
+  df_vars <- df %>%
+  dplyr::select(-feature) %>%
+  as.matrix() %>%
+  apply(1, var, na.rm = TRUE)
+  
+var_thresh <- quantile(df_vars, probs = var_thresh_percentile, na.rm = TRUE)
+df <- df[df_vars >= var_thresh,]
+  
+  #convert specimenID column names to specimanName and reorder
+  df <- prep_data(df, md)
+title_suffix <- ""
+  if(EGF_normed){
+    title_suffix = ", EGF timecourse normalized"
+    df <- df %>%
+    dplyr::select(-matches("EGF"))
+  }
+
+  if(select_timepoint){
+    df <- df %>%
+    dplyr::select(matches(paste0("_",select_timepoint,"_","|feature")))
+  }
+
+  if(!is.null(mark_rows)) {
+    row_nums <- which(df$feature %in% mark_rows)
+    ra <- rowAnnotation(foo = anno_mark(at = c(row_nums), labels = df$feature[row_nums]))
+  } else {
+    ra <- NULL
+  }
+if(zscore_rows) {
+  df_as_matrix <- dplyr::select(df, -feature) %>%
+    as.matrix() %>%
+    t %>%
+    scale() %>%
+    t
+} else {
+  df_as_matrix <- dplyr::select(df, -feature) %>%
+    as.matrix()
+}
+  rownames(df_as_matrix) <- df$feature
+
+ windsorize_probs <- df_as_matrix %>%
+      unlist %>% 
+   quantile(probs = c(.02, .98), na.rm = TRUE)
+ 
+   #Create the heatmap
+  hm <- Heatmap(matrix = df_as_matrix,
+          name = "abundance",
+          column_title = paste0(assay_name, title_suffix),
+          top_annotation = create_top_annotations(df, md),
+          right_annotation = ra,
+          show_row_names = show_row_names,
+          show_column_names = FALSE,
+          cluster_columns = FALSE,
+          cluster_rows = cluster_rows,
+          col = circlize::colorRamp2(c(windsorize_probs[1], 0, windsorize_probs[2]), c("blue", "white", "red")),
+          na_col = "grey",...)
+  hm
+}
 
 
 heatmap_order <- function(df, md, EGF_normed = TRUE){
@@ -528,30 +590,7 @@ plot_iheatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_p
 
 ```
 
-Antibodies with variances above the `r var_thresh_percentile*100` percentile are shown in the heatmaps.  
 
-
-### cycIF{.tabset .tabset-fade}
-
-#### Heatmap 
-
-```{r cycIF_figures, eval = TRUE}
-
-cycIF <- load_data(assay_name = "cycIF", level = 3) %>%
-  filter(str_detect(feature, "_int_")) %>%
-  mutate_if(is.numeric, log2)
-
-cycIF_vars <- cycIF %>%
-  dplyr::select(-feature) %>%
-  as.matrix() %>%
-  apply(1, var)
-  
-var_thresh <- quantile(cycIF_vars, probs = var_thresh_percentile)
-cycIF_hi_vars <- cycIF[cycIF_vars > var_thresh,]
-
-plot_iheatmap(cycIF_hi_vars, md, assay_name = "cycIF")
-
-```
 
 
 Intensity features included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
@@ -585,7 +624,7 @@ Genes included in the heatmap have a variance above the `r var_thresh_percentile
 
 ### TF_Pathways{.tabset .tabset-fade}
 
-#### Heatmap  
+ 
 
 ```{r TF_pathways_figures}
 reverseTFScore <- function(x, max_TF_mean_rank){
@@ -630,43 +669,6 @@ TF_pathways_cor <- TF_pathways %>%
 ```
 
 
-
-```{r TFxPathwayCorrelations}
-
-df <- TF_pathways_cor %>%
-  as_tibble(rownames="TF") %>%
-  dplyr::select(matches("_Score|^TF$")) %>%
-  filter(!str_detect(TF,"_Score"))
-
-df_as_matrix <- df %>%
-  select(-TF) %>%
-  as.matrix()
-
-Heatmap(matrix = df_as_matrix,
-          name = "correlations",
-          column_title = paste0("Correlation of all TFs and pathways"),
-          show_row_names = FALSE,
-          show_column_names = TRUE,
-          cluster_rows = TRUE,
-          cluster_columns = TRUE,
-          col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
-          na_col = "grey")
-
-```
-
-
-Method Summary  
-
-Start with DCIC's preprocessed RNAseq values  
-Filter to genes with logFC >1  
-For each specimen, feed selected into ChEA3  
-Reverse ChEa3 TF mean rankings so that high values represent highly scored TFs  
-Mean summarize replicate RPPA pathway scores  
-Find the correlations betwwen all TFs and pathways across all 24 and 48 hour conditions and display as a heatmap  
-
-
-#### Top TFs correlations  
-
 ```{r top_TF_pathways_figures, eval = TRUE}
 
   #Select top TFs of each ligand
@@ -700,12 +702,91 @@ top_TF_pathways_cor <- top_TF_pathways %>%
   select(-condition) %>%
   cor(method = "spearman")
 
-  
-#plot_iheatmap(TF_pathways, md, assay_name = "TFs and RPPA pathways")
+```
+
+
+#### Pathways heatmap 
+
+```{r plotTFsvsPathways}
+
+RPPA_l1_pathways <- load_data("RPPA", "1_Pathways_Score") %>%
+  rename(specimenID = X1) %>%
+  gather(key = feature, value = Score, -specimenID) %>%
+  spread(key = specimenID, value = Score)
+
+plot_heatmap(RPPA_l1_pathways, md, EGF_normed = FALSE, assay_name = "RPPA",show_row_names = TRUE,
+                       row_names_gp = gpar(fontsize = 10))
+```
+
+#### Top TF heatmap
+
+```{r}
+df <- top_TF_pathways %>%
+  dplyr::select(-matches("_Score")) %>%
+  filter(!str_detect(feature,"_Score"))
+
+df_as_matrix <- df %>%
+  select(-feature) %>%
+  as.matrix() %>%
+  t %>%
+    scale() %>%
+    t
+colnames(df_as_matrix) <- str_remove(colnames(df_as_matrix),"_Pathway_Score")
+rownames(df_as_matrix) <- df$feature
+
+Heatmap(matrix = df_as_matrix,
+          name = "ranks",
+          column_title = paste0("Ranks of top TFs"),
+          show_row_names = TRUE,
+        row_names_gp = gpar(fontsize = 8),
+          show_column_names = TRUE,
+          cluster_rows = TRUE,
+          cluster_columns = FALSE,
+          #col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+          na_col = "grey")
+```
+
+#### Correlations heatmap
+
+
+```{r TFxPathwayCorrelations}
+
+df <- TF_pathways_cor %>%
+  as_tibble(rownames="TF") %>%
+  dplyr::select(matches("_Score|^TF$")) %>%
+  filter(!str_detect(TF,"_Score"))
+
+df_as_matrix <- df %>%
+  select(-TF) %>%
+  as.matrix()
+colnames(df_as_matrix) <- str_remove(colnames(df_as_matrix),"_Pathway_Score")
+
+Heatmap(matrix = df_as_matrix,
+          name = "correlations",
+          column_title = paste0("Correlation of all TFs and pathways"),
+          show_row_names = FALSE,
+          show_column_names = TRUE,
+          cluster_rows = TRUE,
+          cluster_columns = TRUE,
+          col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+          na_col = "grey")
 
 ```
 
-```{r topTFxPathwayCorrelations}
+
+Method Summary  
+
+Start with DCIC's preprocessed RNAseq values  
+Filter to genes with logFC >1  
+For each specimen, feed selected into ChEA3  
+Reverse ChEa3 TF mean rankings so that high values represent highly scored TFs  
+Mean summarize replicate RPPA pathway scores  
+Find the correlations betwwen all TFs and pathways across all 24 and 48 hour conditions and display as a heatmap  
+
+
+#### Top TFs correlations  
+
+```{r topTFxPathwayCorrelations, fig.height=14}
 
 df <- top_TF_pathways_cor %>%
   as_tibble(rownames="TF") %>%
@@ -715,11 +796,14 @@ df <- top_TF_pathways_cor %>%
 df_as_matrix <- df %>%
   select(-TF) %>%
   as.matrix()
+colnames(df_as_matrix) <- str_remove(colnames(df_as_matrix),"_Pathway_Score")
+rownames(df_as_matrix) <- df$TF
 
 Heatmap(matrix = df_as_matrix,
           name = "correlations",
           column_title = paste0("Correlation of top TFs and pathways"),
-          show_row_names = FALSE,
+          show_row_names = TRUE,
+        row_names_gp = gpar(fontsize = 8),
           show_column_names = TRUE,
           cluster_rows = TRUE,
           cluster_columns = TRUE,
@@ -730,73 +814,34 @@ Heatmap(matrix = df_as_matrix,
 
 Method Summary  
 
-Z score RNAseq genes across all conditions  
-For each specimen, feed genes with Z score > 2.5 into ChEA3  
+Start with DCIC's preprocessed RNAseq values  
+Filter to genes with logFC >1  
+For each specimen, feed selected into ChEA3  
 Reverse ChEa3 TF mean rankings so that high values represent highly scored TFs  
 Group by ligand  
-Select the top ranked 25 TFs in all timepoints of each ligand  
-Combine the top ranked TFs into one set  
-Filter the reversed TF rankings to only include the TFs in the top ranked set  
-Combine RPPA pathway z score with TF Z scores  
+Select the top ranked 25 TFs in both timepoints of each ligand  
+Mean summarize replicate RPPA pathway scores  
+Find the correlations betwwen the top TFs and the RPPA pathways across all 24 and 48 hour conditions and display as a heatmap  
 
+```{r correlationScatterplots, fig.width= 12, fig.height=20}
 
-#### Line graphs
+top_TF_df <- top_TF_pathways %>%
+  gather(key = "condition", value = "TF", -feature) %>%
+  filter(!str_detect(feature,"Pathway")) 
 
-```{r, fig.height=30, fig.width=15}
+pathway <- "Apoptosis_Pathway_Score"
+df <- top_TF_pathways %>%
+  gather(key = "condition", value = "value", -feature) %>%
+  filter(str_detect(feature,pathway)) %>%
+  spread(key = feature, value = value) %>%
+  right_join(top_TF_df)
+  
+p <- ggplot(df, aes_string(pathway, "TF", colour = "condition")) +
+  geom_point() +
+  facet_wrap(~feature)
+print(p)
 
-#pathway line graphs
-  df_sum <- TF_pathways %>%
-    prep_data(md = md) %>%
-    gather("specimenName", "value", -feature) %>%
-    inner_join(md, by = "specimenName") %>%
-    dplyr::select(ligand, secondLigand, experimentalTimePoint, replicate, collection, feature, value) %>%
-    rename(Time = experimentalTimePoint,
-           Ligand = ligand,
-           Ligand2 = secondLigand,
-           Replicate = replicate,
-           Collection = collection) %>%
-    group_by(feature, Collection, Time, Ligand) %>%
-    summarise(value = median(value)) %>%
-    ungroup() 
-  
-   if(0 %in% unique(df_sum$Time)){
-    df2 <- df_sum %>%
-      filter(Time == 0) %>%
-      data.frame(Ligand = rep(unique(df_sum$Ligand), each = length(unique(df_sum$feature))),
-                 stringsAsFactors = FALSE) %>%
-      dplyr::select(feature, Ligand.1, value, Collection, Time) %>%
-      rename(Ligand = Ligand.1) %>%
-      bind_rows(df_sum) %>%
-      filter(!Ligand == "ctrl") 
-  } else {
-    df2 <- df_sum
-  }
-  
-  
-  fc_set <- df2 %>%
-    dplyr::select(feature) %>%
-    distinct() %>%
-    inner_join(df2, by = "feature") %>%
-    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
-  
-
-  
-p <- ggplot(fc_set, aes(x=Time, y=value, colour=Ligand))+
-  geom_line()+
-  labs(title=paste0("TF pathways"),
-       x = "Time (hours)",
-       y="Intensity (AU)") +
-  scale_x_continuous(breaks = c(0,8,24,48)) +
-  scale_color_manual(values = ligand_cols) +
-  theme(axis.text.x = element_text(angle=90),
-        # axis.text.y=element_blank(),
-        # axis.ticks.y=element_blank(),
-        strip.text = element_text(size=6, hjust=0),
-        panel.background = element_rect(fill = NA),
-        panel.grid.major = element_line(colour = "gray95"))+
-  facet_wrap(~feature, ncol = 8,scales = "free_y")
-p
-  
 ```
+
 
 ##
