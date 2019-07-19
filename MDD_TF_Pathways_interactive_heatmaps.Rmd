@@ -630,17 +630,24 @@ Genes included in the heatmap have a variance above the `r var_thresh_percentile
 reverseTFScore <- function(x, max_TF_mean_rank){
   x <- max_TF_mean_rank - x
 }
-  TFs <- read_csv("RNAseq/Data/ChEA3_TFs.csv") %>%
-    mutate(condition = str_remove(specimenName, "h$")) %>%
-    dplyr::select(-specimenName)
-  
-#reverse the TF values so that higher values represent higher TF scores
-  max_TF_mean_rank <- TFs %>%
-    dplyr::select(-condition) %>%
-    max
-  TFs <- TFs %>%
-    mutate_if(is.numeric, reverseTFScore, max_TF_mean_rank = max_TF_mean_rank) %>%
-    gather(key = "feature", value="value",-condition)
+
+#read in and combine MDD TF scores, reverse ranks
+TFs_input <- dir("RNAseq/Data/ChEA3_results_MD_OHSU/",
+           pattern = "ctrl_vs_.*xlsx",
+           full.names = TRUE) %>% 
+  map(readxl::read_excel, col_types = c("text","numeric", "text","numeric", "text", "text")) %>%
+  bind_rows() %>%
+  as_tibble(.name_repair = "universal") %>%
+  mutate(experimentalTime = str_extract(Query.Name, "[24][48]"),
+         experimentalTime = as.numeric(experimentalTime),
+         ligand = str_remove(Query.Name, "ctrl vs "),
+         ligand = str_remove(ligand, ",.*"),
+         condition = paste0(ligand, "_", experimentalTime),
+         value = 1633 - Rank,
+         feature = TF)
+
+  TFs <- TFs_input %>%
+    select(condition, value, feature)
 
   RPPA_l1_pathways <- load_data("RPPA", "1_Pathways_Score") %>%
   rename(specimenID = X1) %>%
@@ -666,6 +673,36 @@ TF_pathways_cor <- TF_pathways %>%
   select(-condition) %>%
   cor(method = "spearman")
 
+if(FALSE){
+  RPPA_metadata <- read_csv("RPPA/Metadata/MDD_RPPA_antibodyAnnotations.csv")
+  
+  RPPA_genes_HGNC_direct <- RPPA_genes_HGNC_direct$Symbols
+  
+  RPPA_genes <- RPPA_l1$feature %>%
+    str_remove("_.*") %>%
+    toupper() %>%
+    unique
+  RPPA_genes_HGNC <- RPPA_genes %>%
+    str_replace("C-MYC", "MYC") %>%
+    str_replace("ER", "ESR1") %>%
+    str_replace("PR", "PGR") %>%
+    str_replace("FOXO3A", "FOXO3") %>%
+    str_replace("TWIST", "TWIST1") %>%
+    str_replace("CREB", "CREB1") %>%
+    str_replace("SNAIL", "SNAI1") %>%
+    str_replace("HIF-1-ALPHA", "HIF1A") %>%
+    str_remove("-")
+  
+  ChEA3_TFs <- TFs_input$TF %>%
+    unique
+  ChEA3_TFs[str_detect(ChEA3_TFs, "XBP")]
+  RPPA_genes_HGNC_direct[str_detect(RPPA_genes_HGNC_direct, "XBP")]
+  common_TFs <- intersect(RPPA_genes_HGNC, ChEA3_TFs)
+  common_TFs_direct <- intersect(RPPA_genes_HGNC_direct, ChEA3_TFs)
+  set_diff <- setdiff(common_TFs_direct, common_TFs)
+  set_diff2 <- setdiff(common_TFs, common_TFs_direct)
+
+}
 ```
 
 
@@ -697,6 +734,21 @@ TF_pathways_cor <- TF_pathways %>%
   
     
 top_TF_pathways_cor <- top_TF_pathways %>%
+  gather(key = "condition", value = value, -feature) %>%
+  spread(key = feature, value = value) %>%
+  select(-condition) %>%
+  cor(method = "spearman")
+
+RPPA_l1_pathways_null <- RPPA_l1_pathways %>%
+  mutate(value = value[sample(1:nrow(RPPA_l1_pathways), replace = FALSE)])
+
+top_TF_pathways_null <-  top_TFs %>%
+  gather(key = feature,value = value, -condition) %>%
+  bind_rows(RPPA_l1_pathways_null) %>%
+  spread(key = condition, value = value) %>%
+  select(matches("_24|_48|feature"), -matches("PBS"))
+
+top_TF_pathways_cor_null <- top_TF_pathways_null %>%
   gather(key = "condition", value = value, -feature) %>%
   spread(key = feature, value = value) %>%
   select(-condition) %>%
@@ -776,12 +828,11 @@ Heatmap(matrix = df_as_matrix,
 
 Method Summary  
 
-Start with DCIC's preprocessed RNAseq values  
-Filter to genes with logFC >1  
-For each specimen, feed selected into ChEA3  
-Reverse ChEa3 TF mean rankings so that high values represent highly scored TFs  
+Start with DCIC's top ranked TFs from ChEA3 analysis  
+Reverse ChEA3 TF rankings so that high values represent highly scored TFs  
 Mean summarize replicate RPPA pathway scores  
-Find the correlations betwwen all TFs and pathways across all 24 and 48 hour conditions and display as a heatmap  
+Combine TF rankings and RPPA pathways scores
+Find the correlations between all TFs and pathways across all 24 and 48 hour conditions and display as a heatmap  
 
 
 #### Top TFs correlations  
@@ -803,25 +854,42 @@ Heatmap(matrix = df_as_matrix,
           name = "correlations",
           column_title = paste0("Correlation of top TFs and pathways"),
           show_row_names = TRUE,
-        row_names_gp = gpar(fontsize = 8),
+        row_names_gp = gpar(fontsize = 6),
           show_column_names = TRUE,
           cluster_rows = TRUE,
           cluster_columns = TRUE,
           col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
           na_col = "grey")
 
+df2 <- df_as_matrix %>%
+  as_tibble() %>%
+  gather(key = "feature")
+
+p <- ggplot(df2, aes(value)) +
+  geom_density()+
+  facet_wrap(~feature)
+p
+
+top_TF_pathways_cor %>%
+  as_tibble(rownames="TF") %>%
+  dplyr::select(matches("_Score|^TF$")) %>%
+  filter(!str_detect(TF,"_Score")) %>%
+  gather(key = "Pathway", value = "Correlation", -TF) %>%
+  distinct() %>%
+  mutate(Correlation = signif(Correlation, 2),
+         Pathway = str_remove(Pathway, "_Pathway_Score")) %>%
+  DT::datatable()
 ```
 
 Method Summary  
 
-Start with DCIC's preprocessed RNAseq values  
-Filter to genes with logFC >1  
-For each specimen, feed selected into ChEA3  
-Reverse ChEa3 TF mean rankings so that high values represent highly scored TFs  
+Start with DCIC's top ranked TFs from ChEA3 analysis  
+Reverse ChEA3 TF rankings so that high values represent highly scored TFs  
 Group by ligand  
 Select the top ranked 25 TFs in both timepoints of each ligand  
 Mean summarize replicate RPPA pathway scores  
-Find the correlations betwwen the top TFs and the RPPA pathways across all 24 and 48 hour conditions and display as a heatmap  
+Combine TF rankings and RPPA pathways scores  
+Find the correlations between the top TFs and the RPPA pathways across all 24 and 48 hour  conditions and display as a heatmap  
 
 ```{r correlationScatterplots, fig.width= 12, fig.height=20}
 
@@ -829,19 +897,80 @@ top_TF_df <- top_TF_pathways %>%
   gather(key = "condition", value = "TF", -feature) %>%
   filter(!str_detect(feature,"Pathway")) 
 
-pathway <- "Apoptosis_Pathway_Score"
+pathway <- "G2_M_Pathway_Score"
 df <- top_TF_pathways %>%
   gather(key = "condition", value = "value", -feature) %>%
   filter(str_detect(feature,pathway)) %>%
   spread(key = feature, value = value) %>%
   right_join(top_TF_df)
   
-p <- ggplot(df, aes_string(pathway, "TF", colour = "condition")) +
-  geom_point() +
+p <- ggplot(df, aes_string(pathway, "TF")) +
+  stat_smooth(aes_string(pathway, "TF"), method = "lm", se = FALSE) +
+  geom_point(aes_string(pathway, "TF", colour = "condition")) +
   facet_wrap(~feature)
+
 print(p)
 
 ```
 
+
+#### Top TFs correlation nulls
+
+```{r topTFxPathwayCorrelationNulls, fig.height=14}
+
+df <- top_TF_pathways_cor_null %>%
+  as_tibble(rownames="TF") %>%
+  dplyr::select(matches("_Score|^TF$")) %>%
+  filter(!str_detect(TF,"_Score"))
+
+df_as_matrix <- df %>%
+  select(-TF) %>%
+  as.matrix()
+colnames(df_as_matrix) <- str_remove(colnames(df_as_matrix),"_Pathway_Score")
+rownames(df_as_matrix) <- df$TF
+
+Heatmap(matrix = df_as_matrix,
+          name = "correlations",
+          column_title = paste0("Correlation of top TFs and randomized pathways"),
+          show_row_names = TRUE,
+        row_names_gp = gpar(fontsize = 8),
+          show_column_names = TRUE,
+          cluster_rows = TRUE,
+          cluster_columns = TRUE,
+          col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+          na_col = "grey")
+
+
+df2 <- df_as_matrix %>%
+  t %>%
+  as_tibble() %>%
+  gather(key = "feature")
+
+p <- ggplot(df2, aes(value)) +
+  geom_density()+
+  facet_wrap(~feature)
+p
+
+```
+
+```{r nullCorrelationScatterplots, fig.width= 12, fig.height=20}
+
+top_TF_df_null <- top_TF_pathways_null %>%
+  gather(key = "condition", value = "TF", -feature) %>%
+  filter(!str_detect(feature,"Pathway")) 
+
+df_null <- top_TF_pathways_null %>%
+  gather(key = "condition", value = "value", -feature) %>%
+  filter(str_detect(feature,pathway)) %>%
+  spread(key = feature, value = value) %>%
+  right_join(top_TF_df_null)
+  
+p <- ggplot(df_null, aes_string(pathway, "TF", colour = "condition")) +
+  geom_point() +
+  labs(title = paste("Randomized pathway scores for", pathway)) +
+  facet_wrap(~feature)
+print(p)
+
+```
 
 ##
