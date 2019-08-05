@@ -66,7 +66,7 @@ CV <- function(x){
 
 
 #Loading the header and data from the raaw data NormLinear sheet. 
-l1Header <- lapply(dir("../RPPA/Data", pattern = "01_", full.names = TRUE), readRPPAHeader) %>%
+l3Header <- lapply(dir("../RPPA/Data", pattern = "01_", full.names = TRUE), readRPPAHeader) %>%
   bind_rows() %>%
   spread(ReplicateSet,`Probabilities (QC Score)`) %>%
   mutate(SetAQCScore=signif(as.numeric(A),2),
@@ -75,7 +75,7 @@ l1Header <- lapply(dir("../RPPA/Data", pattern = "01_", full.names = TRUE), read
   rename(Antibody=`Antibody Name in Heatmap`) %>%
   select(-A, -B, -C)
 
-l1_data <- lapply(dir("../RPPA/Data", pattern = "01_", full.names = TRUE), readRPPAData) %>%
+l3_data <- lapply(dir("../RPPA/Data", pattern = "01_", full.names = TRUE), readRPPAData) %>%
   bind_rows() %>%
   select(-matches("Order|Sample [(Source)(Name)(Type)]|Category_[23]|CF1&2 |^CF[12]$")) %>%
   gather(key = "antibody",value = "value",-Category_1, -`Sample description`) %>%
@@ -95,31 +95,20 @@ l1_data <- lapply(dir("../RPPA/Data", pattern = "01_", full.names = TRUE), readR
 
 mddMetadata <- read_csv("../Metadata/MDD_sample_annotations.csv")
 
-l1 <- l1_data %>%
+l3 <- l3_data %>%
   left_join(mddMetadata, by = "specimenName")
 
-l1_synapse<- l1 %>%
+l3_synapse<- l3 %>%
   select(specimenID, antibody, value) %>%
   spread(key = specimenID, value = value) %>%
   select(antibody, str_sort(colnames(.), numeric=TRUE)) %>%
-  write_csv("../RPPA/Data/MDD_RPPA_level1.csv")
+  write_csv("../RPPA/Data/MDD_RPPA_Level3.csv")
 
-
-# The RPPA data is time course normalized by dividing each antibody by the corresponding time course values of EGF.  
-egf <- l1 %>%
-  filter(ligand=="EGF") %>%
-  select(antibody,replicate,value,experimentalTimePoint) %>%
-  rename(EGFValue=value)
-
-l4 <- l1 %>%
-  left_join(egf,by=c("antibody","replicate","experimentalTimePoint"))
-
-l4 <- l4 %>%
-  mutate(value = value - EGFValue,
-         value = signif(value, 3))
-
-l4_synapse<- l4 %>%
-  select(specimenID, antibody, value) %>%
-  spread(key = specimenID, value = value) %>%
-  select(antibody, str_sort(colnames(.), numeric=TRUE),-sid1, -sid2, -sid3) %>%
-  write_csv("../RPPA/Data/MDD_RPPA_level4.csv")
+#median summarize replicatesby condition
+l4 <- l3 %>% 
+  select(experimentalCondition, value, antibody) %>%
+  group_by(experimentalCondition, antibody) %>%
+  summarise(value = median(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  spread(key = experimentalCondition, value = value) %>%
+  write_csv("../RPPA/Data/MDD_RPPA_Level4.csv")
