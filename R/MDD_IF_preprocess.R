@@ -138,7 +138,7 @@ field <- l1 %>%
   select(-Position)
 
 
-#Summarize the fields to get a well level
+#Summarize the fields to get a well level and then specimenID level
 parameterNames <- grep("Intensity|Elongation|Perimeter|Area|Proportion|Count|Thresh",colnames(field),value = TRUE)
 
 well <- field %>%
@@ -158,38 +158,17 @@ well <- field %>%
 
 write_csv(well, "../IF/Data/MDD_IF_Level3.csv")
 
-#add EGF timecourse normalized values
-well_EGFNorm <- well %>%
-  filter(str_detect(specimenName, "EGF")) %>%
-  select(specimenName, WellCellCount, DNA2nProportion, MeanIntensity_KRT5, EdUPositiveProportion, ElongationFactor, Perimeter, Area) %>%
-  rename(WellCellCountEGF = WellCellCount,
-         DNA2nProportionEGF = DNA2nProportion,
-         MeanIntensity_KRT5EGF = MeanIntensity_KRT5,
-         EdUPositiveProportionEGF = EdUPositiveProportion,
-         ElongationFactorEGF = ElongationFactor,
-         AreaEGF = Area,
-         PerimeterEGF = Perimeter) %>%
-  group_by(specimenName) %>%
-  summarise_all(median) %>%
-  ungroup() %>%
-  mutate(replicate = str_remove(specimenName, ".*_"),
-         experimentalTimePoint = str_extract(specimenName,"24|48"),
-         collection = str_extract(specimenName, "C[12]")) %>%
-  select(-specimenName) %>%
-  left_join(well, by = c("replicate", "collection", "experimentalTimePoint")) %>%
-  mutate(WellCellCount = WellCellCount/WellCellCountEGF,
-         DNA2nProportion = DNA2nProportion/DNA2nProportionEGF,
-         EdUPositiveProportion = EdUPositiveProportion/EdUPositiveProportionEGF,
-         MeanIntensity_KRT5 = MeanIntensity_KRT5/MeanIntensity_KRT5EGF
-         ,
-         ElongationFactor = ElongationFactor/ElongationFactorEGF,
-         Area = Area/AreaEGF,
-         Perimeter = Perimeter/PerimeterEGF) %>%
-  select(specimenID, WellCellCount, DNA2nProportion, EdUPositiveProportion, MeanIntensity_KRT5, ElongationFactor, Area, Perimeter) %>%
-  group_by(specimenID) %>%
-  summarise_all(median) %>%
-  ungroup %>%
-  gather(key = "feature", value = "value", -specimenID) %>%
-  spread(key = specimenID, value = value)
+#Median summarize to create level 4 dataset
+mddMetadata <- read_csv("../Metadata/MDD_sample_annotations.csv")
 
-write_csv(well_EGFNorm, "../IF/Data/MDD_IF_Level4.csv")
+l4 <- well %>%
+  gather(specimenID, value, -feature) %>%
+  left_join(mddMetadata, by = "specimenID") %>%
+  group_by(feature, experimentalCondition, collection) %>%
+  summarise(value = median(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(experimentalCondition_collection = paste(experimentalCondition, collection, sep = "_")) %>%
+  select(experimentalCondition_collection, value, feature) %>%
+  spread(experimentalCondition_collection, value = value)
+
+write_csv(l4, "../IF/Data/MDD_IF_Level4.csv")
