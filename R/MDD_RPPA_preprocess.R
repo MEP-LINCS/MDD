@@ -104,7 +104,7 @@ l3_synapse<- l3 %>%
   select(antibody, str_sort(colnames(.), numeric=TRUE)) %>%
   write_csv("../RPPA/Data/MDD_RPPA_Level3.csv")
 
-#median summarize replicatesby condition
+#median summarize replicates by condition
 l4 <- l3 %>% 
   select(experimentalCondition, value, antibody) %>%
   group_by(experimentalCondition, antibody) %>%
