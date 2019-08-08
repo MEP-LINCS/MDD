@@ -1,0 +1,479 @@
+---
+title: "MDD prior knowledge heatmaps"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+
+suppressMessages(library(tidyverse))
+suppressMessages(library(ComplexHeatmap))
+library(iheatmapr)
+library(DT)
+library(rrscale)
+
+pk_preprocess_level3 <- function(df, type){
+#filter to time 0 values and join with original values on feature and replicate
+#subtract T0 value from each orginal value
+df_T0_norm <- df %>%
+  filter(experimentalTimePoint == 0) %>%
+  select(feature, value, replicate) %>%
+  rename(value_T0 = value) %>%
+  right_join(df) %>%
+  mutate(value_T0_norm = value-value_T0) %>%
+  filter(experimentalTimePoint %in% c(24, 48))
+#median summarize the replicates of each feature's T0 values
+df_T0_norm_med <- df_T0_norm %>%
+  group_by(feature, experimentalCondition) %>%
+  summarise(value_T0_norm = median(value_T0_norm, na.rm = TRUE)) %>%
+  ungroup() %>%
+  rename(condition = experimentalCondition,
+         value = value_T0_norm) %>%
+  mutate(Type = type)
+return(df_T0_norm_med)
+}
+
+#' rrscale a numeric vector
+rrscaleVector <- function(x, zeros = .001, ncores = 4){
+  x_rr <- as.matrix(x) %>%
+    rrscale(zeros = zeros, ncores = ncores)
+  x_rr_values <- x_rr$RR %>%
+    c
+  return(x_rr_values)
+}
+
+#' df a dataframe with feature, value, condition and Type columns. The values must
+#' be all numeric and transformed to common scales
+plot_iheatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
+
+  df_sp <- df %>%
+    dplyr::select(feature, value, condition) %>%
+    spread(key = feature, value = value) %>%
+    select_if(~ !any(is.na(.)))
+  
+  df_as_matrix <- df_sp %>%
+    dplyr::select(-condition) %>%
+    as.matrix()
+  rownames(df_as_matrix) <- df_sp$condition
+  
+  #create top annotations
+  ann_nv_pairs <- df %>%
+    dplyr::select(feature, Type) %>%
+    distinct()
+  
+  ann_df <- tibble(feature = colnames(df_as_matrix)) %>%
+    left_join(ann_nv_pairs, by = "feature") %>%
+    dplyr::select(Type)
+  
+  #Create the heatmap
+  hm <- main_heatmap(data = df_as_matrix,
+                     name = "score",
+                     row_order = (nrow(df_as_matrix):1)) %>%
+    add_row_labels() %>%
+    add_col_annotation(ann_df,
+                       size = 0.02) %>%
+    add_col_clustering() 
+  hm
+}
+
+```
+
+
+
+```{r globalVariables}
+
+ligand_cols <- c("ctrl" = "#7A4A2A",
+                 "PBS" = "#8dd3c7",
+                  "HGF" = "#80b1d3",
+                  "OSM" = "#fdb462",
+                  "EGF" = "#fb8072",
+                  "BMP2" = "#b3de69",
+                  "IFNG" = "#bebada",
+                  "TGFB" = "#ffd92f")
+
+
+ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")
+odds_ratio_thresh <- 9
+
+```
+
+```{r read_data_and_metadata}
+
+md <- read_csv("MDD/metadata/MDD_sample_annotations.csv")
+
+get_TF_values <- function(sheet, dir_path, pattern) {
+  #read in and combine MDD TF scores
+TFs_input <- dir(path = dir_path,
+                 pattern = pattern,
+                 full.names = TRUE) %>% 
+  map(readxl::read_excel, col_types = c("text"), sheet = sheet, .name_repair = "universal") %>%
+  bind_rows() %>%
+  mutate(Rank = as.numeric(Rank),
+         experimentalTime = str_extract(Query.Name, "[24][48]"),
+         experimentalTime = as.numeric(experimentalTime),
+         ligand = str_remove(Query.Name, "ctrl vs "),
+         ligand = str_remove(ligand, ",.*"),
+         condition = paste0(ligand, "_", experimentalTime),
+         value =(1633-Rank)/1632,
+         feature = TF,
+         Library_only = str_remove(Library, ",.*"),
+         Library_only = str_replace(Library_only, " ", "--"))
+}
+
+TFs_values <- get_TF_values(dir_path = "MDD/RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
+TFs_details <- map(2:7, get_TF_values, dir_path = "MDD/RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
+  bind_rows()
+
+TFs_input <- TFs_details %>%
+  dplyr::select(Query.Name, TF, Odds.Ratio, FDR, Library_only) %>%
+  right_join(TFs_values, by = c("Query.Name", "TF", "Library_only"))
+
+TFs <- TFs_input %>%
+  dplyr::select(condition, Odds.Ratio, feature) %>%
+  rename(value = Odds.Ratio) %>%
+  mutate(value = as.numeric(value),
+         Type = "ChEA3 TF")
+
+TFs_down <- read_csv("MDD/RNAseq/Data/ChEA3_TFs_down.csv") %>%
+  gather(feature, value, -condition) %>%
+  mutate(Type = "ChEA3 TF Down")
+
+
+#Read in RPPA pathways scores, mean summarise within condition
+RPPA_pathways <- read_csv("MDD/RPPA/Data/MDD_Pathways_Score.csv") %>%
+  rename(specimenID = X1) %>%
+  gather(key = feature, value = value, -specimenID) %>%
+  inner_join(md, by = "specimenID") %>%
+  dplyr::select(specimenName, feature, value) %>%
+  mutate(condition = str_remove(specimenName, "_C1.*")) %>%
+  group_by(condition, feature) %>%
+  summarise_at("value", mean) %>%
+  ungroup %>%
+  mutate(Type = "RPPA pathway")
+
+#Read in Hallmark pathways that are based on RNAseq data
+hallmark_pathways <- read_csv("MDD/RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
+  gather(condition, value, -variable) %>%
+  rename(feature = variable) %>%
+  mutate(Type = "Hallmark pathway")
+
+#Read in RPPA values and merge with metadata
+RPPA_values <- read_csv("MDD/RPPA/Data/MDD_RPPA_Level3.csv") %>%
+  rename(feature = antibody) %>%
+  gather(specimenID, value = value, -feature) %>%
+  left_join(md, by = "specimenID")
+RPPA_T0_norm_med <- pk_preprocess_level3(RPPA_values, type = "RPPA")
+
+#Read in and process cycIF values
+biomarkers <- c("p21waf1cip1_3_af647cy5_int_mean_nuc",
+                "cyclind1_8_af488fitc_int_mean_nuc",
+                "ki67_5_efluor570cy3_int_mean_nuc",
+                "egfr_2_af488fitc_int_mean_cytoplasm",
+                "met_6_af488fitc_int_mean_cytoplasm",
+                "ndg1pt346_3_af488fitc_int_mean_cytoplasm",
+                "s6_6_pecy3_int_mean_cytoplasm",
+                "s6ps235s236_5_af647cy5_int_mean_cytoplasm",
+                "s6ps240244_5_af488fitc_int_mean_cytoplasm",
+                "cateninbeta_4_af647cy5_int_mean_cytoplasm",
+                "nfkbp65_2_af647cy5_int_mean_nuc",
+                "cjun_9_af488fitc_int_mean_nuc",
+                "stat1ps727_2_pecy3_int_mean_nuc",
+                "stat1alphaisoform_8_af647cy5_int_mean_nuc",
+                "pdl1_6_af647cy5_int_mean_cytoplasm",
+                "stat3_4_af488fitc_int_mean_nuc",
+                "ecadherin_7_af647cy5_int_mean_cytoplasm",
+                "vimentin_3_af555cy3_int_mean_cytoplasm",
+                "cytokeratin7human_4_af555cy3_int_mean_cytoplasm",
+                "cytokeratin18_7_af488fitc_int_mean_cytoplasm",
+                "hes1_9_af647cy5_int_mean_nuc",
+                "lc3ab_7_af555cy3_txt_standev_cytoplasm")
+
+cycIF_values <- read_csv("MDD/cycIF/Data/MDD_cycIF_Level3.csv") %>%
+  filter(feature %in% biomarkers) %>%
+  gather(specimenID, value = value, -feature) %>%
+  left_join(md, by = "specimenID") %>%
+  mutate(value = log10(value))
+
+cycIF_T0_norm_med <- pk_preprocess_level3(cycIF_values, type = "cycIF")
+
+#Read in and process GCP values
+GCP_values <- read_csv("MDD/GCP/Data/MDD_GCP_Level3.csv") %>%
+  rename(feature = histone) %>%
+  gather(specimenID, value = value, -feature) %>%
+  left_join(md, by = "specimenID")
+
+GCP_T0_norm_med <- pk_preprocess_level3(GCP_values, type = "GCP")
+
+# GCP_med <-GCP_values %>%
+#   filter(experimentalTimePoint %in% c(24,48)) %>%
+#   group_by(feature, experimentalCondition) %>%
+#   summarise(value_med = median(value, na.rm = TRUE)) %>%
+#   ungroup() %>%
+#   rename(condition = experimentalCondition,
+#          value = value_med) %>%
+#   mutate(Type = "GCP")
+
+pk_all <- bind_rows(TFs, RPPA_pathways, hallmark_pathways, RPPA_T0_norm_med, cycIF_T0_norm_med, GCP_T0_norm_med) %>%
+  filter(str_detect(condition, "24|48"))
+
+pk_all_TF_down <- bind_rows(TFs_down, RPPA_pathways, hallmark_pathways) %>%
+  filter(str_detect(condition, "24|48"))
+
+```
+
+
+```{r prepare_datasets}
+
+#Select top TFs of each ligand
+top_TF_names <- TFs %>%
+  spread(key = feature, value = value) %>%
+  mutate(Ligand = str_remove(condition, "_.*")) %>%
+  group_by(Ligand) %>%
+  summarise_if(is.numeric, min) %>%
+  ungroup %>%
+  gather(key = TF, value = Odds.Ratio, -Ligand) %>%
+  group_by(Ligand) %>%
+  filter(Odds.Ratio >= odds_ratio_thresh)%>%
+  ungroup() %>%
+  spread(key = TF, value = Odds.Ratio) %>%
+  dplyr::select(-Ligand)
+
+top_TFs <- TFs %>%
+  spread(key = feature, value = value)  %>%
+  dplyr::select(condition, colnames(top_TF_names)) %>%
+  gather(feature, value, -condition) %>%
+  mutate(Type = "ChEA3 TF") %>%
+  drop_na()
+
+#filter RPPA features on variance
+RPPA_variance_probs_thresh <- .9
+RPPA_display <- RPPA_T0_norm_med %>%
+  group_by(feature) %>%
+  mutate(feature_variance = var(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  filter(feature_variance > quantile(feature_variance,
+                                     probs = RPPA_variance_probs_thresh,
+                                     na.rm = TRUE)) %>%
+  dplyr::select(-feature_variance) %>%
+  mutate(feature = paste0(feature, "_RPPA"))
+
+#filter GCP features on variance
+GCP_variance_probs_thresh <- .7
+GCP_display <- GCP_T0_norm_med %>%
+  group_by(feature) %>%
+  mutate(feature_variance = var(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  filter(feature_variance > quantile(feature_variance,
+                                     probs = GCP_variance_probs_thresh,
+                                     na.rm = TRUE)) %>%
+  dplyr::select(-feature_variance)
+
+pk_top <- bind_rows(top_TFs, RPPA_pathways, hallmark_pathways, GCP_display, RPPA_display, cycIF_T0_norm_med) %>%
+  filter(str_detect(condition, "24|48"),
+         !str_detect(condition, "PBS"))
+
+pk_top_rr <- pk_top %>%
+  group_by(feature) %>%
+  mutate(value = rrscaleVector(value),
+         value = signif(value,digits = 3)) %>%
+           ungroup()
+
+odds_ratio_thresh_down <- 0
+top_TF_down_names <-  TFs_down %>%
+  spread(key = feature, value = value) %>%
+  mutate(Ligand = str_remove(condition, "_.*")) %>%
+  group_by(Ligand) %>%
+  summarise_if(is.numeric, min) %>%
+  ungroup %>%
+  gather(key = TF, value = Odds.Ratio, -Ligand) %>%
+  group_by(Ligand) %>%
+  filter(Odds.Ratio <= odds_ratio_thresh_down)%>%
+  ungroup() %>%
+  spread(key = TF, value = Odds.Ratio) %>%
+  dplyr::select(-Ligand)
+
+top_TFs_down <- TFs_down %>%
+  spread(key = feature, value = value)  %>%
+  dplyr::select(condition, colnames(top_TF_down_names)) %>%
+  gather(feature, value, -condition) %>%
+  mutate(Type = "ChEA3 TF") %>%
+  drop_na()
+
+pk_top_down <- bind_rows(top_TFs_down, RPPA_pathways, hallmark_pathways) %>%
+  filter(str_detect(condition, "24|48"),
+         !str_detect(condition, "PBS"))
+
+```
+
+```{r pkHeatmap}
+
+plot_heatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
+  
+  df_sp <- df %>%
+    dplyr::select(feature, value, condition) %>%
+    spread(key = feature, value = value)
+  
+  df_as_matrix <- df_sp %>%
+    dplyr::select(-condition) %>%
+    as.matrix()
+  rownames(df_as_matrix) <- df_sp$condition
+
+  #create top annotations
+  ann_nv_pairs <- df %>%
+    dplyr::select(feature, Type) %>%
+    distinct()
+  
+  ann_df <- tibble(feature = colnames(df_as_matrix)) %>%
+    left_join(ann_nv_pairs) %>%
+    dplyr::select(Type)
+  
+  top_ann <- HeatmapAnnotation(Type = ann_df$Type,
+                               col = list("Type" = c("TF" = "#b3de69",
+                                                     "Hallmark" = "#bebada",
+                                                     "RPPA" = "#ffd90f")))
+  
+   #Create the heatmap
+  hm <- Heatmap(matrix = df_as_matrix,
+          name = "abundance",
+          column_title = paste0(assay_name),
+          top_annotation = top_ann,
+          show_row_names = TRUE,
+          show_column_names = FALSE,
+          cluster_columns = cluster_columns,
+          cluster_rows = cluster_rows,
+          na_col = "grey",...)
+  hm
+}
+
+# plot_heatmap_hor(pk_top, "Prior Knowledge")
+# plot_heatmap_hor(pk_top, "Prior Knowledge", cluster_rows = TRUE)
+# 
+# 
+# Method  
+# This analysis combines MDD RNAseq and RPPA data with prior knowledge of transcription factors and pathways.  
+# 
+# RPPA pathways   
+# Use the MDACC algorithm and OHSU's antibody-to-pathway assignments to create pathway scores for each 24 and 48 hour sample.  
+# Median summarize the pathway scores to the treatment level.  
+# 
+# Transcription factors  
+# Start with DCIC preprocessed MDD RNAseq signatures  
+# Select the genes with p-value < 0.01 & logFC > 0.  
+# Use the top 200 upregulated genes for each signature in a ChEA3 anlaysis to score associated transcription factors.  
+# Use the ChEA3 Top Rank method to select the TFs with odds ratios greater than `r odds_ratio_thresh` in any ligand.    
+# 
+# Hallmark pathways  
+# {need method description}  
+```
+
+```{r interactiveHeatmaps}
+
+plot_iheatmap_hor(pk_top_rr, assay_name = "Prior knowledge")
+
+df <- pk_top_rr %>%
+  rename(value_rr = value) %>%
+  right_join(pk_top) %>%
+  dplyr::select(condition, feature, Type, value, value_rr) %>%
+  mutate(value = signif(value, digits = 4))
+datatable(df,colnames = c("Condition" = "condition",
+                          "Feature" = "feature",
+                          "Org. value" = "value",
+                          "RR value" = "value_rr"))
+
+```
+
+#### Method  
+
+This analysis combines MDD RNAseq and RPPA data with prior knowledge of transcription factors and pathways. It then adds in selected cycIF, RPPA and GCP values. 
+This analysis is based on the LINCS Molecular Deep Dive data files on Synapse at  https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
+
+RPPA pathways   
+Use the MDACC algorithm and OHSU's antibody-to-pathway assignments to create pathway scores for each 24 and 48 hour sample.  
+Median summarize the pathway scores to the treatment level. 
+There are `r length(unique(RPPA_pathways$feature))` RPPA pathways in the heatmap.    
+
+Transcription factors  
+Start with DCIC preprocessed MDD RNAseq signatures  
+Select the genes with p-value < 0.01 & logFC > 0.  
+Use the top 200 up-regulated genes for each signature in a ChEA3 anlaysis to score associated transcription factors.  
+Use the ChEA3 Top Rank method to select the TFs with odds ratios greater than `r odds_ratio_thresh` in any ligand. This yields `r length(unique(top_TFs$feature))` high variance transcription factors in the heatmap.    
+
+Hallmark pathways  
+{need method description}  
+There are `r length(unique(hallmark_pathways$feature))` Hallmark Pathways in the heatmap.    
+
+cycIF Values  
+Select `r length(unique(cycIF_T0_norm_med$feature))` cycIF features based on their biological relevance  
+T0 normalize the values within each replicate set  
+Median summarize the values across the replicates  
+
+RPPA Values  
+T0 normalize the RPPA values within each replicate set  
+Median summarize the values across the replicates  
+Select the RPPA antibodies with a variance greater than `r RPPA_variance_probs_thresh`
+This yields `r length(unique(RPPA_display$feature))` high variance antibodies in the heatmap.  
+
+GCP Values  
+T0 normalize the GCP values within each replicate set  
+Median summarize the values across the replicates  
+Select the GCP histones with a variance greater than `r GCP_variance_probs_thresh`. This yields `r length(unique(GCP_display$feature))` high variance histones in the heatmap.  
+
+RRscale  
+Use rrscale to transform each feature in the heatmap before clustering. This method performs a box-cox transformation on each feature, zscores the results then eliminates outliers with absolute values greater than 4.
+
+```{r, eval = FALSE}
+
+#### Transcription factors based on down regulated genes
+
+
+
+plot_iheatmap_hor(pk_top_down, assay_name = "Prior knowledge, TFs from down genes")
+
+datatable(pk_top_down)
+  
+
+
+Method  
+This analysis combines MDD RNAseq and RPPA data with prior knowledge of transcription factors and pathways.  
+
+RPPA pathways   
+Use the MDACC algorithm and OHSU's antibody-to-pathway assignments to create pathway scores for each 24 and 48 hour sample.  
+Median summarize the pathway scores to the treatement level.  
+
+Transcription factors  
+Start with DCIC preprocessed MDD RNAseq signatures  
+Select the genes with p-value < 0.01 & logFC < 0.  
+Use the top 200 down-regulated genes for each signature in a ChEA3 anlaysis to score associated transcription factors.  
+Use the ChEA3 Top Rank method to select the TFs with odds ratios less than `r odds_ratio_thresh_down` in any ligand.    
+
+Hallmark pathways  
+{need method description}  
+
+```
+
+```{r, eval = FALSE}
+#show distributions to select transformations
+p <- ggplot(pk_top, aes(x = value)) +
+  geom_density() +
+  facet_wrap(~feature, scales = "free")
+p
+
+ df_sp <- pk_top %>%
+    select(feature, value, condition) %>%
+    spread(key = feature, value = value)
+  
+  pk_top_scaled <- df_sp %>%
+    select(-condition) %>%
+    as.matrix() %>%
+    scale %>%
+    as_tibble %>%
+    mutate(condition = df_sp$condition) %>%
+    gather("feature","value")
+
+  p <- ggplot(pk_top_scaled, aes(x = value)) +
+  geom_density() +
+  facet_wrap(~feature, scales = "free")
+p
+
+```
