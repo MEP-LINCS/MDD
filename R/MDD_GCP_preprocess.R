@@ -9,6 +9,8 @@ GCP_Data <- read_tsv("../GCP/Data/GCP_MCF10a_log2_noProbeMetadata.txt", skip = 2
   t() %>%
   as_tibble()
 colnames(GCP_Data) <- GCP_Data[1,]
+GCP_Data$pert_iname[GCP_Data$pert_time==0] <- "ctrl"
+
 
 l3_long <- GCP_Data %>%
   slice(-1) %>%
