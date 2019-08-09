@@ -42,6 +42,14 @@ rrscaleVector <- function(x, zeros = .001, ncores = 4){
   return(x_rr_values)
 }
 
+#' rrscale a numeric vector
+rrscaleDiagnostics <- function(x, zeros = .001, ncores = 4){
+  x_rr <- as.matrix(x) %>%
+    rrscale(zeros = zeros, ncores = ncores)
+  return(x_rr)
+}
+
+
 #' df a dataframe with feature, value, condition and Type columns. The values must
 #' be all numeric and transformed to common scales
 plot_iheatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
@@ -76,6 +84,43 @@ plot_iheatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_colu
   hm
 }
 
+#' df a dataframe with feature, value, condition and Type columns. The values must
+#' be all numeric and transformed to common scales
+plot_iheatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
+
+  df_sp <- df %>%
+    dplyr::select(feature, value, condition) %>%
+    spread(key = condition, value = value)
+  
+  
+  df_as_matrix <- df_sp %>%
+    dplyr::select(-feature) %>%
+    as.matrix()
+  rownames(df_as_matrix) <- df_sp$feature
+  
+  #create top annotations
+  ann_nv_pairs <- df %>%
+    dplyr::select(feature, Type) %>%
+    distinct()
+  
+  ann_df <- tibble(feature = rownames(df_as_matrix)) %>%
+    left_join(ann_nv_pairs, by = "feature") %>%
+    dplyr::select(Type)
+  
+  #Create the heatmap
+  hm <- main_heatmap(data = df_as_matrix,
+                     name = "score",
+                     row_order = (nrow(df_as_matrix):1)) %>%
+    add_row_labels(font = list(size = 7),
+                   side = "right") %>%
+    add_col_labels() %>%
+    add_row_annotation(ann_df,
+                       side = "left",
+                       size = 0.02) %>%
+    add_row_clustering() 
+  hm
+}
+
 ```
 
 
@@ -100,7 +145,7 @@ odds_ratio_thresh <- 9
 
 ```{r read_data_and_metadata}
 
-md <- read_csv("MDD/metadata/MDD_sample_annotations.csv")
+md <- read_csv("metadata/MDD_sample_annotations.csv")
 
 get_TF_values <- function(sheet, dir_path, pattern) {
   #read in and combine MDD TF scores
@@ -121,8 +166,8 @@ TFs_input <- dir(path = dir_path,
          Library_only = str_replace(Library_only, " ", "--"))
 }
 
-TFs_values <- get_TF_values(dir_path = "MDD/RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
-TFs_details <- map(2:7, get_TF_values, dir_path = "MDD/RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
+TFs_values <- get_TF_values(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
+TFs_details <- map(2:7, get_TF_values, dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
   bind_rows()
 
 TFs_input <- TFs_details %>%
@@ -135,13 +180,13 @@ TFs <- TFs_input %>%
   mutate(value = as.numeric(value),
          Type = "ChEA3 TF")
 
-TFs_down <- read_csv("MDD/RNAseq/Data/ChEA3_TFs_down.csv") %>%
+TFs_down <- read_csv("RNAseq/Data/ChEA3_TFs_down.csv") %>%
   gather(feature, value, -condition) %>%
   mutate(Type = "ChEA3 TF Down")
 
 
 #Read in RPPA pathways scores, mean summarise within condition
-RPPA_pathways <- read_csv("MDD/RPPA/Data/MDD_Pathways_Score.csv") %>%
+RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
   rename(specimenID = X1) %>%
   gather(key = feature, value = value, -specimenID) %>%
   inner_join(md, by = "specimenID") %>%
@@ -150,16 +195,17 @@ RPPA_pathways <- read_csv("MDD/RPPA/Data/MDD_Pathways_Score.csv") %>%
   group_by(condition, feature) %>%
   summarise_at("value", mean) %>%
   ungroup %>%
-  mutate(Type = "RPPA pathway")
+  mutate(Type = "RPPA pathway",
+         feature = str_replace(feature, "_Pathway_Score", "_RPPA_path"))
 
 #Read in Hallmark pathways that are based on RNAseq data
-hallmark_pathways <- read_csv("MDD/RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
+hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
   gather(condition, value, -variable) %>%
   rename(feature = variable) %>%
   mutate(Type = "Hallmark pathway")
 
 #Read in RPPA values and merge with metadata
-RPPA_values <- read_csv("MDD/RPPA/Data/MDD_RPPA_Level3.csv") %>%
+RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
   rename(feature = antibody) %>%
   gather(specimenID, value = value, -feature) %>%
   left_join(md, by = "specimenID")
@@ -189,16 +235,18 @@ biomarkers <- c("p21waf1cip1_3_af647cy5_int_mean_nuc",
                 "hes1_9_af647cy5_int_mean_nuc",
                 "lc3ab_7_af555cy3_txt_standev_cytoplasm")
 
-cycIF_values <- read_csv("MDD/cycIF/Data/MDD_cycIF_Level3.csv") %>%
+cycIF_values <- read_csv("cycIF/Data/MDD_cycIF_Level3.csv") %>%
   filter(feature %in% biomarkers) %>%
   gather(specimenID, value = value, -feature) %>%
   left_join(md, by = "specimenID") %>%
-  mutate(value = log10(value))
+  mutate(value = log10(value),
+         feature = str_remove(feature, "_.*"),
+         feature = paste0(feature, "_cycIF"))
 
 cycIF_T0_norm_med <- pk_preprocess_level3(cycIF_values, type = "cycIF")
 
 #Read in and process GCP values
-GCP_values <- read_csv("MDD/GCP/Data/MDD_GCP_Level3.csv") %>%
+GCP_values <- read_csv("GCP/Data/MDD_GCP_Level3.csv") %>%
   rename(feature = histone) %>%
   gather(specimenID, value = value, -feature) %>%
   left_join(md, by = "specimenID")
@@ -224,7 +272,6 @@ pk_all_TF_down <- bind_rows(TFs_down, RPPA_pathways, hallmark_pathways) %>%
 
 
 ```{r prepare_datasets}
-
 #Select top TFs of each ligand
 top_TF_names <- TFs %>%
   spread(key = feature, value = value) %>%
@@ -346,6 +393,44 @@ plot_heatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_colum
   hm
 }
 
+plot_heatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
+  
+  df_sp <- df %>%
+    dplyr::select(feature, value, condition) %>%
+    spread(key = condition, value = value)
+  
+  df_as_matrix <- df_sp %>%
+    dplyr::select(-feature) %>%
+    as.matrix()
+  rownames(df_as_matrix) <- df_sp$feature
+
+  #create top annotations
+  ann_nv_pairs <- df %>%
+    dplyr::select(condition, Type) %>%
+    distinct()
+  
+  ann_df <- tibble(condition = colnames(df_as_matrix)) %>%
+    left_join(ann_nv_pairs) %>%
+    dplyr::select(Type)
+  
+  top_ann <- HeatmapAnnotation(Type = ann_df$Type,
+                               col = list("Type" = c("TF" = "#b3de69",
+                                                     "Hallmark" = "#bebada",
+                                                     "RPPA" = "#ffd90f")))
+  
+   #Create the heatmap
+  hm <- Heatmap(matrix = df_as_matrix,
+          name = "abundance",
+          column_title = paste0(assay_name),
+          top_annotation = top_ann,
+          show_row_names = TRUE,
+          show_column_names = FALSE,
+          cluster_columns = cluster_columns,
+          cluster_rows = cluster_rows,
+          na_col = "grey",...)
+  hm
+}
+
 # plot_heatmap_hor(pk_top, "Prior Knowledge")
 # plot_heatmap_hor(pk_top, "Prior Knowledge", cluster_rows = TRUE)
 # 
@@ -367,9 +452,10 @@ plot_heatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_colum
 # {need method description}  
 ```
 
-```{r interactiveHeatmaps}
+```{r interactiveHeatmaps, fig.height = 16}
 
-plot_iheatmap_hor(pk_top_rr, assay_name = "Prior knowledge")
+#plot_iheatmap_hor(pk_top_rr, assay_name = "Prior knowledge")
+plot_iheatmap_ver(pk_top_rr, assay_name = "Prior knowledge")
 
 df <- pk_top_rr %>%
   rename(value_rr = value) %>%
@@ -380,6 +466,7 @@ datatable(df,colnames = c("Condition" = "condition",
                           "Feature" = "feature",
                           "Org. value" = "value",
                           "RR value" = "value_rr"))
+
 
 ```
 
