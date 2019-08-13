@@ -11,6 +11,7 @@ suppressMessages(library(ComplexHeatmap))
 library(iheatmapr)
 library(DT)
 library(rrscale)
+library(ggbeeswarm)
 
 pk_preprocess_level3 <- function(df, type){
 #filter to time 0 values and join with original values on feature and replicate
@@ -49,6 +50,16 @@ rrscaleDiagnostics <- function(x, zeros = .001, ncores = 4){
   return(x_rr)
 }
 
+getrrDetails <- function(x){
+  T_name <- map(x, function(xx) xx[["T_name"]]) %>%
+    unlist
+  par_hat <- map(x, function(xx) xx[["par_hat"]]) %>%
+    unlist
+  df <- tibble(feature = names(x),
+               par_hat = par_hat,
+               T_name = T_name)
+  return(df)
+}
 
 #' df a dataframe with feature, value, condition and Type columns. The values must
 #' be all numeric and transformed to common scales
@@ -88,6 +99,13 @@ plot_iheatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_colu
 #' be all numeric and transformed to common scales
 plot_iheatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
 
+  grid_params <- setup_colorbar_grid(nrows = 2, 
+                                   y_length = 0.3, 
+                                   x_spacing = 0.2,
+                                   y_spacing = 0.5, 
+                                   x_start = 1.1, 
+                                   y_start = 1)
+
   df_sp <- df %>%
     dplyr::select(feature, value, condition) %>%
     spread(key = condition, value = value)
@@ -117,7 +135,8 @@ plot_iheatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_colu
     add_row_annotation(ann_df,
                        side = "left",
                        size = 0.02) %>%
-    add_row_clustering() 
+    add_row_clustering() %>%
+    modify_layout(list(margin = list(r = 120)))
   hm
 }
 
@@ -320,11 +339,35 @@ pk_top <- bind_rows(top_TFs, RPPA_pathways, hallmark_pathways, GCP_display, RPPA
   filter(str_detect(condition, "24|48"),
          !str_detect(condition, "PBS"))
 
+df <- pk_top %>%
+  select(-Type) %>%
+#  filter(str_detect(feature,  "BATF")) %>%
+  spread(key = feature, value = value) %>%
+  select_if(is.numeric)
+
+df_as_list <- matrix(df)
+names(df_as_list) <- colnames(df)
+
+all_rr_values <- map(df_as_list, rrscaleDiagnostics)
+
+rr_details <- getrrDetails(all_rr_values)
+
+rr_values <- map(all_rr_values, function(xx){
+  xx[["RR"]] %>%
+  unlist
+})  %>%
+    bind_cols()
+
 pk_top_rr <- pk_top %>%
-  group_by(feature) %>%
-  mutate(value = rrscaleVector(value),
-         value = signif(value,digits = 3)) %>%
-           ungroup()
+  select(-Type) %>%
+  spread(key = feature, value = value) %>%
+  select(condition) %>%
+  bind_cols(rr_values) %>%
+  gather(feature, value, -condition) %>%
+  mutate(value_rr = signif(value, digits = 3)) %>%
+  dplyr::select(-value) %>%
+  left_join(pk_top, by = c("feature", "condition")) %>%
+  mutate(value = signif(value,digits = 3))
 
 odds_ratio_thresh_down <- 0
 top_TF_down_names <-  TFs_down %>%
@@ -455,18 +498,19 @@ plot_heatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_colum
 ```{r interactiveHeatmaps, fig.height = 16}
 
 #plot_iheatmap_hor(pk_top_rr, assay_name = "Prior knowledge")
-plot_iheatmap_ver(pk_top_rr, assay_name = "Prior knowledge")
 
+plot_iheatmap_ver(pk_top_rr, assay_name = "Prior knowledge, non-transformed")
 df <- pk_top_rr %>%
-  rename(value_rr = value) %>%
-  right_join(pk_top) %>%
-  dplyr::select(condition, feature, Type, value, value_rr) %>%
-  mutate(value = signif(value, digits = 4))
+  select(condition, feature, value_rr, Type) %>%
+  rename(value = value_rr)
+
+plot_iheatmap_ver(df, assay_name = "Prior knowledge, rrscale-transformed")
+
+df <- pk_top_rr
 datatable(df,colnames = c("Condition" = "condition",
                           "Feature" = "feature",
                           "Org. value" = "value",
                           "RR value" = "value_rr"))
-
 
 ```
 
@@ -477,7 +521,7 @@ This analysis is based on the LINCS Molecular Deep Dive data files on Synapse at
 
 RPPA pathways   
 Use the MDACC algorithm and OHSU's antibody-to-pathway assignments to create pathway scores for each 24 and 48 hour sample.  
-Median summarize the pathway scores to the treatment level. 
+Median summarize the pathway scores to the treatment level.  
 There are `r length(unique(RPPA_pathways$feature))` RPPA pathways in the heatmap.    
 
 Transcription factors  
@@ -487,8 +531,8 @@ Use the top 200 up-regulated genes for each signature in a ChEA3 anlaysis to sco
 Use the ChEA3 Top Rank method to select the TFs with odds ratios greater than `r odds_ratio_thresh` in any ligand. This yields `r length(unique(top_TFs$feature))` high variance transcription factors in the heatmap.    
 
 Hallmark pathways  
-{need method description}  
-There are `r length(unique(hallmark_pathways$feature))` Hallmark Pathways in the heatmap.    
+Hallmark pathways are based on the RNAseq data.  
+There are `r length(unique(hallmark_pathways$feature))` Hallmark pathways in the heatmap.    
 
 cycIF Values  
 Select `r length(unique(cycIF_T0_norm_med$feature))` cycIF features based on their biological relevance  
@@ -508,6 +552,94 @@ Select the GCP histones with a variance greater than `r GCP_variance_probs_thres
 
 RRscale  
 Use rrscale to transform each feature in the heatmap before clustering. This method performs a box-cox transformation on each feature, zscores the results then eliminates outliers with absolute values greater than 4.
+
+```{r rrscale_disgnostics, fig.height=5}
+
+df <- pk_top %>%
+  select(feature, Type) %>%
+  distinct()%>%
+  right_join(rr_details, by = "feature")
+
+p <- ggplot(df, aes(factor(Type), par_hat, colour = T_name)) +
+  geom_beeswarm(size = 1, alpha = .7) +
+  labs(title = "Box-Cox transformations and lambdas",
+       colour = "Transformation",
+       y = "lambda",
+       x = "assay")
+p
+
+```
+
+```{r beforeAfterTransforms, fig.height=4}
+set.seed(42)
+select_features <- pk_top_rr %>%
+  group_by(Type) %>%
+  select(feature) %>%
+  distinct() %>%
+  sample_n(9) %>%
+  ungroup() %>%
+  unlist
+  
+df <- pk_top_rr %>%
+  filter(feature %in% select_features) %>%
+  left_join(rr_details, by = "feature")
+
+for(oneType in unique(df$Type)){
+  dft <- df %>%
+    filter(Type == oneType)
+
+p <- ggplot(dft, aes(x =value)) +
+  geom_density() +
+  facet_grid(~feature,scales = "free") +
+  labs(title = paste(oneType, "not-transformed"))
+print(p)
+
+p <- ggplot(dft, aes(x = value_rr, label = par_hat)) +
+  geom_density() +
+  facet_grid(~feature,scales = "free")+
+  labs(title = paste(oneType, "rrscale-transformed"))
+print(p)
+
+dftd <- dft %>%
+  group_by(feature) %>%
+  mutate(value = median(value),
+         value_rr = median(value_rr, na.rm = TRUE),
+         par_hat = sprintf("%3.2f", par_hat)) %>%
+  ungroup() %>%
+  select(-condition) %>%
+  distinct() 
+p <- ggplot(dft, aes(x = value, y = value_rr)) +
+  geom_line() +
+  facet_grid(~feature,scales = "free")+
+  labs(title = paste(oneType, "rrscale-transformed"))
+p <- p + geom_label(data=dftd, aes(label = as.character(par_hat)))
+print(p)
+}
+
+boxcox <- function(x,lambda) {
+  if(lambda == 0) {
+    y = log(x)
+  } else {
+    y <- (sign(x) * abs(x)^lambda - 1)/lambda
+  }
+  return(y)
+}
+
+bc <- tibble(x = seq(-3,3, by = .01)) %>%
+  mutate(minus_2 = boxcox(x, lambda = -2),
+         minus_1 = boxcox(x, lambda = -1),
+         minus_.5 = boxcox(x, lambda = -.5),
+         pospt_5 = boxcox(x, lambda = .5),
+         pos_1 = boxcox(x, lambda = 1),
+         pos_2 = boxcox(x, lambda = 2)) %>%
+  gather(key = lambda, value, -x)
+
+p <- ggplot(bc, aes(x, value, color = lambda)) +
+  geom_line() +
+  coord_cartesian(y = c(-10,10))
+p
+
+```
 
 ```{r, eval = FALSE}
 
