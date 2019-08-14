@@ -14,33 +14,25 @@ library(rrscale)
 library(ggbeeswarm)
 
 pk_preprocess_level3 <- function(df, type){
-#filter to time 0 values and join with original values on feature and replicate
-#subtract T0 value from each orginal value
-df_T0_norm <- df %>%
-  filter(experimentalTimePoint == 0) %>%
-  select(feature, value, replicate) %>%
-  rename(value_T0 = value) %>%
-  right_join(df) %>%
-  mutate(value_T0_norm = value-value_T0) %>%
-  filter(experimentalTimePoint %in% c(24, 48))
-#median summarize the replicates of each feature's T0 values
-df_T0_norm_med <- df_T0_norm %>%
-  group_by(feature, experimentalCondition) %>%
-  summarise(value_T0_norm = median(value_T0_norm, na.rm = TRUE)) %>%
-  ungroup() %>%
-  rename(condition = experimentalCondition,
-         value = value_T0_norm) %>%
-  mutate(Type = type)
-return(df_T0_norm_med)
-}
-
-#' rrscale a numeric vector
-rrscaleVector <- function(x, zeros = .001, ncores = 4){
-  x_rr <- as.matrix(x) %>%
-    rrscale(zeros = zeros, ncores = ncores)
-  x_rr_values <- x_rr$RR %>%
-    c
-  return(x_rr_values)
+  #filter to time 0 values and join with original values on feature and replicate
+  #subtract T0 value from each orginal value
+  # median summarize the replicates
+  df_T0_norm <- df %>%
+    filter(experimentalTimePoint == 0) %>%
+    select(feature, value, replicate) %>%
+    rename(value_T0 = value) %>%
+    right_join(df) %>%
+    mutate(value_T0_norm = value-value_T0) %>%
+    filter(experimentalTimePoint %in% c(24, 48))
+  #median summarize the replicates of each feature's T0 values
+  df_T0_norm_med <- df_T0_norm %>%
+    group_by(feature, experimentalCondition) %>%
+    summarise(value_T0_norm = median(value_T0_norm, na.rm = TRUE)) %>%
+    ungroup() %>%
+    rename(condition = experimentalCondition,
+           value = value_T0_norm) %>%
+    mutate(Type = type)
+  return(df_T0_norm_med)
 }
 
 #' rrscale a numeric vector
@@ -63,53 +55,11 @@ getrrDetails <- function(x){
 
 #' df a dataframe with feature, value, condition and Type columns. The values must
 #' be all numeric and transformed to common scales
-plot_iheatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
-
-  df_sp <- df %>%
-    dplyr::select(feature, value, condition) %>%
-    spread(key = feature, value = value) %>%
-    select_if(~ !any(is.na(.)))
-  
-  df_as_matrix <- df_sp %>%
-    dplyr::select(-condition) %>%
-    as.matrix()
-  rownames(df_as_matrix) <- df_sp$condition
-  
-  #create top annotations
-  ann_nv_pairs <- df %>%
-    dplyr::select(feature, Type) %>%
-    distinct()
-  
-  ann_df <- tibble(feature = colnames(df_as_matrix)) %>%
-    left_join(ann_nv_pairs, by = "feature") %>%
-    dplyr::select(Type)
-  
-  #Create the heatmap
-  hm <- main_heatmap(data = df_as_matrix,
-                     name = "score",
-                     row_order = (nrow(df_as_matrix):1)) %>%
-    add_row_labels() %>%
-    add_col_annotation(ann_df,
-                       size = 0.02) %>%
-    add_col_clustering() 
-  hm
-}
-
-#' df a dataframe with feature, value, condition and Type columns. The values must
-#' be all numeric and transformed to common scales
 plot_iheatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
-
-  grid_params <- setup_colorbar_grid(nrows = 2, 
-                                   y_length = 0.3, 
-                                   x_spacing = 0.2,
-                                   y_spacing = 0.5, 
-                                   x_start = 1.1, 
-                                   y_start = 1)
 
   df_sp <- df %>%
     dplyr::select(feature, value, condition) %>%
     spread(key = condition, value = value)
-  
   
   df_as_matrix <- df_sp %>%
     dplyr::select(-feature) %>%
@@ -129,7 +79,7 @@ plot_iheatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_colu
   hm <- main_heatmap(data = df_as_matrix,
                      name = "score",
                      row_order = (nrow(df_as_matrix):1)) %>%
-    add_row_labels(font = list(size = 7),
+    add_row_labels(font = list(size = 4),
                    side = "right") %>%
     add_col_labels() %>%
     add_row_annotation(ann_df,
@@ -142,25 +92,6 @@ plot_iheatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_colu
 
 ```
 
-
-
-```{r globalVariables}
-
-ligand_cols <- c("ctrl" = "#7A4A2A",
-                 "PBS" = "#8dd3c7",
-                  "HGF" = "#80b1d3",
-                  "OSM" = "#fdb462",
-                  "EGF" = "#fb8072",
-                  "BMP2" = "#b3de69",
-                  "IFNG" = "#bebada",
-                  "TGFB" = "#ffd92f")
-
-
-ligand_2_cols = c("EGF" = "#ff0000",
-                     "None" = "#00000000")
-odds_ratio_thresh <- 9
-
-```
 
 ```{r read_data_and_metadata}
 
@@ -272,15 +203,6 @@ GCP_values <- read_csv("GCP/Data/MDD_GCP_Level3.csv") %>%
 
 GCP_T0_norm_med <- pk_preprocess_level3(GCP_values, type = "GCP")
 
-# GCP_med <-GCP_values %>%
-#   filter(experimentalTimePoint %in% c(24,48)) %>%
-#   group_by(feature, experimentalCondition) %>%
-#   summarise(value_med = median(value, na.rm = TRUE)) %>%
-#   ungroup() %>%
-#   rename(condition = experimentalCondition,
-#          value = value_med) %>%
-#   mutate(Type = "GCP")
-
 pk_all <- bind_rows(TFs, RPPA_pathways, hallmark_pathways, RPPA_T0_norm_med, cycIF_T0_norm_med, GCP_T0_norm_med) %>%
   filter(str_detect(condition, "24|48"))
 
@@ -292,6 +214,8 @@ pk_all_TF_down <- bind_rows(TFs_down, RPPA_pathways, hallmark_pathways) %>%
 
 ```{r prepare_datasets}
 #Select top TFs of each ligand
+odds_ratio_thresh <- 5
+
 top_TF_names <- TFs %>%
   spread(key = feature, value = value) %>%
   mutate(Ligand = str_remove(condition, "_.*")) %>%
@@ -313,7 +237,7 @@ top_TFs <- TFs %>%
   drop_na()
 
 #filter RPPA features on variance
-RPPA_variance_probs_thresh <- .9
+RPPA_variance_probs_thresh <- .1
 RPPA_display <- RPPA_T0_norm_med %>%
   group_by(feature) %>%
   mutate(feature_variance = var(value, na.rm = TRUE)) %>%
@@ -325,7 +249,7 @@ RPPA_display <- RPPA_T0_norm_med %>%
   mutate(feature = paste0(feature, "_RPPA"))
 
 #filter GCP features on variance
-GCP_variance_probs_thresh <- .7
+GCP_variance_probs_thresh <- .1
 GCP_display <- GCP_T0_norm_med %>%
   group_by(feature) %>%
   mutate(feature_variance = var(value, na.rm = TRUE)) %>%
@@ -348,7 +272,16 @@ df <- pk_top %>%
 df_as_list <- matrix(df)
 names(df_as_list) <- colnames(df)
 
-all_rr_values <- map(df_as_list, rrscaleDiagnostics)
+#Conditionally read or compute rrscale results
+rrscale_file <- dir("R", pattern = "rrscale.rda", full.names = TRUE)
+if(length(rrscale_file)==0){
+  all_rr_values <- map(df_as_list, rrscaleDiagnostics)
+save(all_rr_values, file = "R/rrscale.rda")
+} else if(length(rrscale_file)==1){
+  load(rrscale_file)
+} else {
+  stop("There are more than 1 rrscale data files ", rrscale_file)
+}
 
 rr_details <- getrrDetails(all_rr_values)
 
@@ -396,110 +329,8 @@ pk_top_down <- bind_rows(top_TFs_down, RPPA_pathways, hallmark_pathways) %>%
 
 ```
 
-```{r pkHeatmap}
-
-plot_heatmap_hor <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
-  
-  df_sp <- df %>%
-    dplyr::select(feature, value, condition) %>%
-    spread(key = feature, value = value)
-  
-  df_as_matrix <- df_sp %>%
-    dplyr::select(-condition) %>%
-    as.matrix()
-  rownames(df_as_matrix) <- df_sp$condition
-
-  #create top annotations
-  ann_nv_pairs <- df %>%
-    dplyr::select(feature, Type) %>%
-    distinct()
-  
-  ann_df <- tibble(feature = colnames(df_as_matrix)) %>%
-    left_join(ann_nv_pairs) %>%
-    dplyr::select(Type)
-  
-  top_ann <- HeatmapAnnotation(Type = ann_df$Type,
-                               col = list("Type" = c("TF" = "#b3de69",
-                                                     "Hallmark" = "#bebada",
-                                                     "RPPA" = "#ffd90f")))
-  
-   #Create the heatmap
-  hm <- Heatmap(matrix = df_as_matrix,
-          name = "abundance",
-          column_title = paste0(assay_name),
-          top_annotation = top_ann,
-          show_row_names = TRUE,
-          show_column_names = FALSE,
-          cluster_columns = cluster_columns,
-          cluster_rows = cluster_rows,
-          na_col = "grey",...)
-  hm
-}
-
-plot_heatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, ...) {
-  
-  df_sp <- df %>%
-    dplyr::select(feature, value, condition) %>%
-    spread(key = condition, value = value)
-  
-  df_as_matrix <- df_sp %>%
-    dplyr::select(-feature) %>%
-    as.matrix()
-  rownames(df_as_matrix) <- df_sp$feature
-
-  #create top annotations
-  ann_nv_pairs <- df %>%
-    dplyr::select(condition, Type) %>%
-    distinct()
-  
-  ann_df <- tibble(condition = colnames(df_as_matrix)) %>%
-    left_join(ann_nv_pairs) %>%
-    dplyr::select(Type)
-  
-  top_ann <- HeatmapAnnotation(Type = ann_df$Type,
-                               col = list("Type" = c("TF" = "#b3de69",
-                                                     "Hallmark" = "#bebada",
-                                                     "RPPA" = "#ffd90f")))
-  
-   #Create the heatmap
-  hm <- Heatmap(matrix = df_as_matrix,
-          name = "abundance",
-          column_title = paste0(assay_name),
-          top_annotation = top_ann,
-          show_row_names = TRUE,
-          show_column_names = FALSE,
-          cluster_columns = cluster_columns,
-          cluster_rows = cluster_rows,
-          na_col = "grey",...)
-  hm
-}
-
-# plot_heatmap_hor(pk_top, "Prior Knowledge")
-# plot_heatmap_hor(pk_top, "Prior Knowledge", cluster_rows = TRUE)
-# 
-# 
-# Method  
-# This analysis combines MDD RNAseq and RPPA data with prior knowledge of transcription factors and pathways.  
-# 
-# RPPA pathways   
-# Use the MDACC algorithm and OHSU's antibody-to-pathway assignments to create pathway scores for each 24 and 48 hour sample.  
-# Median summarize the pathway scores to the treatment level.  
-# 
-# Transcription factors  
-# Start with DCIC preprocessed MDD RNAseq signatures  
-# Select the genes with p-value < 0.01 & logFC > 0.  
-# Use the top 200 upregulated genes for each signature in a ChEA3 anlaysis to score associated transcription factors.  
-# Use the ChEA3 Top Rank method to select the TFs with odds ratios greater than `r odds_ratio_thresh` in any ligand.    
-# 
-# Hallmark pathways  
-# {need method description}  
-```
-
 ```{r interactiveHeatmaps, fig.height = 16}
 
-#plot_iheatmap_hor(pk_top_rr, assay_name = "Prior knowledge")
-
-plot_iheatmap_ver(pk_top_rr, assay_name = "Prior knowledge, non-transformed")
 df <- pk_top_rr %>%
   select(condition, feature, value_rr, Type) %>%
   rename(value = value_rr)
@@ -542,13 +373,13 @@ Median summarize the values across the replicates
 RPPA Values  
 T0 normalize the RPPA values within each replicate set  
 Median summarize the values across the replicates  
-Select the RPPA antibodies with a variance greater than `r RPPA_variance_probs_thresh`
+Select the RPPA antibodies with a variance above the `r RPPA_variance_probs_thresh*100`th percentile. 
 This yields `r length(unique(RPPA_display$feature))` high variance antibodies in the heatmap.  
 
 GCP Values  
 T0 normalize the GCP values within each replicate set  
 Median summarize the values across the replicates  
-Select the GCP histones with a variance greater than `r GCP_variance_probs_thresh`. This yields `r length(unique(GCP_display$feature))` high variance histones in the heatmap.  
+Select the GCP histones with a variance above the `r GCP_variance_probs_thresh*100`th percentile. This yields `r length(unique(GCP_display$feature))` high variance histones in the heatmap.  
 
 RRscale  
 Use rrscale to transform each feature in the heatmap before clustering. This method performs a box-cox transformation on each feature, zscores the results then eliminates outliers with absolute values greater than 4.
@@ -567,6 +398,7 @@ p <- ggplot(df, aes(factor(Type), par_hat, colour = T_name)) +
        y = "lambda",
        x = "assay")
 p
+
 
 ```
 
@@ -637,62 +469,6 @@ bc <- tibble(x = seq(-3,3, by = .01)) %>%
 p <- ggplot(bc, aes(x, value, color = lambda)) +
   geom_line() +
   coord_cartesian(y = c(-10,10))
-p
-
-```
-
-```{r, eval = FALSE}
-
-#### Transcription factors based on down regulated genes
-
-
-
-plot_iheatmap_hor(pk_top_down, assay_name = "Prior knowledge, TFs from down genes")
-
-datatable(pk_top_down)
-  
-
-
-Method  
-This analysis combines MDD RNAseq and RPPA data with prior knowledge of transcription factors and pathways.  
-
-RPPA pathways   
-Use the MDACC algorithm and OHSU's antibody-to-pathway assignments to create pathway scores for each 24 and 48 hour sample.  
-Median summarize the pathway scores to the treatement level.  
-
-Transcription factors  
-Start with DCIC preprocessed MDD RNAseq signatures  
-Select the genes with p-value < 0.01 & logFC < 0.  
-Use the top 200 down-regulated genes for each signature in a ChEA3 anlaysis to score associated transcription factors.  
-Use the ChEA3 Top Rank method to select the TFs with odds ratios less than `r odds_ratio_thresh_down` in any ligand.    
-
-Hallmark pathways  
-{need method description}  
-
-```
-
-```{r, eval = FALSE}
-#show distributions to select transformations
-p <- ggplot(pk_top, aes(x = value)) +
-  geom_density() +
-  facet_wrap(~feature, scales = "free")
-p
-
- df_sp <- pk_top %>%
-    select(feature, value, condition) %>%
-    spread(key = feature, value = value)
-  
-  pk_top_scaled <- df_sp %>%
-    select(-condition) %>%
-    as.matrix() %>%
-    scale %>%
-    as_tibble %>%
-    mutate(condition = df_sp$condition) %>%
-    gather("feature","value")
-
-  p <- ggplot(pk_top_scaled, aes(x = value)) +
-  geom_density() +
-  facet_wrap(~feature, scales = "free")
 p
 
 ```
