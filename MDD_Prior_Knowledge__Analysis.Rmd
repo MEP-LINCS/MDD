@@ -79,7 +79,7 @@ plot_iheatmap_ver <- function(df, assay_name, cluster_rows = FALSE, cluster_colu
   hm <- main_heatmap(data = df_as_matrix,
                      name = "score",
                      row_order = (nrow(df_as_matrix):1)) %>%
-    add_row_labels(font = list(size = 2),
+    add_row_labels(font = list(size = 6),
                    side = "right") %>%
     add_col_labels() %>%
     add_row_annotation(ann_df,
@@ -435,7 +435,7 @@ pk_top_down <- bind_rows(top_TFs_down, RPPA_pathways, hallmark_pathways) %>%
 
 ```
 
-```{r interactiveHeatmaps, fig.height = 16}
+```{r interactiveHeatmaps, fig.height = 12}
 
 df <- pk_top_rr %>%
   select(condition, feature, value_rr, Type) %>%
@@ -454,7 +454,7 @@ datatable(df,colnames = c("Condition" = "condition",
 
 #### Method  
 
-This analysis combines MDD RNAseq and RPPA data with prior knowledge of transcription factors and pathways. It then adds in selected cycIF, RPPA and GCP values. 
+This analysis combines MDD RNAseq, RPPA and ATACseq data with prior knowledge of transcription factors, pathways and motifs. It then adds in selected cycIF, RPPA, GCP, ATACseq and IF values. 
 This analysis is based on the LINCS Molecular Deep Dive data files on Synapse at  https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
 
 RPPA pathways   
@@ -503,12 +503,12 @@ Median summarize the values across the replicates
 There are `r length(unique(ATACseq_Motif_T0_norm_med$feature))` motifs in the heatmap.  
 
 IF Values  
-Filter out the CellMask intensities and use the remaining `r length(unique(IF_T0_norm_med$feature))` IF features 
+Filter out the CellMask intensities and use the remaining `r length(unique(IF_T0_norm_med$feature))` IF features  
 T0 normalize the values within each replicate set  
 Median summarize the values across the replicates  
 
 Clustering  
-The hierarcical clustering uses the complete linkage method to find similar clusters. The number of clusters as shown in the side annotation bar is arbitrary chosen as 6. The scatter plot above the heatmap shows the mean value for each cluster within each condition.  
+The hierarchical clustering uses the complete linkage method to find similar clusters. The number of clusters as shown in the side annotation bar is arbitrarily chosen as 6. The scatter plot above the heatmap shows the mean value for each cluster within each condition.  
 
 RRscale  
 Use rrscale to transform each feature in the heatmap before clustering. This method performs a box-cox transformation on each feature, zscores the results then eliminates outliers with absolute values greater than 4.
