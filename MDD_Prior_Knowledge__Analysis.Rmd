@@ -35,6 +35,19 @@ pk_preprocess_level3 <- function(df, type){
   return(df_T0_norm_med)
 }
 
+pk_preprocess_level3 <- function(df, type){
+  #filter to time 0, 24 and 48
+  # median summarize the replicates
+  df_med <- df %>%
+    filter(experimentalTimePoint %in% c(0, 24, 48)) %>%
+    group_by(feature, experimentalCondition) %>%
+    summarise(value = median(value, na.rm = TRUE)) %>%
+    ungroup() %>%
+    rename(condition = experimentalCondition) %>%
+    mutate(Type = type)
+  return(df_med)
+}
+
 #' rrscale a numeric vector
 rrscaleDiagnostics <- function(x, zeros = .001, ncores = 4){
   x_rr <- as.matrix(x) %>%
@@ -55,11 +68,14 @@ getrrDetails <- function(x){
 
 #' df a dataframe with feature, value, condition and Type columns. The values must
 #' be all numeric and transformed to common scales
-get_iheatmap <- function(df, assay_name, cluster_rows = FALSE, cluster_columns = TRUE, k = 6, ...) {
+get_iheatmap <- function(df, k = 6, ...) {
 
-  df_sp <- df %>%
+condition_order <-  c("ctrl_0",paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), rep(c(24, 48),  times = 14),   sep = "_") )
+
+df_sp <- df %>%
     dplyr::select(feature, value, condition) %>%
-    spread(key = condition, value = value)
+    spread(key = condition, value = value) %>%
+  dplyr::select(feature, condition_order)
   
   df_as_matrix <- df_sp %>%
     dplyr::select(-feature) %>%
@@ -69,7 +85,8 @@ get_iheatmap <- function(df, assay_name, cluster_rows = FALSE, cluster_columns =
   #create top annotations
   ann_nv_pairs <- df %>%
     dplyr::select(feature, Type) %>%
-    distinct()
+    distinct() %>%
+    drop_na()
   
   ann_df <- tibble(feature = rownames(df_as_matrix)) %>%
     left_join(ann_nv_pairs, by = "feature") %>%
@@ -77,9 +94,8 @@ get_iheatmap <- function(df, assay_name, cluster_rows = FALSE, cluster_columns =
   
   #Create the heatmap
   hm <- main_heatmap(data = df_as_matrix,
-                     name = "score",
-                     row_order = (nrow(df_as_matrix):1)) %>%
-    add_row_labels(font = list(size = 6),
+                     name = "score") %>%
+    add_row_labels(font = list(size = 4),
                    side = "right") %>%
     add_col_labels() %>%
     add_row_annotation(ann_df,
@@ -88,7 +104,8 @@ get_iheatmap <- function(df, assay_name, cluster_rows = FALSE, cluster_columns =
     modify_layout(list(margin = list(r = 120)))
   if(!k==0){
    hm <- hm %>%
-     add_row_clustering(name = "Cluster",k = k) %>%
+     add_row_clustering(name = "Cluster",
+                        k = k) %>%
       add_col_summary(size = .1,
                       groups = "Cluster")
   }
@@ -102,56 +119,52 @@ get_iheatmap <- function(df, assay_name, cluster_rows = FALSE, cluster_columns =
 ```{r read_data_and_metadata}
 
 md <- read_csv("metadata/MDD_sample_annotations.csv")
-
-get_TF_values <- function(sheet, dir_path, pattern) {
-  #read in and combine MDD TF scores
-TFs_input <- dir(path = dir_path,
-                 pattern = pattern,
-                 full.names = TRUE) %>% 
-  map(readxl::read_excel, col_types = c("text"), sheet = sheet, .name_repair = "universal") %>%
-  bind_rows() %>%
-  mutate(Rank = as.numeric(Rank),
-         experimentalTime = str_extract(Query.Name, "[24][48]"),
-         experimentalTime = as.numeric(experimentalTime),
-         ligand = str_remove(Query.Name, "ctrl vs "),
-         ligand = str_remove(ligand, ",.*"),
-         condition = paste0(ligand, "_", experimentalTime),
-         value =(1633-Rank)/1632,
-         feature = TF,
-         Library_only = str_remove(Library, ",.*"),
-         Library_only = str_replace(Library_only, " ", "--"))
-}
-
-TFs_values <- get_TF_values(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
-TFs_details <- map(2:7, get_TF_values, dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
-  bind_rows()
-
-TFs_input <- TFs_details %>%
-  dplyr::select(Query.Name, TF, Odds.Ratio, FDR, Library_only) %>%
-  right_join(TFs_values, by = c("Query.Name", "TF", "Library_only"))
-
-TFs <- TFs_input %>%
-  dplyr::select(condition, Odds.Ratio, feature) %>%
-  rename(value = Odds.Ratio) %>%
-  mutate(value = as.numeric(value),
-         Type = "ChEA3 TF")
-
-TFs_down <- read_csv("RNAseq/Data/ChEA3_TFs_down.csv") %>%
-  gather(feature, value, -condition) %>%
-  mutate(Type = "ChEA3 TF Down")
+# 
+# get_TF_values <- function(sheet, dir_path, pattern) {
+#   #read in and combine MDD TF scores
+# TFs_input <- dir(path = dir_path,
+#                  pattern = pattern,
+#                  full.names = TRUE) %>% 
+#   map(readxl::read_excel, col_types = c("text"), sheet = sheet, .name_repair = "universal") %>%
+#   bind_rows() %>%
+#   mutate(Rank = as.numeric(Rank),
+#          experimentalTime = str_extract(Query.Name, "[24][48]"),
+#          experimentalTime = as.numeric(experimentalTime),
+#          ligand = str_remove(Query.Name, "ctrl vs "),
+#          ligand = str_remove(ligand, ",.*"),
+#          condition = paste0(ligand, "_", experimentalTime),
+#          value =(1633-Rank)/1632,
+#          feature = TF,
+#          Library_only = str_remove(Library, ",.*"),
+#          Library_only = str_replace(Library_only, " ", "--"))
+# }
+# 
+# TFs_values <- get_TF_values(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
+# TFs_details <- map(2:7, get_TF_values, dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
+#   bind_rows()
+# 
+# TFs_input <- TFs_details %>%
+#   dplyr::select(Query.Name, TF, Odds.Ratio, FDR, Library_only) %>%
+#   right_join(TFs_values, by = c("Query.Name", "TF", "Library_only"))
+# 
+# TFs <- TFs_input %>%
+#   dplyr::select(condition, Odds.Ratio, feature) %>%
+#   rename(value = Odds.Ratio) %>%
+#   mutate(value = as.numeric(value),
+#          Type = "ChEA3 TF")
+# 
+# TFs_down <- read_csv("RNAseq/Data/ChEA3_TFs_down.csv") %>%
+#   gather(feature, value, -condition) %>%
+#   mutate(Type = "ChEA3 TF Down")
 
 #Read in RPPA pathways scores, mean summarise within condition
 RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
   rename(specimenID = X1) %>%
   gather(key = feature, value = value, -specimenID) %>%
   inner_join(md, by = "specimenID") %>%
-  dplyr::select(specimenName, feature, value) %>%
+  dplyr::select(specimenName, feature, value, experimentalTimePoint, experimentalCondition) %>%
   mutate(condition = str_remove(specimenName, "_C1.*")) %>%
-  group_by(condition, feature) %>%
-  summarise_at("value", mean) %>%
-  ungroup %>%
-  mutate(Type = "RPPA pathway",
-         feature = str_replace(feature, "_Pathway_Score", "_RPPA_path"))
+  pk_preprocess_level3(type =  "RPPA pathway")
 
 #Read in Hallmark pathways that are based on RNAseq data
 hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
@@ -164,8 +177,8 @@ RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
   rename(feature = antibody) %>%
   gather(specimenID, value = value, -feature) %>%
   left_join(md, by = "specimenID") %>%
-  mutate(value = 2^value)
-RPPA_T0_norm_med <- pk_preprocess_level3(RPPA_values, type = "RPPA")
+  mutate(value = 2^value) %>%
+  pk_preprocess_level3(type = "RPPA")
 
 #Read in and process cycIF values
 biomarkers <- c("p21waf1cip1_3_af647cy5_int_mean_nuc",
@@ -243,9 +256,8 @@ cycIF_values <- read_csv("cycIF/Data/MDD_cycIF_Level3.csv") %>%
   gather(feature, value, -specimenID) %>%
 left_join(md, by = "specimenID") %>%
   mutate(feature = str_remove(feature, "_.*"),
-         feature = paste0(feature, "_cycIF"))
-
-cycIF_T0_norm_med <- pk_preprocess_level3(cycIF_values, type = "cycIF")
+         feature = paste0(feature, "_cycIF")) %>%
+  pk_preprocess_level3(type = "cycIF")
 
 #Read in and process GCP values
 GCP_values <- read_csv("GCP/Data/MDD_GCP_Level3.csv") %>%
@@ -253,9 +265,8 @@ GCP_values <- read_csv("GCP/Data/MDD_GCP_Level3.csv") %>%
   gather(specimenID, value = value, -feature) %>%
   left_join(md, by = "specimenID") %>%
   mutate(value = 2^value) %>%
-  filter(!feature == "H3K27ac1K36me0")
-
-GCP_T0_norm_med <- pk_preprocess_level3(GCP_values, type = "GCP")
+  filter(!feature == "H3K27ac1K36me0") %>%
+  pk_preprocess_level3(type = "GCP")
 
 #Read in RNAseq values
 RNA_values <- read_csv("RNAseq/Data/MDD_RNAseq_med.csv")%>%
@@ -269,44 +280,43 @@ IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
   mutate(experimentalTimePoint = time,
          experimentalCondition = str_remove(specimenName, "_C[12]_.")) %>%
   filter(!feature =="AreaShape_EulerNumber",
-         !str_detect(feature,"CellMask"))
-
-IF_T0_norm_med <- pk_preprocess_level3(IF_values, type = "IF") %>%
+         !str_detect(feature,"CellMask")) %>%
+  pk_preprocess_level3(type = "IF") %>%
   drop_na()
 
-pk_all <- bind_rows(TFs, RPPA_pathways, hallmark_pathways, RPPA_T0_norm_med, cycIF_T0_norm_med, GCP_T0_norm_med, IF_T0_norm_med, RNA_values) %>%
-  filter(str_detect(condition, "24|48"))
+pk_all <- bind_rows(RPPA_pathways, hallmark_pathways, RPPA_values, cycIF_values, GCP_values, IF_values, RNA_values) %>%
+  filter(str_detect(condition, "0|24|48"))
 
 ```
 
 
 ```{r prepare_datasets}
-#Select top TFs of each ligand
-odds_ratio_thresh <- 5
-
-top_TF_names <- TFs %>%
-  spread(key = feature, value = value) %>%
-  mutate(Ligand = str_remove(condition, "_.*")) %>%
-  group_by(Ligand) %>%
-  summarise_if(is.numeric, min) %>%
-  ungroup %>%
-  gather(key = TF, value = Odds.Ratio, -Ligand) %>%
-  group_by(Ligand) %>%
-  filter(Odds.Ratio >= odds_ratio_thresh)%>%
-  ungroup() %>%
-  spread(key = TF, value = Odds.Ratio) %>%
-  dplyr::select(-Ligand)
-
-top_TFs <- TFs %>%
-  spread(key = feature, value = value)  %>%
-  dplyr::select(condition, colnames(top_TF_names)) %>%
-  gather(feature, value, -condition) %>%
-  mutate(Type = "ChEA3 TF") %>%
-  drop_na()
+# #Select top TFs of each ligand
+# odds_ratio_thresh <- 5
+# 
+# top_TF_names <- TFs %>%
+#   spread(key = feature, value = value) %>%
+#   mutate(Ligand = str_remove(condition, "_.*")) %>%
+#   group_by(Ligand) %>%
+#   summarise_if(is.numeric, min) %>%
+#   ungroup %>%
+#   gather(key = TF, value = Odds.Ratio, -Ligand) %>%
+#   group_by(Ligand) %>%
+#   filter(Odds.Ratio >= odds_ratio_thresh)%>%
+#   ungroup() %>%
+#   spread(key = TF, value = Odds.Ratio) %>%
+#   dplyr::select(-Ligand)
+# 
+# top_TFs <- TFs %>%
+#   spread(key = feature, value = value)  %>%
+#   dplyr::select(condition, colnames(top_TF_names)) %>%
+#   gather(feature, value, -condition) %>%
+#   mutate(Type = "ChEA3 TF") %>%
+#   drop_na()
 
 #filter RPPA features on variance
 RPPA_variance_probs_thresh <- .1
-RPPA_display <- RPPA_T0_norm_med %>%
+RPPA_high_var <- RPPA_values %>%
   group_by(feature) %>%
   mutate(feature_variance = var(value, na.rm = TRUE)) %>%
   ungroup() %>%
@@ -318,7 +328,7 @@ RPPA_display <- RPPA_T0_norm_med %>%
 
 #filter GCP features on variance
 GCP_variance_probs_thresh <- .1
-GCP_display <- GCP_T0_norm_med %>%
+GCP_high_vars <- GCP_values %>%
   group_by(feature) %>%
   mutate(feature_variance = var(value, na.rm = TRUE)) %>%
   ungroup() %>%
@@ -329,7 +339,7 @@ GCP_display <- GCP_T0_norm_med %>%
 
 #filter RNAseq  on variance
 RNAseq_variance_probs_thresh <- .95
-RNAseq_display <- RNA_values %>%
+RNAseq_high_vars <- RNA_values %>%
   group_by(feature) %>%
   mutate(feature_variance = var(value, na.rm = TRUE)) %>%
   ungroup() %>%
@@ -338,9 +348,7 @@ RNAseq_display <- RNA_values %>%
                                      na.rm = TRUE)) %>%
   dplyr::select(-feature_variance)
 
-pk_top <- bind_rows(top_TFs, RPPA_pathways, hallmark_pathways, GCP_display, RPPA_display, cycIF_T0_norm_med, IF_T0_norm_med, RNAseq_display) %>%
-  filter(str_detect(condition, "24|48"),
-         !str_detect(condition, "PBS"))
+pk_top <- bind_rows(RPPA_pathways, hallmark_pathways, GCP_high_vars, RPPA_high_var, cycIF_values, IF_values, RNAseq_high_vars)
 
 df <- pk_top %>%
   select(-Type) %>%
@@ -389,68 +397,59 @@ pk_top_rr <- pk_top %>%
 df <- pk_top_rr %>%
   select(condition, feature, value_rr, Type) %>%
   rename(value = value_rr)
-
-hm <- get_iheatmap(df, assay_name = "Prior knowledge, rrscale-transformed")
+hclust_clust_num <- 8
+hm <- get_iheatmap(df, assay_name = "Prior knowledge, rrscale-transformed", k = hclust_clust_num)
 hm
 df <- pk_top_rr
 datatable(df,colnames = c("Condition" = "condition",
                           "Feature" = "feature",
                           "Org. value" = "value",
                           "RR value" = "value_rr"))
+
 ```
 
 #### Method  
 
-This analysis combines MDD RNAseq and RPPA data with prior knowledge of transcription factors and pathways. It then adds in selected cycIF, RPPA, GCP and IF values. 
+This analysis combines MDD RNAseq, RPPA data with prior knowledge of pathways. It then adds in selected cycIF, RPPA, GCP and IF values. 
 This analysis is based on the LINCS Molecular Deep Dive data files on Synapse at  https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
 
 RPPA pathways   
-Use the MDACC algorithm and OHSU's antibody-to-pathway assignments to create pathway scores for each 24 and 48 hour sample.  
+Use the MDACC algorithm and OHSU's antibody-to-pathway assignments to create pathway scores for each , 0, 24 and 48 hour sample.  
 Median summarize the pathway scores to the treatment level.  
 There are `r length(unique(RPPA_pathways$feature))` RPPA pathways in the heatmap.    
-
-Transcription factors  
-Start with DCIC preprocessed MDD RNAseq signatures  
-Select the genes with p-value < 0.01 & logFC > 0.  
-Use the top 200 up-regulated genes for each signature in a ChEA3 anlaysis to score associated transcription factors.  
-Use the ChEA3 Top Rank method to select the TFs with odds ratios greater than `r odds_ratio_thresh` in any ligand. This yields `r length(unique(top_TFs$feature))` high variance transcription factors in the heatmap.    
 
 Hallmark pathways  
 Hallmark pathways are based on the RNAseq data.  
 There are `r length(unique(hallmark_pathways$feature))` Hallmark pathways in the heatmap.    
 
 cycIF Values  
-Select `r length(unique(cycIF_T0_norm_med$feature))` cycIF features based on their biological relevance  
-T0 normalize the values within each replicate set  
+Select `r length(unique(cycIF_values$feature))` cycIF features based on their biological relevance  
 Median summarize the values across the replicates  
 
 RPPA Values  
-T0 normalize the RPPA values within each replicate set  
 Median summarize the values across the replicates  
 Select the RPPA antibodies with a variance above the `r RPPA_variance_probs_thresh*100`th percentile. 
-This yields `r length(unique(RPPA_display$feature))` high variance antibodies in the heatmap.  
+This yields `r length(unique(RPPA_values$feature))` high variance antibodies in the heatmap.  
 
 GCP Values  
-T0 normalize the GCP values within each replicate set  
 Median summarize the values across the replicates  
-Select the GCP histones with a variance above the `r GCP_variance_probs_thresh*100`th percentile. This yields `r length(unique(GCP_display$feature))` high variance histones in the heatmap.  
+Select the GCP histones with a variance above the `r GCP_variance_probs_thresh*100`th percentile. This yields `r length(unique(GCP_values$feature))` high variance histones in the heatmap. 
 
 RNAseq Values  
 Median summarize the values across the replicates  
-Select the genes with a variance above the `r RNAseq_variance_probs_thresh*100`th percentile. This yields `r length(unique(RNAseq_display$feature))` high variance genes in the heatmap.
+Select the genes with a variance above the `r RNAseq_variance_probs_thresh*100`th percentile. This yields `r length(unique(RNA_values$feature))` high variance genes in the heatmap.
 
 IF Values  
-Filter out the CellMask intensities and use the remaining `r length(unique(IF_T0_norm_med$feature))` IF features  
-T0 normalize the values within each replicate set  
+Filter out the CellMask intensities and use the remaining `r length(unique(IF_values$feature))` IF features  
 Median summarize the values across the replicates  
 
 Clustering  
-The hierarchical clustering uses the complete linkage method to find similar clusters. The number of clusters as shown in the side annotation bar is arbitrarily chosen as 6. The scatter plot above the heatmap shows the mean value for each cluster within each condition.  
+The hierarchical clustering uses the complete linkage method to find similar clusters. The number of clusters as shown in the side annotation bar is arbitrarily chosen as `r hclust_clust_num`. The scatter plot above the heatmap shows the mean value for each cluster within each condition.  
 
 RRscale  
 Use rrscale to transform each feature in the heatmap before clustering. This method performs a box-cox transformation on each feature, zscores the results then eliminates outliers with absolute values greater than 4.
 
-```{r plotClusters, fig.height = 12}
+```{r plotClusters, fig.height = 14}
 #Start with an existing iheatmap object
 #Go through each cluster, one at a time
 #Filter the original data by the row names
@@ -465,7 +464,7 @@ Use rrscale to transform each feature in the heatmap before clustering. This met
 # hm_one_cl <- get_iheatmap(df, assay_name = "Prior knowledge, rrscale-transformed", k = 0)
 # })
 
-cl <- 5
+cl <- 2
   cl_rows <- hm@plots@listData$Cluster@data[hm@plots@listData$Cluster@data== cl]
   df <- pk_top_rr %>% 
     filter(feature %in% names(cl_rows)) %>%
@@ -475,6 +474,7 @@ cl <- 5
 hm_one_cl <- get_iheatmap(df, assay_name = "Prior knowledge, rrscale-transformed", k = 0)
 
 hm_one_cl
+
 
 
 ```
