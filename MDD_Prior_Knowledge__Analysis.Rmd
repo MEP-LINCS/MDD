@@ -13,39 +13,19 @@ library(DT)
 library(rrscale)
 library(ggbeeswarm)
 
-pk_preprocess_level3 <- function(df, type){
-  #filter to time 0 values and join with original values on feature and replicate
-  #subtract T0 value from each orginal value
-  # median summarize the replicates
-  df_T0_norm <- df %>%
-    filter(experimentalTimePoint == 0) %>%
-    select(feature, value, replicate) %>%
-    rename(value_T0 = value) %>%
-    right_join(df) %>%
-    mutate(value_T0_norm = value/value_T0) %>%
-    filter(experimentalTimePoint %in% c(24, 48))
-  #median summarize the replicates of each feature's T0 values
-  df_T0_norm_med <- df_T0_norm %>%
-    group_by(feature, experimentalCondition) %>%
-    summarise(value_T0_norm = median(value_T0_norm, na.rm = TRUE)) %>%
-    ungroup() %>%
-    rename(condition = experimentalCondition,
-           value = value_T0_norm) %>%
-    mutate(Type = type)
-  return(df_T0_norm_med)
-}
 
 pk_preprocess_level3 <- function(df, type){
+  #create fake specimenName if replicates have been summarized
+  if(!"specimenName" %in% colnames(df)){
+    df <- df %>%
+      mutate(specimenName = paste0(condition,"_C1_Med"))
+  }
   #filter to time 0, 24 and 48
-  # median summarize the replicates
-  df_med <- df %>%
-    filter(experimentalTimePoint %in% c(0, 24, 48)) %>%
-    group_by(feature, experimentalCondition) %>%
-    summarise(value = median(value, na.rm = TRUE)) %>%
-    ungroup() %>%
-    rename(condition = experimentalCondition) %>%
-    mutate(Type = type)
-  return(df_med)
+  df_pp <- df %>%
+    filter(str_detect(specimenName,"0|24|48")) %>%
+    mutate(Type = type) %>%
+    dplyr::select(specimenName, feature, value, Type)
+  return(df_pp)
 }
 
 #' rrscale a numeric vector
@@ -70,12 +50,15 @@ getrrDetails <- function(x){
 #' be all numeric and transformed to common scales
 get_iheatmap <- function(df, k = 6, ...) {
 
-condition_order <-  c("ctrl_0",paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), rep(c(24, 48),  times = 14),   sep = "_") )
+# condition_order <-  c("ctrl_0",paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), rep(c(24, 48),  times = 14),   sep = "_") )
 
+  specimenName_order <-  paste(rep(c("ctrl","PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 36, times = 3), rep(c(0, 1, 4 ,8, 24, 48), each = 6, times = 3), rep(c("C1", "C2", "C3"), each = 288), rep(c("A", "B", "C", "D", "E", "Med"), times = 144),  sep = "_") %>%
+    intersect(df$specimenName)
+  
 df_sp <- df %>%
-    dplyr::select(feature, value, condition) %>%
-    spread(key = condition, value = value) %>%
-  dplyr::select(feature, condition_order)
+    dplyr::select(feature, value, specimenName) %>%
+    spread(key = specimenName, value = value) %>%
+  dplyr::select(feature, specimenName_order)
   
   df_as_matrix <- df_sp %>%
     dplyr::select(-feature) %>%
@@ -162,20 +145,19 @@ RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
   rename(specimenID = X1) %>%
   gather(key = feature, value = value, -specimenID) %>%
   inner_join(md, by = "specimenID") %>%
-  dplyr::select(specimenName, feature, value, experimentalTimePoint, experimentalCondition) %>%
-  mutate(condition = str_remove(specimenName, "_C1.*")) %>%
+  dplyr::select(specimenName, feature, value) %>%
   pk_preprocess_level3(type =  "RPPA pathway")
 
 #Read in Hallmark pathways that are based on RNAseq data
 hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
   gather(condition, value, -variable) %>%
   rename(feature = variable) %>%
-  mutate(Type = "Hallmark pathway")
+  pk_preprocess_level3(type =  "Hallmark")
 
 #Read in RPPA values and merge with metadata
 RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
-  rename(feature = antibody) %>%
-  gather(specimenID, value = value, -feature) %>%
+  mutate(feature = paste0(antibody,"_RPPA")) %>%
+  gather(specimenID, value = value, -feature, -antibody) %>%
   left_join(md, by = "specimenID") %>%
   mutate(value = 2^value) %>%
   pk_preprocess_level3(type = "RPPA")
@@ -269,10 +251,38 @@ GCP_values <- read_csv("GCP/Data/MDD_GCP_Level3.csv") %>%
   pk_preprocess_level3(type = "GCP")
 
 #Read in RNAseq values
-RNA_values <- read_csv("RNAseq/Data/MDD_RNAseq_med.csv")%>%
+RNA_values <- read_csv("RNAseq/Data/MDD_RNAseq_med.csv") %>%
   drop_na() %>%
-  mutate(feature = paste0(feature, "_RNA"))
+  mutate(feature = paste0(feature, "_RNA")) %>%
+  pk_preprocess_level3("RNAseq")
 
+#Read and and process ATACseq metadata
+ATACseq_metadata <- read_csv("ATACseq/Metadata/MDD_ATACseq_peakMetadata.csv") %>%
+  select(peak, hgnc_symbol, annotation) %>%
+  drop_na() %>%
+  filter(str_detect(annotation, "Promoter|3' UTR|5' UTR|1st Exon")) %>%
+  dplyr::select(-annotation)
+
+#Read in and process ATACseq values
+ATACseq_values <- read_csv("ATACseq/Data/MDD_ATACseq_Level3.csv") %>%
+  rename(feature = peak) %>%
+  gather(specimenID, value = value, -feature) %>%
+  left_join(md, by = "specimenID") %>%
+  inner_join(ATACseq_metadata, by = c("feature" = "peak")) %>%
+    mutate(feature = paste0(hgnc_symbol, "_ATAC")) %>%
+  pk_preprocess_level3(type = "ATACseq") %>%
+  group_by(specimenName, feature, Type) %>%
+  summarise(value = max(value)) %>%
+  ungroup()
+
+#Read in and process ATACseq Motif values
+ATACseq_Motif_values <- read_csv("ATACseq/Data/MDD_ATACseq_MotifZscores.csv") %>%
+  rename(feature = motif) %>%
+  gather(specimenID, value = value, -feature) %>%
+  left_join(md, by = "specimenID") %>%
+  mutate(feature = str_remove(feature, ".*_"),
+         feature = paste0(feature, "_Motif")) %>% 
+  pk_preprocess_level3(type = "ATACseq_motif")
 #Read in and process IF values
 IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
   select(-ImageNumber, -barcode, -WellIndex, -collection, -ligand) %>%
@@ -282,10 +292,12 @@ IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
   filter(!feature =="AreaShape_EulerNumber",
          !str_detect(feature,"CellMask")) %>%
   pk_preprocess_level3(type = "IF") %>%
-  drop_na()
+  drop_na() %>%
+  group_by(specimenName, feature, Type) %>%
+  summarise(value = median(value, na.rm = TRUE)) %>%
+  ungroup()
 
-pk_all <- bind_rows(RPPA_pathways, hallmark_pathways, RPPA_values, cycIF_values, GCP_values, IF_values, RNA_values) %>%
-  filter(str_detect(condition, "0|24|48"))
+pk_all <- bind_rows(ATACseq_values, ATACseq_Motif_values, cycIF_values, GCP_values, hallmark_pathways, IF_values, RNA_values, RPPA_pathways, RPPA_values)
 
 ```
 
@@ -314,44 +326,37 @@ pk_all <- bind_rows(RPPA_pathways, hallmark_pathways, RPPA_values, cycIF_values,
 #   mutate(Type = "ChEA3 TF") %>%
 #   drop_na()
 
+select_features <- function(df, var_quantile = 0){
+  df_small <- df %>%
+    group_by(feature) %>%
+    mutate(feature_variance = var(value, na.rm = TRUE)) %>%
+    ungroup() %>%
+    filter(feature_variance >= quantile(feature_variance,
+                                       probs = var_quantile,
+                                       na.rm = TRUE)) %>%
+    dplyr::select(-feature_variance)
+  return(df_small)
+}
+
 #filter RPPA features on variance
 RPPA_variance_probs_thresh <- .1
-RPPA_high_var <- RPPA_values %>%
-  group_by(feature) %>%
-  mutate(feature_variance = var(value, na.rm = TRUE)) %>%
-  ungroup() %>%
-  filter(feature_variance > quantile(feature_variance,
-                                     probs = RPPA_variance_probs_thresh,
-                                     na.rm = TRUE)) %>%
-  dplyr::select(-feature_variance) %>%
-  mutate(feature = paste0(feature, "_RPPA"))
+RPPA_selected <- select_features(RPPA_values, RPPA_variance_probs_thresh)
 
 #filter GCP features on variance
 GCP_variance_probs_thresh <- .1
-GCP_high_vars <- GCP_values %>%
-  group_by(feature) %>%
-  mutate(feature_variance = var(value, na.rm = TRUE)) %>%
-  ungroup() %>%
-  filter(feature_variance > quantile(feature_variance,
-                                     probs = GCP_variance_probs_thresh,
-                                     na.rm = TRUE)) %>%
-  dplyr::select(-feature_variance)
+GCP_selected <- select_features(GCP_values, GCP_variance_probs_thresh)
 
-#filter RNAseq  on variance
+#filter RNAseq on variance
 RNAseq_variance_probs_thresh <- .95
-RNAseq_high_vars <- RNA_values %>%
-  group_by(feature) %>%
-  mutate(feature_variance = var(value, na.rm = TRUE)) %>%
-  ungroup() %>%
-  filter(feature_variance > quantile(feature_variance,
-                                     probs = RNAseq_variance_probs_thresh,
-                                     na.rm = TRUE)) %>%
-  dplyr::select(-feature_variance)
+RNAseq_selected <- select_features(RNA_values, RNAseq_variance_probs_thresh)
 
-pk_top <- bind_rows(RPPA_pathways, hallmark_pathways, GCP_high_vars, RPPA_high_var, cycIF_values, IF_values, RNAseq_high_vars)
+ATACseq_variance_probs_thresh <- .99
+ATACseq_selected <- select_features(ATACseq_values, ATACseq_variance_probs_thresh)
 
-df <- pk_top %>%
-  select(-Type) %>%
+pk_selected <- bind_rows(ATACseq_selected, ATACseq_Motif_values, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected, RPPA_pathways, RPPA_selected)
+
+df <- pk_selected %>%
+  select(specimenName, feature, value) %>%
 #  filter(str_detect(feature,  "BATF")) %>%
   spread(key = feature, value = value) %>%
   select_if(is.numeric)
@@ -359,11 +364,20 @@ df <- pk_top %>%
 df_as_list <- matrix(df)
 names(df_as_list) <- colnames(df)
 
+rrscale_small <- TRUE
 #Conditionally read or compute rrscale results
 rrscale_file <- dir("R", pattern = "rrscale.rda", full.names = TRUE)
 if(length(rrscale_file)==0){
-  all_rr_values <- map(df_as_list, rrscaleDiagnostics)
-save(all_rr_values, file = "R/rrscale.rda")
+  if(rrscale_small){
+    set.seed(42)
+    df_as_list_small <- df_as_list[sample(1:length(df_as_list),size = .01*length(df_as_list),replace = FALSE)]
+    all_rr_values <- map(df_as_list_small, rrscaleDiagnostics)
+    save(all_rr_values, file = "R/rrscale.rda")
+  } else{
+    all_rr_values <- map(df_as_list, rrscaleDiagnostics)
+    save(all_rr_values, file = "R/rrscale.rda")
+  }
+
 } else if(length(rrscale_file)==1){
   load(rrscale_file)
 } else {
@@ -377,16 +391,16 @@ rr_values <- map(all_rr_values, function(xx){
   unlist
 })  %>%
     bind_cols()
-
-pk_top_rr <- pk_top %>%
+#convert this code from conditions to specimenName
+pk_top_rr <- pk_selected %>%
   select(-Type) %>%
   spread(key = feature, value = value) %>%
-  select(condition) %>%
+  select(specimenName) %>%
   bind_cols(rr_values) %>%
-  gather(feature, value, -condition) %>%
+  gather(feature, value, -specimenName) %>%
   mutate(value_rr = signif(value, digits = 3)) %>%
   dplyr::select(-value) %>%
-  left_join(pk_top, by = c("feature", "condition")) %>%
+  left_join(pk_selected, by = c("feature", "specimenName")) %>%
   mutate(value = signif(value,digits = 3)) %>%
   filter(!feature %in% c("AreaShape_EulerNumber","H3K27ac1K36me0"))###temp filtering
 
@@ -395,13 +409,13 @@ pk_top_rr <- pk_top %>%
 ```{r interactiveHeatmaps, fig.height = 12}
 
 df <- pk_top_rr %>%
-  select(condition, feature, value_rr, Type) %>%
+  select(specimenName, feature, value_rr, Type) %>%
   rename(value = value_rr)
 hclust_clust_num <- 8
 hm <- get_iheatmap(df, assay_name = "Prior knowledge, rrscale-transformed", k = hclust_clust_num)
 hm
 df <- pk_top_rr
-datatable(df,colnames = c("Condition" = "condition",
+datatable(df,colnames = c("Specimen name" = "specimenName",
                           "Feature" = "feature",
                           "Org. value" = "value",
                           "RR value" = "value_rr"))
