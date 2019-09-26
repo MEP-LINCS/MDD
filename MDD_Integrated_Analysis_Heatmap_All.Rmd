@@ -135,7 +135,7 @@ rrscale_assay <- function(df_long){
   rr_objects <- df_sp %>%
     select(-Type, -experimentalCondition) %>%
     as.matrix() %>%
-    rrscale(zeros = 0.01)
+    rrscale(zeros = 0.01,z = Inf)
   
   rr_mat <- rr_objects[["RR"]] %>%
     as_tibble()
@@ -431,62 +431,62 @@ if(file.exists("R/rrscale_assay.rda")){
   save(pk_selected_rr, file = "R/rrscale_assay.rda")
 }
 
-df <- pk_selected %>%
-  select(experimentalCondition, feature, value) %>%
-#  filter(str_detect(feature,  "BATF")) %>%
-  spread(key = feature, value = value) %>%
-  select_if(is.numeric)
-
-df_as_list <- matrix(df)
-names(df_as_list) <- colnames(df)
-
-rrscale_small <- FALSE
-#Conditionally read or compute rrscale results
-rrscale_file <- dir("R", pattern = "rrscale.rda", full.names = TRUE)
-if(length(rrscale_file)==0){
-  if(rrscale_small){
-    set.seed(42)
-    df_as_list_small <- df_as_list[sample(1:length(df_as_list),size = .1*length(df_as_list),replace = FALSE)]
-    all_rr_values <- map(df_as_list_small, rrscaleValues)
-    save(all_rr_values, file = "R/rrscale.rda")
-  } else{
-    all_rr_values <- map(df_as_list, rrscaleValues)
-    save(all_rr_values, file = "R/rrscale.rda")
-  }
-
-} else if(length(rrscale_file)==1){
-  load(rrscale_file)
-} else {
-  stop("There are more than 1 rrscale data files ", rrscale_file)
-}
-
-#rr_details <- getrrDetails(all_rr_values)
-
-rr_values <- map(all_rr_values, function(xx){
-  xx[["RR"]] %>%
-  unlist
-})  %>%
-    bind_cols()
-
-pk_top_rr <- pk_selected %>%
-  dplyr::select(-Type) %>%
-  spread(key = feature, value = value) %>%
-  dplyr::select(experimentalCondition) %>%
-  bind_cols(rr_values) %>%
-  gather(feature, value, -experimentalCondition) %>%
-  mutate(value_rr = signif(value, digits = 3)) %>%
-  dplyr::select(-value) %>%
-  left_join(pk_selected, by = c("feature", "experimentalCondition")) %>%
-  mutate(value = signif(value,digits = 3)) %>%
-  filter(!feature %in% c("AreaShape_EulerNumber","H3K27ac1K36me0"))###temp filtering
+# df <- pk_selected %>%
+#   select(experimentalCondition, feature, value) %>%
+# #  filter(str_detect(feature,  "BATF")) %>%
+#   spread(key = feature, value = value) %>%
+#   select_if(is.numeric)
+# 
+# df_as_list <- matrix(df)
+# names(df_as_list) <- colnames(df)
+# 
+# rrscale_small <- FALSE
+# #Conditionally read or compute rrscale results
+# rrscale_file <- dir("R", pattern = "rrscale.rda", full.names = TRUE)
+# if(length(rrscale_file)==0){
+#   if(rrscale_small){
+#     set.seed(42)
+#     df_as_list_small <- df_as_list[sample(1:length(df_as_list),size = .1*length(df_as_list),replace = FALSE)]
+#     all_rr_values <- map(df_as_list_small, rrscaleValues)
+#     save(all_rr_values, file = "R/rrscale.rda")
+#   } else{
+#     all_rr_values <- map(df_as_list, rrscaleValues)
+#     save(all_rr_values, file = "R/rrscale.rda")
+#   }
+# 
+# } else if(length(rrscale_file)==1){
+#   load(rrscale_file)
+# } else {
+#   stop("There are more than 1 rrscale data files ", rrscale_file)
+# }
+# 
+# #rr_details <- getrrDetails(all_rr_values)
+# 
+# rr_values <- map(all_rr_values, function(xx){
+#   xx[["RR"]] %>%
+#   unlist
+# })  %>%
+#     bind_cols()
+# 
+# pk_top_rr <- pk_selected %>%
+#   dplyr::select(-Type) %>%
+#   spread(key = feature, value = value) %>%
+#   dplyr::select(experimentalCondition) %>%
+#   bind_cols(rr_values) %>%
+#   gather(feature, value, -experimentalCondition) %>%
+#   mutate(value_rr = signif(value, digits = 3)) %>%
+#   dplyr::select(-value) %>%
+#   left_join(pk_selected, by = c("feature", "experimentalCondition")) %>%
+#   mutate(value = signif(value,digits = 3)) %>%
+#   filter(!feature %in% c("AreaShape_EulerNumber","H3K27ac1K36me0"))###temp filtering
 
 ```
 
 ```{r interactiveHeatmaps, fig.height = 12}
-
-df <- pk_top_rr %>%
-  select(experimentalCondition, feature, value_rr, Type) %>%
-  rename(value = value_rr)
+# 
+# df <- pk_selected_rr %>%
+#   select(experimentalCondition, feature, value_rr, Type) %>%
+#   rename(value = value_rr)
 
   df_as_matrix <- prep_hm_matrix(pk_selected_rr) %>%
     t %>%
@@ -494,7 +494,7 @@ df <- pk_top_rr %>%
     t
   ann_df <- prep_hm_annotations(pk_selected_rr)
  # hm <- get_iheatmap()
-hclust_clust_num <- 11
+hclust_clust_num <- 12
 hm <- get_iheatmap(df_as_matrix, assay_name = "Prior knowledge, rrscale-transformed") %>%
   format_hm(k = hclust_clust_num)
 hm
@@ -623,7 +623,7 @@ The hierarchical clustering uses the complete linkage method to find similar clu
 
 ```{r featureTypes, fig.width=8, fig.height=4}
 #create a bar chart of the feature types
-df <- pk_top_rr %>%
+df <- pk_selected_rr %>%
   drop_na() %>%
   select(feature, Type) %>%
   distinct()
@@ -640,15 +640,17 @@ p
 ```{r beforeAfterrr, fig.height=4}
 
 set.seed(42)
-df <- pk_top_rr %>%
+df <- pk_selected_rr %>%
   dplyr::select(Type, feature) %>%
   distinct() %>%
   group_by(Type) %>%
   sample_n(4) %>%
   ungroup() %>%
   drop_na() %>%
-  inner_join(pk_top_rr, by = c("feature", "Type")) %>%
-  arrange(Type)
+  inner_join(pk_selected_rr, by = c("feature", "Type")) %>%
+  arrange(Type) %>%
+  rename(value_rr = value) %>%
+  left_join(pk_selected, by = c("feature", "Type"))
 
 p <- ggplot(df, aes(x = value, fill = Type)) +
   geom_density() +
@@ -665,7 +667,7 @@ p
 ```
 
 
-```{r gapStatistics, fig.width=4, fig.height=4}
+```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
 #implement gap statistic analysis
 
 hafun <- function(x, k){
@@ -680,7 +682,10 @@ hafun <- function(x, k){
 }
 
 ###Todo continue with code from page 126
-df_as_matrix <- df %>%
+df_as_matrix <- pk_selected_rr %>% 
+spread(experimentalCondition, value) %>%
+  drop_na() %>%
+  gather(experimentalCondition, value, -Type, -feature) %>%
   prep_hm_matrix
 if(file.exists("R/gss.rda")){
   load("R/gss.rda")
@@ -709,5 +714,5 @@ Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it t
 
 The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
 
-The first local maximum is k = 10. k = 11 is the first value with a gap value minus its standard error is less than the local maximum.  
+The first local maximum is k = 11. k = 12 is the first value with a gap value minus its standard error is less than the local maximum.  
 
