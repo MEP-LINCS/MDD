@@ -1,0 +1,286 @@
+---
+title: "MDD IF batch analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+
+suppressMessages(library(tidyverse))
+suppressMessages(library(ComplexHeatmap))
+library(iheatmapr)
+library(DT)
+```
+
+
+## Overview{.tabset .tabset-fade}
+These figures are derived from the data downloaded from the LINCS Molecular Deep Dive files on Synapse https://www.synapse.org/#!Synapse:syn2862345/wiki/588244 and from segmenting the same images using CellProfiler.  
+
+
+
+```{r globalVariables}
+
+ligand_cols <- c("ctrl" = "#7A4A2A",
+                 "PBS" = "#8dd3c7",
+                  "HGF" = "#80b1d3",
+                  "OSM" = "#fdb462",
+                  "EGF" = "#fb8072",
+                  "BMP2" = "#b3de69",
+                  "IFNG" = "#bebada",
+                  "TGFB" = "#ffd92f")
+
+ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")
+
+```
+
+```{r read_data_and_metadata}
+
+md <- read_csv("metadata/MDD_sample_annotations.csv")
+
+IF_CP <- read_csv("IF/Data/MCF10A_IF_Ilastik_Well_File.csv") %>%
+  mutate(ligand = factor(ligand, levels = c("ctrl","PBS","BMP2","IFNG","TGFB","HGF","OSM","EGF")),
+         PairedWithEGF = FALSE,
+         media = "")
+IF_CP$PairedWithEGF[IF_CP$ligand %in% c("BMP2", "IFNG","TGFB")] <- TRUE
+IF_CP$media[IF_CP$ligand %in% c("BMP2", "IFNG","TGFB")] <- "+EGF"
+
+IF_CP$ligand_media <- paste0(IF_CP$ligand, IF_CP$media)
+IF_CP$ligand_media <- factor(IF_CP$ligand_media, levels = c("ctrl","PBS","BMP2+EGF","IFNG+EGF","TGFB+EGF","HGF","OSM","EGF"))
+
+IF_SC_Level1 <- read_csv("IF/Data/MDD_IF_Level1.csv")
+
+IF_CP_SC <- IF_SC_Level1 %>%
+  group_by(barcode, WellIndex) %>%
+  summarise(Well_Cell_Count_SC = n(),
+            MeanIntensity_KRT5 = mean(MeanIntensity_KRT5),
+            MeanIntensity_DAPI = mean(MeanIntensity_DAPI),
+            MeanIntensity_CellMask = mean(MeanIntensity_CellMask)) %>%
+  ungroup() %>%
+  right_join(IF_CP)
+
+IF_C3 <- read_csv("cycIF/Data/CyclicIF_cell_counts_by_well.csv") %>%
+  mutate(collection = "C3",
+         condition = paste(ligand, time, sep = "_"),
+         specimanName = paste(condition, collection, replicate, sep = "_"),
+         Plate = as.character(Plate)) %>%
+  rename(barcode = Plate,
+         Well_Cell_Count = Counts) %>%
+  mutate(ligand = factor(ligand, levels = c("ctrl","PBS","BMP2","IFNG","TGFB","HGF","OSM","EGF")),
+         PairedWithEGF = FALSE,
+         media = "")
+
+IF_C3$PairedWithEGF[IF_C3$ligand %in% c("BMP2", "IFNG","TGFB")] <- TRUE
+IF_C3$media[IF_C3$ligand %in% c("BMP2", "IFNG","TGFB")] <- "+EGF"
+
+IF_C3$ligand_media <- paste0(IF_C3$ligand, IF_C3$media)
+IF_C3$ligand_media <- factor(IF_C3$ligand_media, levels = c("ctrl","PBS","BMP2+EGF","IFNG+EGF","TGFB+EGF","HGF","OSM","EGF"))
+
+  IF_C1C2C3 <- bind_rows(IF_CP, IF_C3) %>%
+    filter(time %in% c(0,24,48))
+  
+```
+
+
+```{r compare_CP_ScanR, fig.width=4, fig.height=4,eval = TRUE}
+
+cor_pear <- cor(IF_CP_SC$Well_Cell_Count, IF_CP_SC$Well_Cell_Count_SC)
+
+p <- ggplot(IF_CP_SC, aes(Well_Cell_Count_SC, Well_Cell_Count)) +
+  geom_point(alpha = .8) +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_x_continuous(breaks = c(0,2000, 4000, 6000)) +
+  scale_y_continuous(breaks = c(0,2000, 4000, 6000)) +
+  labs(title = "CP vs. ScanR cell counts are highly correlated",
+       subtitle = sprintf("Pearson correlation: %3.2f", cor_pear),
+       x = "ScanR well cell counts",
+       y = "CellProfiler well cell counts") +
+  theme(plot.title = element_text(size = 10),
+        plot.subtitle = element_text(size = 8))
+p
+
+cor_pear <- cor(IF_CP_SC$MeanIntensity_KRT5, IF_CP_SC$Intensity_MeanIntensity_KRT5)
+
+p <- ggplot(IF_CP_SC, aes(MeanIntensity_KRT5, Intensity_MeanIntensity_KRT5)) +
+  geom_point(alpha = .8) +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_x_continuous(limits = c(400, 1700), breaks = seq(400, 1600, 200))+
+  scale_y_continuous(limits = c(400, 1700), breaks = seq(400, 1600, 200)) +
+  labs(title = "CP vs. ScanR KRT5 intensities are highly correlated",
+       subtitle = sprintf("Pearson correlation: %3.2f", cor_pear),
+       x = "ScanR KRT5 mean intensity",
+       y = "CellProfiler KRT5 mean intensity") +
+  theme(plot.title = element_text(size = 10),
+        plot.subtitle = element_text(size = 8))
+p
+
+```
+
+$~$    
+     
+The following figures are based on the CellProfiler data for IF collections 1 and 2 and HMS cycIF collection 3.  
+
+The cell counts in collections 1 and 2 are the sum of 12 images per well. Collection 3 cell counts are from 9 images per well.  
+$~$ 
+  
+
+```{r count_and_intensity_boxplots, fig.width= 8, fig.height=4}
+
+p <- ggplot(IF_C1C2C3, aes(x=ligand_media, y=Well_Cell_Count, fill=factor(PairedWithEGF)))+
+  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
+  labs(x="Ligand",
+       y="Well Cell Count",
+       fill="Media with EGF",
+       title="Cell Count by ligand and time point")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
+        plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(1)),
+        legend.title=element_text(size = rel(1)))+
+  facet_wrap(~time)
+p <- p +  geom_point(aes(colour=collection), position=position_jitterdodge(dodge.width=0.9), size = .7,  alpha=.8)+
+  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="red"))
+print(p)
+
+```
+
+
+```{r count_and_intensity_batches_boxplots, fig.width= 8, fig.height=8}
+
+p <- ggplot(IF_C1C2C3, aes(x=ligand_media, y=Well_Cell_Count, colour=collection, fill=factor(PairedWithEGF)))+
+  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
+  labs(x="Ligand",
+       y="Well Cell Count",
+       fill="Media with EGF",
+       title="Cell Count by ligand and time point")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
+        plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.7)),
+        legend.title=element_text(size = rel(1)))+
+  facet_wrap(~time, ncol = 1)
+p <- p +  geom_point(aes(colour=collection), position=position_jitterdodge(dodge.width=0.9), size = .7, alpha=.6)+
+  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="red"))
+p
+
+
+```
+
+$~$
+
+The following are for direct comparison of CP-based figures to previously created ScanR-based figures.
+
+
+
+```{r count_and_intensity_boxplots_C1C2, fig.width= 8, fig.height=4}
+p <- ggplot(IF_CP, aes(x=ligand_media, y=Well_Cell_Count, fill=factor(PairedWithEGF)))+
+  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
+  labs(x="Ligand",
+       y="Well Cell Count",
+       fill="Media with EGF",
+       title="Cell Count by ligand and time point")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
+        plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(1)),
+        legend.title=element_text(size = rel(1)))+
+  facet_wrap(~time)
+p <- p +  geom_point(aes(colour=collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
+  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
+print(p)
+
+p <- ggplot(IF_CP, aes(x=factor(ligand_media), y=Intensity_MeanIntensity_KRT5, fill=factor(PairedWithEGF)))+
+  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
+  labs(x="Ligand",
+       y="KRT5 Mean Intensity",
+       fill="Media with EGF",
+       title="KRT5 Mean Intensity by ligand and time point")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
+        plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(1)),
+        legend.title=element_text(size = rel(1)))+
+  facet_wrap(~time)
+p <- p +  geom_point(aes(colour=collection), position=position_jitterdodge(dodge.width=0.9), alpha=.8)+
+  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="burgundy"))
+print(p)
+
+```
+
+
+```{r count_and_intensity_batches_boxplots_C1C2, fig.width= 8, fig.height=4}
+p <- ggplot(IF_CP, aes(x=ligand_media, y=Well_Cell_Count, colour=collection, fill=factor(PairedWithEGF)))+
+  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
+  labs(x="Ligand",
+       y="Well Cell Count",
+       fill="Media with EGF",
+       title="Cell Count by ligand and time point")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
+        plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.7)),
+        legend.title=element_text(size = rel(1)))+
+  facet_wrap(~time)
+p <- p +  geom_point(aes(colour=collection), position=position_jitterdodge(dodge.width=0.9), size = 1, alpha=.6)+
+  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="red"))
+print(p)
+
+p <- ggplot(IF_CP, aes(x=factor(ligand_media), y=Intensity_MeanIntensity_KRT5, colour=collection, fill=factor(PairedWithEGF)))+
+  geom_boxplot(position = position_dodge(width=0.9), outlier.colour = NA)+
+  labs(x="Ligand",
+       y="KRT5 Mean Intensity",
+       fill="Media with EGF",
+       title="KRT5 Mean Intensity by ligand and time point")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)),
+        plot.title = element_text(size = rel(1)), legend.text=element_text(size = rel(.7)),
+        legend.title=element_text(size = rel(1)))+
+  facet_wrap(~time)
+p <- p +  geom_point(aes(colour=collection), position=position_jitterdodge(dodge.width=0.9), size = 1, alpha=.6)+
+  scale_color_manual(values=c("C1"="blue", "C2"="purple", "C3"="red"))
+print(p)
+
+```
+
+
+```{r PCA}
+
+IF_CP_nna <- IF_CP %>%
+  select(matches("specimenName|Intensity_|AreaShape_|Neighbor")) %>%
+  drop_na()
+
+IF_CP_PCA <- IF_CP_nna %>%
+  select(-specimenName) %>%
+  as.matrix() %>%
+  prcomp()
+
+```
+
+```{r visualize_PCA}
+
+df <- IF_CP_PCA[["x"]] %>%
+  as_tibble() %>%
+  mutate(specimenName = IF_CP_nna$specimenName,
+         condition = str_remove(specimenName, "_C[123]_."),
+         replicate = str_remove(specimenName, ".*_"),
+         ligand = str_remove(condition, "_.*"),
+         time = str_remove(condition, ".*_"),
+         time = as.numeric(time))
+
+p <- ggplot(df, aes(PC1, PC2, colour = ligand, size = time)) +
+  geom_point(alpha = .7) +
+  theme_bw()
+p
+
+p <- ggplot(df, aes(PC3, PC4, colour = ligand, size = time)) +
+  geom_point(alpha = .7) +
+  theme_bw()
+p
+
+p <- ggplot(df, aes(PC5, PC6, colour = ligand, size = time)) +
+  geom_point(alpha = .7) +
+  theme_bw()
+p
+
+p <- ggplot(df, aes(PC7, PC8, colour = ligand, size = time)) +
+  geom_point(alpha = .7) +
+  theme_bw()
+p
+
+plot(IF_CP_PCA)
+```
