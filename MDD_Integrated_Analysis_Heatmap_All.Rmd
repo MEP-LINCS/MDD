@@ -9,7 +9,7 @@ output: html_document
 #do cluster analysis to set cluster number
 #fix Type colors and use in bar chart
 
-knitr::opts_chunk$set(echo = FALSE, cache=TRUE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
 
 suppressMessages(library(tidyverse))
 suppressMessages(library(ComplexHeatmap))
@@ -163,8 +163,6 @@ RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
   dplyr::select(experimentalCondition, feature, value) %>%
   pk_preprocess_level3(type =  "RPPA pathway")
 
-RPPA_pathways_rr <- rrscale_assay(RPPA_pathways)
-
 #Read in Hallmark pathways that are based on RNAseq data
 hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
   gather(condition, value, -variable) %>%
@@ -172,8 +170,6 @@ hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
   rename(experimentalCondition = condition) %>%
   mutate(Type = "Hallmark") %>%
   pk_preprocess_level3(type =  "Hallmark")
-
-hallmark_pathways_rr <- rrscale_assay(hallmark_pathways)
 
 #Read in RPPA values and merge with metadata
 RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
@@ -368,11 +364,8 @@ pk_all <- bind_rows(ATACseq_values, ATACseq_motif_values, cycIF_values, GCP_valu
 ATACseq_variance_probs_thresh <- .995
 ATACseq_selected <- select_features(ATACseq_values, ATACseq_variance_probs_thresh)
 
-
-ATACseq_selected_rr <- rrscale_assay(ATACseq_selected)
 ATACseq_motif_variance_probs_thresh <- .5
 ATACseq_motif_selected <- select_features(ATACseq_motif_values, ATACseq_motif_variance_probs_thresh)
-ATACseq_motif_selected_rr <- rrscale_assay(ATACseq_motif_selected)
 
 # #Select top TFs of each ligand
 odds_ratio_thresh <- 5
@@ -399,17 +392,13 @@ TFs_selected <- TFs_values %>%
   mutate(Type = "ChEA3 TF") %>%
   drop_na()
 
-TFs_selected_rr <- rrscale_assay(TFs_selected)
-
 #filter RPPA features on variance
 RPPA_variance_probs_thresh <- 0
 RPPA_selected <- select_features(RPPA_values, RPPA_variance_probs_thresh)
-RPPA_selected_rr <- rrscale_assay(RPPA_selected)
 
 #filter GCP features on variance
 GCP_variance_probs_thresh <- 0
 GCP_selected <- select_features(GCP_values, GCP_variance_probs_thresh)
-GCP_selected_rr <- rrscale_assay(GCP_selected)
 
 #use RNAseq genes filterd on variance within each condition
 RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_RNAseq_geneList.csv") %>%
@@ -418,11 +407,29 @@ RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_RNAseq_geneList.csv") %>%
 
 RNAseq_selected <- RNA_values %>%
   inner_join(RNAseq_variance_genes)
-RNAseq_selected_rr <- rrscale_assay(RNAseq_selected)
 
 pk_selected <- bind_rows(ATACseq_selected, ATACseq_motif_selected, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected, RPPA_pathways, RPPA_selected, TFs_selected)
 
-pk_selected_rr <-  bind_rows(ATACseq_selected_rr, ATACseq_motif_selected_rr, GCP_selected_rr, hallmark_pathways_rr, RNAseq_selected_rr, RPPA_pathways_rr, RPPA_selected_rr, TFs_selected_rr)
+if(file.exists("R/rrscale_assay.rda")){
+  load("R/rrscale_assay.rda")
+} else {
+  ATACseq_selected_rr <- rrscale_assay(ATACseq_selected)
+  ATACseq_motif_selected_rr <- rrscale_assay(ATACseq_motif_selected)
+  cycIF_values_rr <- rrscale_assay(cycIF_values)
+  GCP_selected_rr <- rrscale_assay(GCP_selected)
+  hallmark_pathways_rr <- rrscale_assay(hallmark_pathways)
+  IF_values_selected_rr <- IF_values %>%
+    filter(str_detect(feature, "Intensity"),
+           !str_detect(feature, "Std")) %>%
+    rrscale_assay()
+  RPPA_selected_rr <- rrscale_assay(RPPA_selected)
+  RPPA_pathways_rr <- rrscale_assay(RPPA_pathways)
+  RNAseq_selected_rr <- rrscale_assay(RNAseq_selected)
+  TFs_selected_rr <- rrscale_assay(TFs_selected)
+  
+  pk_selected_rr <-  bind_rows(ATACseq_selected_rr, ATACseq_motif_selected_rr, cycIF_values_rr, GCP_selected_rr, hallmark_pathways_rr, IF_values_selected_rr, RNAseq_selected_rr, RPPA_pathways_rr, RPPA_selected_rr, TFs_selected_rr)
+  save(pk_selected_rr, file = "R/rrscale_assay.rda")
+}
 
 df <- pk_selected %>%
   select(experimentalCondition, feature, value) %>%
@@ -487,7 +494,7 @@ df <- pk_top_rr %>%
     t
   ann_df <- prep_hm_annotations(pk_selected_rr)
  # hm <- get_iheatmap()
-hclust_clust_num <- 13
+hclust_clust_num <- 11
 hm <- get_iheatmap(df_as_matrix, assay_name = "Prior knowledge, rrscale-transformed") %>%
   format_hm(k = hclust_clust_num)
 hm
@@ -556,50 +563,16 @@ shm
 #   geom_point() +
 #   labs(y = "Calinski-Harabsz index")
 # p
-
-#implement gap statistic analysis
-
-hafun <- function(x, k){
-    hm <- get_iheatmap(x, assay_name = "Prior knowledge, rrscale-transformed") %>%
-  format_hm(k = k)
-    Cluster <- hm@plots@listData$score@data %>%
-      as.data.frame() %>%
-      mutate(cluster = hm@plots@listData$Cluster@data) %>%
-      drop_na() %>%
-      dplyr::select(cluster) %>%
-      as.list()
-}
-
-###Todo continue with code from page 126
-df_as_matrix <- df %>%
-  prep_hm_matrix
-if(file.exists("R/gss.rda")){
-  load("R/gss.rda")
-} else {
-  gss <- clusGap(df_as_matrix, FUN = hafun, K.max = 20, B = 100, verbose = FALSE)
-  save(gss, file = "R/gss.rda")
-}
-
-          
-plot_gap = function(x) {
-  gstab = data.frame(x$Tab, k = seq_len(nrow(x$Tab)))
-  ggplot(gstab, aes(k, gap)) + geom_line() +
-    geom_errorbar(aes(ymax = gap + SE.sim,
-                      ymin = gap - SE.sim), width=0.1) +
-    geom_point(size = 3, col=  "red")
-}
-plot_gap(gss)
-
-
 ```
+
 
 
 #### Method  
 
-This dataset combines MCF10A Molecular Deep Dive (MDD) RNAseq, Reverse Phase Protein Array(RPPA), Global ChromatinCProfiling (GCP) histone modifications, immunofluorescence (IF), cyclic immunofluorescence (cycIF) and ATACseq chromatin configuration data with prior knowledge of signaling pathways, DNA motifs and transcription factors. All data is collected at 0, 24 and 48 hours. Most of the data is median summarized from three replicate experiments run in sequential weeks. 
+This dataset combines MCF10A Molecular Deep Dive (MDD) RNAseq, Reverse Phase Protein Array(RPPA), Global Chromatin Profiling (GCP) histone modifications, immunofluorescence (IF), cyclic immunofluorescence (cycIF) and ATACseq chromatin configuration data with prior knowledge of signaling pathways, DNA motifs and transcription factors. All data is collected at 0, 24 and 48 hours. Most of the data is median summarized from three replicate experiments run in sequential weeks. It is then rrscale transformed and then zscored by feature.   
 
 RRscale  
-Use rrscale https://CRAN.R-project.org/package=rrscale to transform each feature in the heatmap before clustering. This method performs a box-cox gaussianizing transformation on each feature, zscores the results then eliminates outliers with absolute values greater than 4.  
+Use rrscale https://CRAN.R-project.org/package=rrscale to transform features in the heatmap before clustering.  This method performs a box-cox gaussianizing transformation on each feature, zscores the results then eliminates outliers with absolute values greater than 4. All values from each assay was rrscaled as a matrix with features in the columns and conditions in the rows. Because of the differences in scales in the morphology, spatial and statistical values in the IF dataset, only the intensity values are included.      
 
 This analysis is based on the LINCS Molecular Deep Dive data files on Synapse at  https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
 
@@ -647,7 +620,8 @@ There are `r length(unique(TFs_selected$feature))` ChEA3 TFs in the heatmap.
 Clustering  
 The hierarchical clustering uses the complete linkage method to find similar clusters. The number of clusters as shown in the side annotation bar. It is chosen as `r hclust_clust_num` based on gap statistic analysis. The scatter plot above the heatmap shows the mean value for each cluster within each condition.  
 
-```{r featureTypes}
+
+```{r featureTypes, fig.width=8, fig.height=4}
 #create a bar chart of the feature types
 df <- pk_top_rr %>%
   drop_na() %>%
@@ -656,11 +630,14 @@ df <- pk_top_rr %>%
 p <- ggplot(df, aes(x = Type, fill = Type)) +
   geom_bar() +
   labs(title = paste("Type distribution of the",length(unique(df$feature)), "features in the MDD integrated dataset"),
-       x ="Feature type")
+       x ="Feature type") +
+  theme(axis.text = element_text(angle = 90))
 p
 
 ```
-```{r befopreAfterrr, fig.height=12}
+
+
+```{r beforeAfterrr, fig.height=4}
 
 set.seed(42)
 df <- pk_top_rr %>%
@@ -675,11 +652,62 @@ df <- pk_top_rr %>%
 
 p <- ggplot(df, aes(x = value, fill = Type)) +
   geom_density() +
-  facet_wrap(~feature, scales = "free", ncol = 4)
+  #guides(fill = FALSE) +
+  facet_wrap(~feature, scales = "free", ncol = 10) +
+  theme(strip.text.x = element_text(size = 4))
 p
 
 p <- ggplot(df, aes(x = value_rr, fill = Type)) +
   geom_density() +
-  facet_wrap(~feature, scales = "free", ncol = 4)
+  facet_wrap(~feature, scales = "free", ncol = 10) +
+  theme(strip.text.x = element_text(size = 4))
 p
 ```
+
+
+```{r gapStatistics, fig.width=4, fig.height=4}
+#implement gap statistic analysis
+
+hafun <- function(x, k){
+    hm <- get_iheatmap(x, assay_name = "Prior knowledge, rrscale-transformed") %>%
+  format_hm(k = k)
+    Cluster <- hm@plots@listData$score@data %>%
+      as.data.frame() %>%
+      mutate(cluster = hm@plots@listData$Cluster@data) %>%
+      drop_na() %>%
+      dplyr::select(cluster) %>%
+      as.list()
+}
+
+###Todo continue with code from page 126
+df_as_matrix <- df %>%
+  prep_hm_matrix
+if(file.exists("R/gss.rda")){
+  load("R/gss.rda")
+} else {
+  gss <- clusGap(df_as_matrix, FUN = hafun, K.max = 20, B = 100, verbose = FALSE)
+  save(gss, file = "R/gss.rda")
+}
+
+plot_gap = function(x) {
+  gstab = data.frame(x$Tab, k = seq_len(nrow(x$Tab)))
+  ggplot(gstab, aes(k, gap)) + 
+    geom_line() +
+    geom_errorbar(aes(ymax = gap + SE.sim,
+                      ymin = gap - SE.sim), width=0.1) +
+    geom_point(size = 3, col=  "red") +
+    labs(title = "Gap analysis to determine cluster number")
+}
+plot_gap(gss)
+
+
+```
+
+This analysis can be interpreted to select the number of clusters in the dataset. It is based on a method described in Modern Statistics for Modern Biology by Susan Holmes and Wolfgang Huber http://web.stanford.edu/class/bios221/book/Chap-Clustering.html and is excerpted below.  
+
+Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it to averages from simulated data with less structure can be a good way of choosing k. This is the basic idea of the gap statistic introduced by Tibshirani, Walther, and Hastie (2001). We compute log(WSSk) for a range of values of k, the number of clusters, and compare it to that obtained on reference data of similar dimensions with various possible ‘non-clustered’ distributions. We can use uniformly distributed data as we did above or data simulated with the same covariance structure as our original data.
+
+The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
+
+The first local maximum is k = 10. k = 11 is the first value with a gap value minus its standard error is less than the local maximum.  
+
