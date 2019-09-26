@@ -1,0 +1,129 @@
+---
+title: "MDD Get ChEA3 TFs"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+
+suppressMessages(library(tidyverse))
+library(biomaRt)
+
+```
+
+
+
+```{r writeOutChea3InputFiles, eval = FALSE}
+
+#Get annotations to convert from ensemble to HGNC
+mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
+               dataset = "hsapiens_gene_ensembl",
+               host = "uswest.ensembl.org")
+
+annoTable <- getBM(attributes = c("ensembl_gene_id",
+                            "hgnc_symbol"),
+             mart = mart)
+
+#Get ChEA3 results for based on RNAseq level 2 Z scores for each gene
+
+RNAseq_zscores <- dplyr::select(RNAseq, -feature) %>%
+  as.matrix() %>%
+  t %>%
+  scale() %>%
+  t %>%
+  as.tibble() %>%
+  mutate(feature = RNAseq$feature) %>%
+  left_join(annoTable, by = c("feature" = "ensembl_gene_id")) %>%
+  dplyr::select(-feature) %>%
+  rename(feature = hgnc_symbol) %>%
+  gather(specimenID, value, -feature) %>%
+  inner_join(md, by = "specimenID")
+
+#write out high and low scored genes for each condition
+for(specName in unique(RNAseq_zscores$specimenName)){
+  foo <- RNAseq_zscores %>%
+  filter(specimenName == specName,
+         value <-1) %>%
+    dplyr::select(feature) %>%
+    distinct %>%
+    #write_csv(path = paste0("RNAseq/Data/",specName,"_extreme_genes.txt"), col_names = FALSE)
+}
+
+```
+
+```{r getChEA3TFs}
+#read in TF scores
+getTFs_down <- function(x, logFC_thresh = 0){
+  library(httr)
+  library(jsonlite)
+  genes <- read_tsv(paste0("./RNAseq/Data/",x)) %>%
+    filter(logFC < logFC_thresh,
+           adj.P.Val < .01) %>%
+    dplyr::select(gene_symbol) %>%
+    unlist
+  
+  url = "https://amp.pharm.mssm.edu/chea3/api/enrich/"
+  encode = "json"
+  payload = list(query_name = x, gene_set = genes)
+  
+  #POST to ChEA3 server
+  response = POST(url = url, body = payload, encode = encode)
+  json = content(response, "text")
+  
+  #results as list of R dataframes
+  results <- try(jsonlite::fromJSON(json)) %>%
+    bind_rows()
+  # if(!is.null(results)) {
+  #   results <- results[["Integrated--meanRank"]]
+  # } 
+  return(results)
+}
+
+bind_TF_results <- function(l){
+  l_values <- l %>%
+    bind_rows(.id = "DB")%>%
+    rename(Query_Name = 'Query Name',
+           Odds_Ratio = 'Odds Ratio') %>%
+      mutate(specimenName = str_remove(Query_Name, "h.txt"))
+  top_rank <- l_values %>%
+    filter(DB == "Integrated--topRank")
+}
+
+bind_TF_details <- function(l){
+  l_values <- l %>%
+    bind_rows(.id = "DB")%>%
+    rename(Query_Name = 'Query Name',
+           Odds_Ratio = 'Odds Ratio') %>%
+      mutate(specimenName = str_remove(Query_Name, "h.txt"))
+  details <- l_values %>%
+    filter(!str_detect(DB,"Rank")) %>%
+    dplyr::select(DB, specimenName, Query_Name, Rank, TF, Odds_Ratio)
+}
+
+if(!file.exists("RNAseq/Data/ChEA3_TFs_down.csv")){
+  gene_fns <- dir("RNAseq/Data/", pattern = "_[248]*h.txt")
+  TFs_down <- map(gene_fns, getTFs_down, logFC_thresh = 0)
+  TFs_results <- map(TFs_down, bind_TF_results) %>%
+    bind_rows() %>%
+    mutate(Library = str_remove(Library, ",.*"),
+         Library = str_replace(Library, " ", "--"))
+  TFs_details <- map(TFs_down, bind_TF_details) %>%
+    bind_rows() %>%
+    rename(Library = DB)
+  
+#Get the details from the library identified in TFs_results
+  TFs_down <- TFs_results %>%
+    dplyr::select(Query_Name, TF, Library) %>%
+    left_join(TFs_details, by = c("Query_Name", "TF", "Library")) %>%
+    mutate(Odds_Ratio = as.numeric(Odds_Ratio),
+           Query_Name = str_remove(Query_Name, "h.txt")) %>%
+    rename(condition = Query_Name) %>%
+    dplyr::select(TF, Odds_Ratio, condition) %>%
+    spread(key = TF, value = Odds_Ratio)
+  write_csv(TFs_down, "RNAseq/Data/ChEA3_TFs_down.csv")
+} else{
+  TFs_down <- read_csv("RNAseq/Data/ChEA3_TFs_down.csv")
+}
+
+
+```

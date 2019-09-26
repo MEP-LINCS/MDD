@@ -70,20 +70,16 @@ prep_annotations <- function(df, md){
       return(df_ann)
 }
 
-# prep_annotations_conditions <- function(df, md){
-#       df_ann <- df %>%
-#       gather("condition", "value", -feature) %>%
-#       inner_join(md, by = "specimenName") %>%
-#       dplyr::select(ligand, secondLigand, experimentalTimePoint, replicate, collection) %>%
-#       distinct() %>%
-#       rename(Time = experimentalTimePoint,
-#              Ligand = ligand,
-#              Ligand2 = secondLigand,
-#              Replicate = replicate,
-#              Collection = collection) %>%
-#       as.data.frame()
-#       return(df_ann)
-# }
+prep_annotations_conditions <- function(df){
+      df_ann <- df %>%
+      gather("condition", "value", -feature) %>%
+        mutate(Ligand = str_remove(condition, "_.*"),
+               Time = str_remove(condition,".*_")) %>%
+      dplyr::select(Ligand, Time) %>%
+      distinct() %>%
+      as.data.frame()
+      return(df_ann)
+}
 
 
 plot_heatmap <- function(df, md, assay_name, EGF_normed = TRUE, var_thresh_percentile = 0, show_row_names = FALSE, mark_rows = NULL, cluster_rows = TRUE, select_timepoint = FALSE, zscore_rows = TRUE,...) {
@@ -182,7 +178,7 @@ plot_iheatmap <- function(df, md, assay_name, EGF_normed = TRUE, var_thresh_perc
     as.matrix() %>%
     apply(1, var, na.rm = TRUE)
   
-  var_thresh <- quantile(df_vars, probs = var_thresh_percentile)
+  var_thresh <- quantile(df_vars, probs = var_thresh_percentile, na.rm = TRUE)
   df <- df[df_vars >= var_thresh,]
   
   #Get a dendrogram from the complex heatmap function
@@ -242,19 +238,17 @@ plot_iheatmap_conditions <- function(df, assay_name){
   #reorder
   
     #Set the order of the columns
-  condition_order <-  paste(rep(c("ctrl", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), c(24, 48),  sep = "_") %>%
+  condition_order <-  paste(rep(c("HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), c(24, 48),  sep = "_") %>%
     intersect(colnames(df))
   
   #Arrange columns by standard condition order
   df <- df %>%
-    dplyr::select(feature, condition_order)
+    dplyr::select(feature, condition_order) %>%
+    drop_na()
 
-  # #Create annotation values
-  # df_ann <-prep_annotations_conditions(df, md) %>%
-  #   dplyr::select(Collection, Replicate, Time, Ligand2, Ligand)
-  # 
- 
- 
+  #Create annotation values
+  df_ann <-prep_annotations_conditions(df)
+
   df_as_matrix <- dplyr::select(df, -feature) %>%
     as.matrix() %>%
     t %>%
@@ -266,19 +260,9 @@ plot_iheatmap_conditions <- function(df, assay_name){
 
   #Create the heatmap
   hm <- main_heatmap(data = df_as_matrix,
-                     name = "abundance",
-                     show_col_names = TRUE) %>%
+                     name = "abundance") %>%
     add_row_clustering() %>%
      add_col_annotation(df_ann,
-                       colors = list(Ligand = c( "ctrl" = "#7A4A2A",
-                                                 "PBS" = "#8dd3c7",
-                                                 "HGF" = "#80b1d3",
-                                                 "OSM" = "#fdb462",
-                                                 "EGF" = "#fb8072",
-                                                 "BMP2" = "#b3de69",
-                                                 "IFNG" = "#bebada",
-                                                 "TGFB" = "#ffd92f"),
-                                     Time = c("0" = "white", "1" = "azure1", "4" = "azure2", "8" = "azure3", "24" = "azure4", "48" = "black")),
                        size = 0.02)
   hm
 }
@@ -580,46 +564,66 @@ RPPA_l1 <- load_data(assay_name = "RPPA", level = 1) %>%
   spread(key = specimenID, value = value) %>%
   dplyr::select(-sid64)
 
+#T0 normalize within each replicate batch
+RPPA_l1_all <- load_data(assay_name = "RPPA", level = 1) %>%
+  rename(feature = antibody) %>%
+  gather("specimenID", "value", -feature) %>%
+  inner_join(md) 
+
+RPPA_T0Norm <- RPPA_l1_all %>%
+  filter(experimentalTimePoint == 0) %>%
+  select(feature, replicate, value) %>%
+  rename(value_T0 = value) %>%
+  right_join(RPPA_l1_all) %>%
+  group_by(feature, replicate) %>%
+  mutate(value_T0Norm = value - value_T0) %>%
+  ungroup %>%
+  select(feature, value_T0Norm, specimenName, specimenID) %>%
+  filter(!str_detect(specimenName, "ctrl|PBS")) %>%
+  rename(value = value_T0Norm) %>%
+  select(-specimenID)
+
 ```
 
 
-```{r}
+```{r, eval = FALSE}
 var_thresh_percentile <- 0
 
-plot_iheatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, win_prob_low = .02, win_prob_up = .98)
+plot_iheatmap_conditions(RPPA_T0Norm, assay_name = "RPPA")
 
 ```
-
-
-
-
-Intensity features included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
 
 
 ### RNAseq{.tabset .tabset-fade}
 
 #### Heatmap  
 
-```{r rnaSeq_figures, eval = TRUE}
-RNAseq <- load_data(assay_name = "RNAseq", level = 2) %>%
-  rename(feature = ensembl_gene_id) %>%
-  dplyr::select(-sid64)
+```{r rnaSeq_figures, eval = FALSE}
+fns <- dir("RNAseq/Data", pattern = "h.txt", full.names = TRUE)
+
+RNAseq_data <- fns %>%
+  map(read_tsv)
+names(RNAseq_data) <- fns %>%
+  str_remove_all(".*/Data/|h.txt")
+
+RNAseq <- bind_rows(RNAseq_data,.id = "condition") %>%
+  select(condition, feature = gene_symbol, value = logFC) %>%
+  spread(condition, value)
 
 RNAseq_vars <- RNAseq %>%
   dplyr::select(-feature) %>%
+  #drop_na %>%
   as.matrix() %>%
-  apply(1, var)
+  apply(1, var, na.rm = TRUE)
   
 var_thresh_percentile <- .95
-var_thresh <- quantile(RNAseq_vars, probs = var_thresh_percentile)
+var_thresh <- quantile(RNAseq_vars, probs = var_thresh_percentile, na.rm = TRUE)
 RNAseq_hi_vars <- RNAseq[RNAseq_vars > var_thresh,]
   
-plot_iheatmap(RNAseq_hi_vars, md, assay_name = "RNAseq")
+plot_iheatmap_conditions(RNAseq_hi_vars, assay_name = "RNAseq")
 
 ```
 
-
-Genes included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
 
 
 ### TF_Pathways{.tabset .tabset-fade}
@@ -649,7 +653,8 @@ TFs_input <- dir("RNAseq/Data/ChEA3_results_MD_OHSU/",
   TFs <- TFs_input %>%
     select(condition, value, feature)
 
-  RPPA_l1_pathways <- load_data("RPPA", "1_Pathways_Score") %>%
+#Read in RPPA pathways scores, mean summarise within condition
+  RPPA_l1_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
   rename(specimenID = X1) %>%
   gather(key = feature, value = Score, -specimenID) %>%
   spread(key = specimenID, value = Score)  %>%
@@ -673,10 +678,35 @@ TF_pathways_cor <- TF_pathways %>%
   select(-condition) %>%
   cor(method = "spearman")
 
+RPPA_metadata <- read_csv("RPPA/Metadata/MDD_RPPA_antibodyAnnotations.csv") %>%
+  mutate(feature = str_remove(MDD, "-.-.$"))
+
+common_TFs <- intersect(TFs_input$TF, RPPA_metadata$Symbols)
+
+RPPA_l1_conditions <- load_data("RPPA", 1) %>%
+  gather(key = specimenID, value = value, -antibody) %>%
+  inner_join(md, by = "specimenID") %>%
+  rename(feature = antibody) %>%
+  dplyr::select(specimenName, feature, value) %>%
+  mutate(condition = str_remove(specimenName, "_C1.*")) %>%
+  group_by(condition, feature) %>%
+  summarise_at("value", mean) %>%
+  ungroup %>%
+  rename(RPPA_value = value) %>%
+  left_join(RPPA_metadata, by = c("feature")) %>%
+  filter(Symbols %in% common_TFs,
+         !str_detect(feature, "FoxO3a_p|ER-a_p|Stat3_p")) %>%
+  select(condition, Symbols, RPPA_value)
+
+RPPA_ChEA3_values <- TFs %>%
+  filter(feature %in% common_TFs) %>%
+  rename(ChEA3_rank = value) %>%
+  inner_join(RPPA_l1_conditions, by= c("feature" = "Symbols", "condition"))
+
 if(FALSE){
   RPPA_metadata <- read_csv("RPPA/Metadata/MDD_RPPA_antibodyAnnotations.csv")
   
-  RPPA_genes_HGNC_direct <- RPPA_genes_HGNC_direct$Symbols
+  RPPA_genes_HGNC_direct <- RPPA_metadata$Symbols
   
   RPPA_genes <- RPPA_l1$feature %>%
     str_remove("_.*") %>%
@@ -761,7 +791,7 @@ top_TF_pathways_cor_null <- top_TF_pathways_null %>%
 
 ```{r plotTFsvsPathways}
 
-RPPA_l1_pathways <- load_data("RPPA", "1_Pathways_Score") %>%
+RPPA_l1_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
   rename(specimenID = X1) %>%
   gather(key = feature, value = Score, -specimenID) %>%
   spread(key = specimenID, value = Score)
@@ -797,6 +827,23 @@ Heatmap(matrix = df_as_matrix,
           #col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
           na_col = "grey")
 ```
+
+
+#### RPPA vs ChEA3 values
+
+```{r}
+
+p <- ggplot(RPPA_ChEA3_values, aes(ChEA3_rank, RPPA_value, colour=condition)) +
+  geom_point(alpha = .8) +
+  facet_wrap(~feature)
+p
+
+p <- ggplot(RPPA_ChEA3_values, aes(ChEA3_rank, RPPA_value, colour=condition)) +
+  geom_point(alpha = .8) +
+  facet_wrap(~feature, scales = "free_y", ncol = 5)
+p
+```
+
 
 #### Correlations heatmap
 
@@ -897,7 +944,7 @@ top_TF_df <- top_TF_pathways %>%
   gather(key = "condition", value = "TF", -feature) %>%
   filter(!str_detect(feature,"Pathway")) 
 
-pathway <- "G2_M_Pathway_Score"
+pathway <- "EMT_Pathway_Score"
 df <- top_TF_pathways %>%
   gather(key = "condition", value = "value", -feature) %>%
   filter(str_detect(feature,pathway)) %>%
