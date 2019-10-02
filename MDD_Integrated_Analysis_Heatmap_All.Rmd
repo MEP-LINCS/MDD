@@ -105,7 +105,7 @@ get_iheatmap <- function(df_as_matrix, ...) {
                      name = "score")
 }
 
-format_hm <- function(hm, k = 6, ...){
+format_hm <- function(hm, k = 6, cluster_method = "hclust",...){
   hm_mod<- hm %>%
     add_row_labels(font = list(size = 4),
                    side = "right") %>%
@@ -116,26 +116,25 @@ format_hm <- function(hm, k = 6, ...){
     modify_layout(list(margin = list(r = 120)))
   if(!k==0){
     hm_mod <- hm_mod %>%
-      add_row_clustering(name = "Cluster",
+      add_row_clustering(name = paste0("Cluster(",cluster_method,")"),
                          k = k,
-                         method = "hclust",
-                         clust_dist = stats::dist,
+                         method = cluster_method,
       ) %>%
       add_col_summary(size = .1,
-                      groups = "Cluster")
+                      groups = paste0("Cluster(",cluster_method,")"))
   }
   return(hm_mod)
 }
 
 #apply rrscale on all values of an assay
-rrscale_assay <- function(df_long){
+rrscale_assay <- function(df_long, zscore_cutoff = Inf){
   df_sp <- df_long %>%
     spread(feature, value)
   
   rr_objects <- df_sp %>%
     select(-Type, -experimentalCondition) %>%
     as.matrix() %>%
-    rrscale(zeros = 0.01,z = Inf)
+    rrscale(zeros = 0.01,z = zscore_cutoff)
   
   rr_mat <- rr_objects[["RR"]] %>%
     as_tibble()
@@ -401,7 +400,7 @@ GCP_variance_probs_thresh <- 0
 GCP_selected <- select_features(GCP_values, GCP_variance_probs_thresh)
 
 #use RNAseq genes filterd on variance within each condition
-RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_RNAseq_geneList.csv") %>%
+RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList200_1560genes.csv") %>%
   mutate(feature= paste0(hgnc_symbol, "_RNA")) %>%
   dplyr::select(-hgnc_symbol)
 
@@ -410,115 +409,73 @@ RNAseq_selected <- RNA_values %>%
 
 pk_selected <- bind_rows(ATACseq_selected, ATACseq_motif_selected, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected, RPPA_pathways, RPPA_selected, TFs_selected)
 
+zscore_cutoff <- Inf
 if(file.exists("R/rrscale_assay.rda")){
   load("R/rrscale_assay.rda")
 } else {
-  ATACseq_selected_rr <- rrscale_assay(ATACseq_selected)
-  ATACseq_motif_selected_rr <- rrscale_assay(ATACseq_motif_selected)
-  cycIF_values_rr <- rrscale_assay(cycIF_values)
-  GCP_selected_rr <- rrscale_assay(GCP_selected)
-  hallmark_pathways_rr <- rrscale_assay(hallmark_pathways)
+  ATACseq_selected_rr <- rrscale_assay(ATACseq_selected, zscore_cutoff = zscore_cutoff)
+  ATACseq_motif_selected_rr <- rrscale_assay(ATACseq_motif_selected, zscore_cutoff = zscore_cutoff)
+  cycIF_values_rr <- rrscale_assay(cycIF_values, zscore_cutoff = zscore_cutoff)
+  GCP_selected_rr <- rrscale_assay(GCP_selected, zscore_cutoff = zscore_cutoff)
+  hallmark_pathways_rr <- rrscale_assay(hallmark_pathways, zscore_cutoff = zscore_cutoff)
   IF_values_selected_rr <- IF_values %>%
     filter(str_detect(feature, "Intensity"),
            !str_detect(feature, "Std")) %>%
-    rrscale_assay()
-  RPPA_selected_rr <- rrscale_assay(RPPA_selected)
-  RPPA_pathways_rr <- rrscale_assay(RPPA_pathways)
-  RNAseq_selected_rr <- rrscale_assay(RNAseq_selected)
-  TFs_selected_rr <- rrscale_assay(TFs_selected)
+    rrscale_assay(zscore_cutoff = zscore_cutoff)
+  RPPA_selected_rr <- rrscale_assay(RPPA_selected, zscore_cutoff = zscore_cutoff)
+  RPPA_pathways_rr <- rrscale_assay(RPPA_pathways, zscore_cutoff = zscore_cutoff)
+  RNAseq_selected_rr <- rrscale_assay(RNAseq_selected, zscore_cutoff = zscore_cutoff)
+  TFs_selected_rr <- rrscale_assay(TFs_selected, zscore_cutoff = zscore_cutoff)
   
   pk_selected_rr <-  bind_rows(ATACseq_selected_rr, ATACseq_motif_selected_rr, cycIF_values_rr, GCP_selected_rr, hallmark_pathways_rr, IF_values_selected_rr, RNAseq_selected_rr, RPPA_pathways_rr, RPPA_selected_rr, TFs_selected_rr)
   save(pk_selected_rr, file = "R/rrscale_assay.rda")
 }
 
-# df <- pk_selected %>%
-#   select(experimentalCondition, feature, value) %>%
-# #  filter(str_detect(feature,  "BATF")) %>%
-#   spread(key = feature, value = value) %>%
-#   select_if(is.numeric)
-# 
-# df_as_list <- matrix(df)
-# names(df_as_list) <- colnames(df)
-# 
-# rrscale_small <- FALSE
-# #Conditionally read or compute rrscale results
-# rrscale_file <- dir("R", pattern = "rrscale.rda", full.names = TRUE)
-# if(length(rrscale_file)==0){
-#   if(rrscale_small){
-#     set.seed(42)
-#     df_as_list_small <- df_as_list[sample(1:length(df_as_list),size = .1*length(df_as_list),replace = FALSE)]
-#     all_rr_values <- map(df_as_list_small, rrscaleValues)
-#     save(all_rr_values, file = "R/rrscale.rda")
-#   } else{
-#     all_rr_values <- map(df_as_list, rrscaleValues)
-#     save(all_rr_values, file = "R/rrscale.rda")
-#   }
-# 
-# } else if(length(rrscale_file)==1){
-#   load(rrscale_file)
-# } else {
-#   stop("There are more than 1 rrscale data files ", rrscale_file)
-# }
-# 
-# #rr_details <- getrrDetails(all_rr_values)
-# 
-# rr_values <- map(all_rr_values, function(xx){
-#   xx[["RR"]] %>%
-#   unlist
-# })  %>%
-#     bind_cols()
-# 
-# pk_top_rr <- pk_selected %>%
-#   dplyr::select(-Type) %>%
-#   spread(key = feature, value = value) %>%
-#   dplyr::select(experimentalCondition) %>%
-#   bind_cols(rr_values) %>%
-#   gather(feature, value, -experimentalCondition) %>%
-#   mutate(value_rr = signif(value, digits = 3)) %>%
-#   dplyr::select(-value) %>%
-#   left_join(pk_selected, by = c("feature", "experimentalCondition")) %>%
-#   mutate(value = signif(value,digits = 3)) %>%
-#   filter(!feature %in% c("AreaShape_EulerNumber","H3K27ac1K36me0"))###temp filtering
+if(file.exists("R/rrscale_assay_all.rda")){
+  load("R/rrscale_assay_all.rda")
+} else {
+  ATACseq_rr <- rrscale_assay(ATACseq_values, zscore_cutoff = zscore_cutoff)
+  ATACseq_motif_rr <- rrscale_assay(ATACseq_motif_values, zscore_cutoff = zscore_cutoff)
+  cycIF_values_rr <- rrscale_assay(cycIF_values, zscore_cutoff = zscore_cutoff)
+  GCP_rr <- rrscale_assay(GCP_values, zscore_cutoff = zscore_cutoff)
+  hallmark_pathways_rr <- rrscale_assay(hallmark_pathways, zscore_cutoff = zscore_cutoff)
+    IF_values_rr <- IF_values %>%
+    filter(str_detect(feature, "Intensity"),
+           !str_detect(feature, "Std")) %>%
+    rrscale_assay(zscore_cutoff = zscore_cutoff)
+  RPPA_rr <- rrscale_assay(RPPA_values, zscore_cutoff = zscore_cutoff)
+  RPPA_pathways_rr <- rrscale_assay(RPPA_pathways, zscore_cutoff = zscore_cutoff)
+  RNAseq_rr <- rrscale_assay(RNA_values, zscore_cutoff = zscore_cutoff)
+  TFs_rr <- rrscale_assay(TFs_values, zscore_cutoff = zscore_cutoff)
+  
+  pk_rr <-  bind_rows(ATACseq_rr, ATACseq_motif_rr, cycIF_values_rr, GCP_rr, hallmark_pathways_rr, IF_values_rr, RNAseq_rr, RPPA_pathways_rr, RPPA_rr, TFs_rr)
+  save(pk_rr, file = "R/rrscale_assay_all.rda")
+}
+
 
 ```
 
 ```{r interactiveHeatmaps, fig.height = 12}
-# 
-# df <- pk_selected_rr %>%
-#   select(experimentalCondition, feature, value_rr, Type) %>%
-#   rename(value = value_rr)
+#####debug delete conditions with NA values
 
-  df_as_matrix <- prep_hm_matrix(pk_selected_rr) %>%
+###
+  df_as_matrix <-  prep_hm_matrix(pk_selected_rr) %>%
     t %>%
+  as.data.frame() %>%
+  drop_na() %>%
+  as.matrix() %>%
     scale %>%
     t
   ann_df <- prep_hm_annotations(pk_selected_rr)
- # hm <- get_iheatmap()
-hclust_clust_num <- 12
+clust_num <- 12
+cluster_method = "kmeans"
 hm <- get_iheatmap(df_as_matrix, assay_name = "Prior knowledge, rrscale-transformed") %>%
-  format_hm(k = hclust_clust_num)
+  format_hm(k = clust_num, cluster_method = cluster_method)
 hm
 
 #create a second, static heatmap to have larger labels
 y_order <- hm@yaxes@listData[["y"]]@order %>%
   rev()
-
-# condition_order <-  c("ctrl_0",paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), rep(c(24, 48),  times = 7),   sep = "_"))
-# 
-# df_sp <-  pk_top_rr %>%
-#   dplyr::select(-value) %>%
-#   rename(value = value_rr) %>%
-#   spread(key = experimentalCondition, value = value) %>%
-#   filter(!is.na(Type)) %>%
-#   dplyr::select(feature, Type, condition_order)
-# 
-# df_mat <- df_sp %>%
-#   dplyr::select_if(is.numeric) %>%
-#   #t() %>%
-#   as.matrix()
-# rownames(df_mat) <- df_sp$feature
-
-# title_suffix <- ""
 
 row_nums <- which(rownames(df_as_matrix) %in% c(hallmark_pathways$feature, RPPA_pathways$feature))
 ra <- rowAnnotation(foo = anno_mark(at = c(row_nums), labels = rownames(df_as_matrix)[row_nums]))
@@ -537,32 +494,7 @@ shm <- Heatmap(matrix = df_as_matrix,
                #col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
                na_col = "grey")
 shm
-# df <- pk_top_rr
-# datatable(df,colnames = c("Condition" = "experimentalCondition",
-#                           "Feature" = "feature",
-#                           "Org. value" = "value",
-#                           "RR value" = "value_rr"))
 
-#cluster analysis 
-#calinhara(hm@plots@listData$score@data, hm@plots@listData$Cluster@data)
-# CH <- tibble(
-#   k = 2:20,
-#   value = sapply(k, function(i) {
-#     hm <- get_iheatmap(df_as_matrix, assay_name = "Prior knowledge, rrscale-transformed", k = i)
-#     foo <- hm@plots@listData$score@data %>%
-#       as.data.frame() %>%
-#       mutate(Cluster = hm@plots@listData$Cluster@data) %>%
-#       drop_na()
-#     ch_value <- calinhara(select(foo, -Cluster), foo$Cluster)
-#     return(ch_value)
-#   })
-# )
-# 
-# p <- ggplot(CH, aes(x = k, y = value)) +
-#   geom_line() +
-#   geom_point() +
-#   labs(y = "Calinski-Harabsz index")
-# p
 ```
 
 
@@ -572,7 +504,7 @@ shm
 This dataset combines MCF10A Molecular Deep Dive (MDD) RNAseq, Reverse Phase Protein Array(RPPA), Global Chromatin Profiling (GCP) histone modifications, immunofluorescence (IF), cyclic immunofluorescence (cycIF) and ATACseq chromatin configuration data with prior knowledge of signaling pathways, DNA motifs and transcription factors. All data is collected at 0, 24 and 48 hours. Most of the data is median summarized from three replicate experiments run in sequential weeks. It is then rrscale transformed and then zscored by feature.   
 
 RRscale  
-Use rrscale https://CRAN.R-project.org/package=rrscale to transform features in the heatmap before clustering.  This method performs a box-cox gaussianizing transformation on each feature, zscores the results then eliminates outliers with absolute values greater than 4. All values from each assay was rrscaled as a matrix with features in the columns and conditions in the rows. Because of the differences in scales in the morphology, spatial and statistical values in the IF dataset, only the intensity values are included.      
+Use rrscale https://CRAN.R-project.org/package=rrscale to transform features in the heatmap before clustering.  This method performs a box-cox gaussianizing transformation on each feature, zscores the results then eliminates outliers with absolute values greater than `r zscore_cutoff`. All values from each assay was rrscaled as a matrix with features in the columns and conditions in the rows. Because of the differences in scales in the morphology, spatial and statistical values in the IF dataset, only the intensity values are included.      
 
 This analysis is based on the LINCS Molecular Deep Dive data files on Synapse at  https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
 
@@ -618,7 +550,7 @@ ChEA3 TF Values
 There are `r length(unique(TFs_selected$feature))` ChEA3 TFs in the heatmap.    
 
 Clustering  
-The hierarchical clustering uses the complete linkage method to find similar clusters. The number of clusters as shown in the side annotation bar. It is chosen as `r hclust_clust_num` based on gap statistic analysis. The scatter plot above the heatmap shows the mean value for each cluster within each condition.  
+The hierarchical clustering uses the complete linkage method to find similar clusters. The number of clusters as shown in the side annotation bar. It is chosen as `r clust_num` based on gap statistic analysis. The scatter plot above the heatmap shows the mean value for each cluster within each condition.  
 
 
 ```{r featureTypes, fig.width=8, fig.height=4}
@@ -670,9 +602,10 @@ p
 ```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
 #implement gap statistic analysis
 
+
 hafun <- function(x, k){
     hm <- get_iheatmap(x, assay_name = "Prior knowledge, rrscale-transformed") %>%
-  format_hm(k = k)
+  format_hm(k = k, cluster_method = cluster_method)
     Cluster <- hm@plots@listData$score@data %>%
       as.data.frame() %>%
       mutate(cluster = hm@plots@listData$Cluster@data) %>%
@@ -681,17 +614,16 @@ hafun <- function(x, k){
       as.list()
 }
 
-###Todo continue with code from page 126
 df_as_matrix <- pk_selected_rr %>% 
 spread(experimentalCondition, value) %>%
   drop_na() %>%
   gather(experimentalCondition, value, -Type, -feature) %>%
   prep_hm_matrix
-if(file.exists("R/gss.rda")){
-  load("R/gss.rda")
+if(file.exists(paste0("R/gss_",cluster_method,".rda"))){
+  load(paste0("R/gss_",cluster_method,".rda"))
 } else {
   gss <- clusGap(df_as_matrix, FUN = hafun, K.max = 20, B = 100, verbose = FALSE)
-  save(gss, file = "R/gss.rda")
+  save(gss, file = paste0("R/gss_",cluster_method,".rda"))
 }
 
 plot_gap = function(x) {
@@ -701,12 +633,12 @@ plot_gap = function(x) {
     geom_errorbar(aes(ymax = gap + SE.sim,
                       ymin = gap - SE.sim), width=0.1) +
     geom_point(size = 3, col=  "red") +
-    labs(title = "Gap analysis to determine cluster number")
+    labs(title = paste("Gap analysis to determine cluster number,",cluster_method))
 }
 plot_gap(gss)
 
-
 ```
+
 
 This analysis can be interpreted to select the number of clusters in the dataset. It is based on a method described in Modern Statistics for Modern Biology by Susan Holmes and Wolfgang Huber http://web.stanford.edu/class/bios221/book/Chap-Clustering.html and is excerpted below.  
 
@@ -716,3 +648,44 @@ The default choice for the number of clusters, k1, is the first value of k for w
 
 The first local maximum is k = 11. k = 12 is the first value with a gap value minus its standard error is less than the local maximum.  
 
+```{r correlations}
+
+plot_correlations <- function(df,
+                      ligand_cols = c( "PBS" = "#8dd3c7",
+                                      "HGF" = "#80b1d3",
+                                      "OSM" = "#fdb462",
+                                      "EGF" = "#fb8072",
+                                      "BMP2" = "#b3de69",
+                                      "IFNG" = "#bebada",
+                                      "TGFB" = "#ffd92f"),
+                   ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")){
+  #calculate correlations across the conditions and show in a heatmap
+df_sp <- df %>%
+  spread(experimentalCondition, value) 
+
+cor_mat <- df_sp %>%
+  select_if(is.numeric) %>%
+            as.matrix() %>%
+            t %>%
+            scale(scale = FALSE) %>%
+            cor(use = "complete.obs",method = "spearman")
+rownames(cor_mat) <- df_sp$feature
+colnames(cor_mat) <- df_sp$feature
+  
+#Create the heatmap
+  hm <- main_heatmap(cor_mat,
+          name = "correlation")
+  
+    hm_clustered <- hm %>%
+           add_row_labels(font = list(size = 4),
+                   side = "right") %>%
+    add_col_labels() %>%
+      add_row_clustering(method = "hclust") %>%
+      add_col_clustering(method = "hclust")
+    return(hm_clustered)
+  }
+
+hm_cl <- plot_correlations(pk_selected_rr)
+
+```
