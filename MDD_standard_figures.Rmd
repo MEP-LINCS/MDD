@@ -736,24 +736,37 @@ Spearman (rank-based) correlations using all available pairwise data points.
 #### Heatmap  
 
 ```{r rnaSeq_figures, eval = TRUE}
-RNAseq <- load_data(assay_name = "RNAseq",level = 2) %>%
-  rename(feature = ensembl_gene_id)
+# RNAseq <- load_data(assay_name = "RNAseq",level = 2) %>%
+#   rename(feature = ensembl_gene_id)
 
-RNAseq_vars <- RNAseq %>%
-  dplyr::select(-feature) %>%
-  as.matrix() %>%
-  apply(1, var)
-  
-var_thresh_percentile <- .95
-var_thresh <- quantile(RNAseq_vars, probs = var_thresh_percentile)
-RNAseq_hi_vars <- RNAseq[RNAseq_vars > var_thresh,]
-  
+ RNAseq <- read_csv("RNAseq/Data/MDD_RNAseq_Level3_HGNC.csv") %>%
+   drop_na() %>%
+   group_by(specimenID, feature) %>%
+   summarise(value = median(value, na.rm = TRUE)) %>%
+   ungroup() %>%
+   spread(specimenID, value)
+# RNAseq_vars <- RNAseq %>%
+#   dplyr::select(-feature) %>%
+#   as.matrix() %>%
+#   apply(1, var)
+#   
+# var_thresh_percentile <- .95
+# var_thresh <- quantile(RNAseq_vars, probs = var_thresh_percentile)
+# RNAseq_hi_vars <- RNAseq[RNAseq_vars > var_thresh,]
+
+
+#use RNAseq genes filterd on variance within each condition
+RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList200_1560genes.csv")
+
+RNAseq_hi_vars <- RNAseq %>%
+  inner_join(RNAseq_variance_genes, by = c("feature" = "hgnc_symbol"))
+
 plot_heatmap(RNAseq_hi_vars, md, assay_name = "RNAseq",EGF_normed = FALSE)
 
 ```
 
 
-Genes included in the heatmap have a variance above the `r var_thresh_percentile` percentile . 
+Genes included in the heatmap are the top 200 high variance genes with significant fold changes identified in a DE analysis of each ligand.  
 
 #### UMAP
 
@@ -761,7 +774,10 @@ Genes included in the heatmap have a variance above the `r var_thresh_percentile
 
 plot_umap(RNAseq, md, ligand_cols = ligand_cols, assay_name = "RNAseq")
 
+
 ```
+
+This UMAP is based on all genes in the RNAseq dataset
 
 #### PCA 
 
@@ -769,7 +785,10 @@ plot_umap(RNAseq, md, ligand_cols = ligand_cols, assay_name = "RNAseq")
 
 plot_pca(RNAseq, md, ligand_cols = ligand_cols, assay_name = "RNAseq")
 
+
 ```
+
+The PCA is based on all genes in the RNAseq dataset
 
 #### Correlation
 
@@ -777,9 +796,10 @@ plot_pca(RNAseq, md, ligand_cols = ligand_cols, assay_name = "RNAseq")
 
 plot_correlation(RNAseq_hi_vars, md, assay_name = "RNAseq",EGF_normed = FALSE)
 
+
 ```
 
-Spearman (rank-based) correlations using all available pairwise data points.  
+Spearman (rank-based) correlations using all available pairwise data points in the hi vars version of the RNAseq dataset.  
 
 ```{r writeOutChea3InputFiles, eval = FALSE}
 
@@ -816,6 +836,7 @@ for(specName in unique(RNAseq_zscores$specimenName)){
     distinct %>%
     write_csv(path = paste0("RNAseq/Data/",specName,"_extreme_genes.txt"), col_names = FALSE)
 }
+
 
 ```
 
@@ -861,7 +882,7 @@ if(!file.exists("RNAseq/Data/ChEA3_TFs.csv")){
 
 ```
 
-```{r plotTFsvsPathways}
+```{r plotTFsvsPathways, eval = FALSE}
 
 TF_pathways <- RPPA_l1_pathways %>%
     gather(specimenID, value, -feature) %>%
@@ -978,7 +999,7 @@ The heatmap shows the spearman correlation values of the top `r var_thresh_perce
 
 ```{r ATACseq_figures, eval = TRUE}
 
-ATACseq <- load_data(assay_name = "ATACseq", level = 2) %>%
+ATACseq <- load_data(assay_name = "ATACseq", level = 3) %>%
   rename(feature = peak)
 
 ATACseq_vars <- ATACseq %>%
