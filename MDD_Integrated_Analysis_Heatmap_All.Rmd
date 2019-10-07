@@ -152,6 +152,10 @@ rrscale_assay <- function(df_long, zscore_cutoff = Inf){
 
 ```{r read_data_and_metadata}
 
+if(file.exists("R/all_pk_data.rda")){
+    load("R/all_pk_data.rda")
+} else {
+  
 md <- read_csv("metadata/MDD_sample_annotations.csv")
 
 #Read in RPPA pathways scores, mean summarise within condition
@@ -355,19 +359,31 @@ TFs_values <- TFs_input %>%
 
 pk_all <- bind_rows(ATACseq_values, ATACseq_motif_values, cycIF_values, GCP_values, hallmark_pathways, IF_values, RNA_values, RPPA_pathways, RPPA_values, TFs_values)
 
+save(pk_all,
+     md,
+     file = "R/all_pk_data.rda") 
+
+}
 ```
 
 
 ```{r prepare_datasets}
-
 ATACseq_variance_probs_thresh <- .995
+ATACseq_motif_variance_probs_thresh <- .5
+GCP_variance_probs_thresh <- 0
+
+RPPA_variance_probs_thresh <- 0
+odds_ratio_thresh <- 5
+
+if(file.exists("R/selected_pk_data.rda")){
+    load("R/selected_pk_data.rda")
+} else {
+  
 ATACseq_selected <- select_features(ATACseq_values, ATACseq_variance_probs_thresh)
 
-ATACseq_motif_variance_probs_thresh <- .5
 ATACseq_motif_selected <- select_features(ATACseq_motif_values, ATACseq_motif_variance_probs_thresh)
 
 # #Select top TFs of each ligand
-odds_ratio_thresh <- 5
 
 TFs_selected_names <- TFs_values %>%
   spread(key = feature, value = value) %>%
@@ -392,11 +408,9 @@ TFs_selected <- TFs_values %>%
   drop_na()
 
 #filter RPPA features on variance
-RPPA_variance_probs_thresh <- 0
 RPPA_selected <- select_features(RPPA_values, RPPA_variance_probs_thresh)
 
 #filter GCP features on variance
-GCP_variance_probs_thresh <- 0
 GCP_selected <- select_features(GCP_values, GCP_variance_probs_thresh)
 
 #use RNAseq genes filterd on variance within each condition
@@ -408,6 +422,20 @@ RNAseq_selected <- RNA_values %>%
   inner_join(RNAseq_variance_genes)
 
 pk_selected <- bind_rows(ATACseq_selected, ATACseq_motif_selected, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected, RPPA_pathways, RPPA_selected, TFs_selected)
+
+save(pk_selected,
+     ATACseq_selected,
+     ATACseq_motif_selected,
+     cycIF_values,
+     GCP_selected,
+     hallmark_pathways,
+     IF_values,
+     RNAseq_selected,
+     RPPA_selected,
+     RPPA_pathways,
+     TFs_selected,
+     file = "R/selected_pk_data.rda")
+}
 
 zscore_cutoff <- Inf
 if(file.exists("R/rrscale_assay.rda")){
@@ -447,13 +475,17 @@ if(file.exists("R/rrscale_assay_all.rda")){
   RPPA_pathways_rr <- rrscale_assay(RPPA_pathways, zscore_cutoff = zscore_cutoff)
   RNAseq_rr <- rrscale_assay(RNA_values, zscore_cutoff = zscore_cutoff)
   TFs_rr <- rrscale_assay(TFs_values, zscore_cutoff = zscore_cutoff)
-  
+
   pk_rr <-  bind_rows(ATACseq_rr, ATACseq_motif_rr, cycIF_values_rr, GCP_rr, hallmark_pathways_rr, IF_values_rr, RNAseq_rr, RPPA_pathways_rr, RPPA_rr, TFs_rr)
   save(pk_rr, file = "R/rrscale_assay_all.rda")
 }
 
 
 ```
+
+## {.tabset .tabset-fade}
+
+### Heatmap
 
 ```{r interactiveHeatmaps, fig.height = 12}
 #####debug delete conditions with NA values
@@ -467,12 +499,18 @@ if(file.exists("R/rrscale_assay_all.rda")){
     scale %>%
     t
   ann_df <- prep_hm_annotations(pk_selected_rr)
-clust_num <- 12
+  
+clust_num <- 14
 cluster_method = "kmeans"
 hm <- get_iheatmap(df_as_matrix, assay_name = "Prior knowledge, rrscale-transformed") %>%
   format_hm(k = clust_num, cluster_method = cluster_method)
 hm
+```
 
+
+### Heatmap w/ callouts 
+
+```{r staticHeatmap}
 #create a second, static heatmap to have larger labels
 y_order <- hm@yaxes@listData[["y"]]@order %>%
   rev()
@@ -499,7 +537,7 @@ shm
 
 
 
-#### Method  
+### Method  
 
 This dataset combines MCF10A Molecular Deep Dive (MDD) RNAseq, Reverse Phase Protein Array(RPPA), Global Chromatin Profiling (GCP) histone modifications, immunofluorescence (IF), cyclic immunofluorescence (cycIF) and ATACseq chromatin configuration data with prior knowledge of signaling pathways, DNA motifs and transcription factors. All data is collected at 0, 24 and 48 hours. Most of the data is median summarized from three replicate experiments run in sequential weeks. It is then rrscale transformed and then zscored by feature.   
 
@@ -544,7 +582,7 @@ There are `r length(unique(hallmark_pathways$feature))` Hallmark pathways in the
 
 ATACseq motifs  
 Read in supplied ATACseq motif values. 
-There are `r length(unique(ATACseq_motif_values$feature))` ATACseq motifs in the heatmap.  
+There are `r length(unique(ATACseq_motif_selected$feature))` ATACseq motifs in the heatmap.  
 
 ChEA3 TF Values  
 There are `r length(unique(TFs_selected$feature))` ChEA3 TFs in the heatmap.    
@@ -568,6 +606,7 @@ p
 
 ```
 
+### rrscale diagnostics
 
 ```{r beforeAfterrr, fig.height=4}
 
@@ -598,6 +637,7 @@ p <- ggplot(df, aes(x = value_rr, fill = Type)) +
 p
 ```
 
+### cluster analysis
 
 ```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
 #implement gap statistic analysis
@@ -646,46 +686,48 @@ Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it t
 
 The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
 
-The first local maximum is k = 11. k = 12 is the first value with a gap value minus its standard error is less than the local maximum.  
+The first local maximum is k = 3 which does not yield informative clusters. The second local maximum is k = `r clust_num-1` and k = `r clust_num` is the first value where the gap value minus its standard error is less than this local maximum.  
 
-```{r correlations}
 
-plot_correlations <- function(df,
-                      ligand_cols = c( "PBS" = "#8dd3c7",
-                                      "HGF" = "#80b1d3",
-                                      "OSM" = "#fdb462",
-                                      "EGF" = "#fb8072",
-                                      "BMP2" = "#b3de69",
-                                      "IFNG" = "#bebada",
-                                      "TGFB" = "#ffd92f"),
-                   ligand_2_cols = c("EGF" = "#ff0000",
-                     "None" = "#00000000")){
-  #calculate correlations across the conditions and show in a heatmap
-df_sp <- df %>%
+<bksp>
+
+<bksp>
+
+###
+
+#### Correlations  
+
+```{r, include=TRUE, fig.align="center", fig.cap=c("Correlation heatmap"), echo=FALSE, eval = FALSE}
+
+knitr::include_graphics("./Correlation_heatmap.pdf")
+
+```
+
+The interactive table below can be used to mine correlation values between the selected features in the columns and the entire set of features. Each of the `r length(unique(pk_rr$feature))` features is represented by a vector of 15 rrscaled values. Spearman correlations are calculated using the all complete observations.  
+
+```{r specificCorrelations}
+df_sp <- pk_rr %>%
   spread(experimentalCondition, value) 
 
-cor_mat <- df_sp %>%
+df_mat <- df_sp %>%
   select_if(is.numeric) %>%
             as.matrix() %>%
             t %>%
-            scale(scale = FALSE) %>%
-            cor(use = "complete.obs",method = "spearman")
-rownames(cor_mat) <- df_sp$feature
-colnames(cor_mat) <- df_sp$feature
-  
-#Create the heatmap
-  hm <- main_heatmap(cor_mat,
-          name = "correlation")
-  
-    hm_clustered <- hm %>%
-           add_row_labels(font = list(size = 4),
-                   side = "right") %>%
-    add_col_labels() %>%
-      add_row_clustering(method = "hclust") %>%
-      add_col_clustering(method = "hclust")
-    return(hm_clustered)
-  }
+            scale(scale = FALSE)
 
-hm_cl <- plot_correlations(pk_selected_rr)
+selected_cor_features <- df_sp %>%
+  filter(str_detect(feature, "Apop|Caspase")) %>%
+  gather(condition, value, -feature, -Type) %>%
+  dplyr::select(-Type) %>%
+  spread(feature, value) %>%
+  select_if(is.numeric) %>%
+  as.matrix()
 
+selectedCor <- cor(df_mat, selected_cor_features, use = "complete.obs",method = "spearman") %>%
+  as_tibble() %>%
+  mutate_if(is.numeric, signif, digits = 3) %>%
+  mutate(feature = df_sp$feature) %>%
+  dplyr::select(feature, everything())
+
+datatable(selectedCor)
 ```
