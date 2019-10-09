@@ -46,6 +46,25 @@ select_features <- function(df, var_quantile = 0){
   return(df_small)
 }
 
+get_TFs <- function(sheet, dir_path, pattern) {
+  #read in and combine MDD TF scores
+TFs_input <- dir(path = dir_path,
+                 pattern = pattern,
+                 full.names = TRUE) %>%
+  map(readxl::read_excel, col_types = c("text"), sheet = sheet, .name_repair = "universal") %>%
+  bind_rows() %>%
+  mutate(Rank = as.numeric(Rank),
+         experimentalTime = str_extract(Query.Name, "[24][48]"),
+         experimentalTime = as.numeric(experimentalTime),
+         ligand = str_remove(Query.Name, "ctrl vs "),
+         ligand = str_remove(ligand, ",.*"),
+         condition = paste0(ligand, "_", experimentalTime),
+         value =(1633-Rank)/1632,
+         feature = TF,
+         Library_only = str_remove(Library, ",.*"),
+         Library_only = str_replace(Library_only, " ", "--"))
+}
+
 #' rrscale a numeric vector
 rrscaleValues <- function(x, zeros = .001, ncores = 4){
   x_rr <- as.matrix(x) %>%
@@ -72,9 +91,10 @@ prep_hm_matrix <- function(df){
   
   condition_order <-  c("ctrl_0",paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), rep(c(24, 48),  times = 14),   sep = "_") )
   
+  condition_order <- condition_order[condition_order %in% df$experimentalCondition]
   df_sp <- df %>%
     dplyr::select(feature, value, experimentalCondition) %>%
-    spread(key = experimentalCondition, value = value) %>%
+    spread(key = experimentalCondition, value = value, fill = median(df$value, na.rm = TRUE)) %>%
     dplyr::select(feature, condition_order)
  #   drop_na()
   
@@ -157,30 +177,33 @@ if(file.exists("R/all_pk_data.rda")){
 } else {
   
 md <- read_csv("metadata/MDD_sample_annotations.csv")
+#Read and and process ATACseq metadata
+ATACseq_metadata <- read_csv("ATACseq/Metadata/MDD_ATACseq_peakMetadata.csv") %>%
+  select(peak, hgnc_symbol, annotation) %>%
+  drop_na() %>%
+  filter(str_detect(annotation, "Promoter|3' UTR|5' UTR|1st Exon")) %>%
+  dplyr::select(-annotation)
 
-#Read in RPPA pathways scores, mean summarise within condition
-RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
-  rename(specimenID = X1) %>%
-  gather(key = feature, value = value, -specimenID) %>%
-  inner_join(md, by = "specimenID") %>%
-  dplyr::select(experimentalCondition, feature, value) %>%
-  pk_preprocess_level3(type =  "RPPA pathway")
-
-#Read in Hallmark pathways that are based on RNAseq data
-hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
-  gather(condition, value, -variable) %>%
-  rename(feature = variable) %>%
-  rename(experimentalCondition = condition) %>%
-  mutate(Type = "Hallmark") %>%
-  pk_preprocess_level3(type =  "Hallmark")
-
-#Read in RPPA values and merge with metadata
-RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
-  mutate(feature = paste0(antibody,"_RPPA")) %>%
-  gather(specimenID, value = value, -feature, -antibody) %>%
+#Read in and process ATACseq values
+ATACseq_values <- read_csv("ATACseq/Data/MDD_ATACseq_Level3.csv") %>%
+  rename(feature = peak) %>%
+  gather(specimenID, value = value, -feature) %>%
   left_join(md, by = "specimenID") %>%
-  mutate(value = 2^value) %>%
-  pk_preprocess_level3(type = "RPPA")
+  inner_join(ATACseq_metadata, by = c("feature" = "peak")) %>%
+    mutate(feature = paste0(hgnc_symbol, "_ATAC")) %>%
+  pk_preprocess_level3(type = "ATACseq") %>%
+  group_by(experimentalCondition, feature, Type) %>%
+  summarise(value = max(value)) %>%
+  ungroup()
+
+#Read in and process ATACseq motif values
+ATACseq_motif_values <- read_csv("ATACseq/Data/MDD_ATACseq_MotifZscores.csv") %>%
+  rename(feature = motif) %>%
+  gather(specimenID, value = value, -feature) %>%
+  left_join(md, by = "specimenID") %>%
+  mutate(feature = str_remove(feature, ".*_"),
+         feature = paste0(feature, "_motif")) %>% 
+  pk_preprocess_level3(type = "ATACseq_motif")
 
 #Read in and process cycIF values
 biomarkers <- c("p21waf1cip1_3_af647cy5_int_mean_nuc",
@@ -268,42 +291,17 @@ GCP_values <- read_csv("GCP/Data/MDD_GCP_Level3.csv") %>%
   left_join(md, by = "specimenID") %>%
   mutate(value = 2^value) %>%
   filter(!feature == "H3K27ac1K36me0") %>%
-  pk_preprocess_level3(type = "GCP")
+  pk_preprocess_level3(type = "GCP") %>%
+  replace( is.na(.), .001)
 
-#Read in RNAseq values
-RNA_values <- read_csv("RNAseq/Data/MDD_RNAseq_med.csv") %>%
-  drop_na() %>%
-  mutate(feature = paste0(feature, "_RNA")) %>%
+#Read in Hallmark pathways that are based on RNAseq data
+hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
+  gather(condition, value, -variable) %>%
+  rename(feature = variable) %>%
   rename(experimentalCondition = condition) %>%
-  pk_preprocess_level3("RNAseq")
+  mutate(Type = "Hallmark") %>%
+  pk_preprocess_level3(type =  "Hallmark")
 
-#Read and and process ATACseq metadata
-ATACseq_metadata <- read_csv("ATACseq/Metadata/MDD_ATACseq_peakMetadata.csv") %>%
-  select(peak, hgnc_symbol, annotation) %>%
-  drop_na() %>%
-  filter(str_detect(annotation, "Promoter|3' UTR|5' UTR|1st Exon")) %>%
-  dplyr::select(-annotation)
-
-#Read in and process ATACseq values
-ATACseq_values <- read_csv("ATACseq/Data/MDD_ATACseq_Level3.csv") %>%
-  rename(feature = peak) %>%
-  gather(specimenID, value = value, -feature) %>%
-  left_join(md, by = "specimenID") %>%
-  inner_join(ATACseq_metadata, by = c("feature" = "peak")) %>%
-    mutate(feature = paste0(hgnc_symbol, "_ATAC")) %>%
-  pk_preprocess_level3(type = "ATACseq") %>%
-  group_by(experimentalCondition, feature, Type) %>%
-  summarise(value = max(value)) %>%
-  ungroup()
-
-#Read in and process ATACseq motif values
-ATACseq_motif_values <- read_csv("ATACseq/Data/MDD_ATACseq_MotifZscores.csv") %>%
-  rename(feature = motif) %>%
-  gather(specimenID, value = value, -feature) %>%
-  left_join(md, by = "specimenID") %>%
-  mutate(feature = str_remove(feature, ".*_"),
-         feature = paste0(feature, "_motif")) %>% 
-  pk_preprocess_level3(type = "ATACseq_motif")
 #Read in and process IF values
 IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
   select(-ImageNumber, -barcode, -WellIndex, -collection, -ligand) %>%
@@ -313,29 +311,34 @@ IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
   filter(!feature =="AreaShape_EulerNumber",
          !str_detect(feature,"CellMask")) %>%
   pk_preprocess_level3(type = "IF") %>%
-  drop_na() %>%
+replace( is.na(.), 1) %>%
   group_by(experimentalCondition, feature, Type) %>%
   summarise(value = median(value, na.rm = TRUE)) %>%
   ungroup()
 
-get_TFs <- function(sheet, dir_path, pattern) {
-  #read in and combine MDD TF scores
-TFs_input <- dir(path = dir_path,
-                 pattern = pattern,
-                 full.names = TRUE) %>%
-  map(readxl::read_excel, col_types = c("text"), sheet = sheet, .name_repair = "universal") %>%
-  bind_rows() %>%
-  mutate(Rank = as.numeric(Rank),
-         experimentalTime = str_extract(Query.Name, "[24][48]"),
-         experimentalTime = as.numeric(experimentalTime),
-         ligand = str_remove(Query.Name, "ctrl vs "),
-         ligand = str_remove(ligand, ",.*"),
-         condition = paste0(ligand, "_", experimentalTime),
-         value =(1633-Rank)/1632,
-         feature = TF,
-         Library_only = str_remove(Library, ",.*"),
-         Library_only = str_replace(Library_only, " ", "--"))
-}
+#Read in RNAseq values
+RNA_values <- read_csv("RNAseq/Data/MDD_RNAseq_med.csv") %>%
+  drop_na() %>%
+  mutate(feature = paste0(feature, "_RNA")) %>%
+  rename(experimentalCondition = condition) %>%
+  pk_preprocess_level3("RNAseq")
+
+#Read in RPPA pathways scores, mean summarise within condition
+RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
+  rename(specimenID = X1) %>%
+  gather(key = feature, value = value, -specimenID) %>%
+  inner_join(md, by = "specimenID") %>%
+  dplyr::select(experimentalCondition, feature, value) %>%
+  pk_preprocess_level3(type =  "RPPA pathway")
+
+#Read in RPPA values and merge with metadata
+RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
+  mutate(feature = paste0(antibody,"_RPPA")) %>%
+  gather(specimenID, value = value, -feature, -antibody) %>%
+  left_join(md, by = "specimenID") %>%
+  mutate(value = 2^value) %>%
+  pk_preprocess_level3(type = "RPPA")
+
 
 TFs <- get_TFs(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
 TFs_details <- map(2:7, get_TFs, dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
@@ -363,6 +366,8 @@ save(pk_all,
      md,
      file = "R/all_pk_data.rda") 
 
+# phenotypes <- read_csv("cycIF/Data/MDD_cycIF_Level4.csv") %>%
+#   filter(str_detect(feature, "neighbor"))
 }
 ```
 
@@ -485,32 +490,58 @@ if(file.exists("R/rrscale_assay_all.rda")){
 
 ## {.tabset .tabset-fade}
 
-### Heatmap
+### heatmap
 
-```{r interactiveHeatmaps, fig.height = 12}
-#####debug delete conditions with NA values
+```{r interactiveHeatmaps, fig.height = 8}
 
-###
-  df_as_matrix <-  prep_hm_matrix(pk_selected_rr) %>%
-    t %>%
-  as.data.frame() %>%
-  drop_na() %>%
+
+
+df_as_matrix <-  prep_hm_matrix(pk_selected_rr) %>%
+  t %>%
   as.matrix() %>%
-    scale %>%
-    t
-  ann_df <- prep_hm_annotations(pk_selected_rr)
-  
-clust_num <- 14
+  scale %>%
+  t
+ann_df <- prep_hm_annotations(pk_selected_rr)
+
+#prep column anotation
+phenotypes <- IF_values %>%
+  filter(str_detect(feature,"Number|Fourth")) %>%
+  spread(feature, value) %>%
+  mutate(experimentalCondition = factor(experimentalCondition, levels = colnames(df_as_matrix),ordered = TRUE)) %>%
+  arrange(experimentalCondition) %>%
+  select(matches("Neighbor|cluster"))
+
+clust_num <- 11
 cluster_method = "kmeans"
 hm <- get_iheatmap(df_as_matrix, assay_name = "Prior knowledge, rrscale-transformed") %>%
-  format_hm(k = clust_num, cluster_method = cluster_method)
+  format_hm(k = clust_num, cluster_method = cluster_method) %>%
+  add_col_annotation(annotation = phenotypes, side = "top")
 hm
+
+# side_anots <-  prep_hm_matrix(pk_selected_rr) %>%
+#   #replace( is.na(.), 0) %>%
+#   t %>%
+#   scale %>%
+#   t %>%
+#   as.data.frame %>%
+#   dplyr::select(  PBS_48, PBS_24, ctrl_0)
+# 
+# score_pal <- colorRampPalette(hm@colorbars@listData$score@colors, interpolate = "spline")(10)
+# hm_pbs <- add_row_annotation(hm,
+#                              side_anots,
+#                              side = "left",
+#                              colors = list(ctrl_0 = score_pal, PBS_24 = score_pal, PBS_48 = score_pal),
+#                              size = .07,
+#                              inner_buffer = 0)
+# hm_pbs
+#   
 ```
 
 
-### Heatmap w/ callouts 
 
-```{r staticHeatmap}
+### heatmap with callouts 
+
+```{r staticHeatmap, fig.width=14}
 #create a second, static heatmap to have larger labels
 y_order <- hm@yaxes@listData[["y"]]@order %>%
   rev()
@@ -536,8 +567,65 @@ shm
 ```
 
 
+### heatmap no ctrl/PBS
 
-### Method  
+```{r interactiveHeatmapsnoPBS, fig.height = 8}
+
+df_no_ctrl_PBS <- prep_hm_matrix(pk_selected_rr) %>%
+  t %>%
+  as.data.frame() %>%
+    rownames_to_column(var = "experimentalCondition") %>%
+    filter(!experimentalCondition %in% c("ctrl_0", "PBS_24", "PBS_48")) 
+
+df_as_matrix <- df_no_ctrl_PBS %>%
+  dplyr::select(-experimentalCondition) %>%
+  # drop_na() %>%
+  as.matrix() %>%
+  scale %>%
+  t
+colnames(df_as_matrix) <- df_no_ctrl_PBS$experimentalCondition
+
+ann_df <-  pk_selected_rr %>%
+  filter(!experimentalCondition %in% c("ctrl_0", "PBS_24", "PBS_48")) %>%
+ prep_hm_annotations()
+
+clust_num <- 13
+cluster_method = "kmeans"
+hm <- get_iheatmap(df_as_matrix, assay_name = "Prior knowledge, rrscale-transformed") %>%
+  format_hm(k = clust_num, cluster_method = cluster_method)
+hm
+
+```
+
+### heatmap no ctrl/PBS with callouts 
+
+```{r staticHeatmapnoCtrlPBS, fig.width=14}
+#create a second, static heatmap to have larger labels
+y_order <- hm@yaxes@listData[["y"]]@order %>%
+  rev()
+
+row_nums <- which(rownames(df_as_matrix) %in% c(hallmark_pathways$feature, RPPA_pathways$feature))
+ra <- rowAnnotation(foo = anno_mark(at = c(row_nums), labels = rownames(df_as_matrix)[row_nums]))
+#Create the heatmap
+shm <- Heatmap(matrix = df_as_matrix,
+               name = "",
+               #         column_title = paste0("Correlation of ",assay_name, title_suffix),
+               #         top_annotation = create_top_annotations(df, md),
+               #         left_annotation = haRow,
+               right_annotation = ra,
+               show_row_names = FALSE,
+               row_order = y_order,
+               show_column_names = TRUE,
+               cluster_rows = FALSE,
+               cluster_columns = FALSE,
+               #col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+               na_col = "grey")
+shm
+
+```
+
+
+### method  
 
 This dataset combines MCF10A Molecular Deep Dive (MDD) RNAseq, Reverse Phase Protein Array(RPPA), Global Chromatin Profiling (GCP) histone modifications, immunofluorescence (IF), cyclic immunofluorescence (cycIF) and ATACseq chromatin configuration data with prior knowledge of signaling pathways, DNA motifs and transcription factors. All data is collected at 0, 24 and 48 hours. Most of the data is median summarized from three replicate experiments run in sequential weeks. It is then rrscale transformed and then zscored by feature.   
 
@@ -642,7 +730,6 @@ p
 ```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
 #implement gap statistic analysis
 
-
 hafun <- function(x, k){
     hm <- get_iheatmap(x, assay_name = "Prior knowledge, rrscale-transformed") %>%
   format_hm(k = k, cluster_method = cluster_method)
@@ -686,7 +773,7 @@ Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it t
 
 The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
 
-The first local maximum is k = 3 which does not yield informative clusters. The second local maximum is k = `r clust_num-1` and k = `r clust_num` is the first value where the gap value minus its standard error is less than this local maximum.  
+The first local maximum is k = 3 which does not yield informative clusters. The second local maximum is k = 11 and then k = `r clust_num-1`. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value minus its standard error is less than this local maximum at `r clust_num-1`.  
 
 
 <bksp>
@@ -703,7 +790,7 @@ knitr::include_graphics("./Correlation_heatmap.pdf")
 
 ```
 
-The interactive table below can be used to mine correlation values between the selected features in the columns and the entire set of features. Each of the `r length(unique(pk_rr$feature))` features is represented by a vector of 15 rrscaled values. Spearman correlations are calculated using the all complete observations.  
+The interactive table below can be used to mine correlation values between the selected features in the columns and the entire set of features. Each of the `r length(unique(pk_rr$feature))` features is represented by a vector of 15 rrscaled values. Spearman correlations are calculated using all complete observations.  
 
 ```{r specificCorrelations}
 df_sp <- pk_rr %>%
