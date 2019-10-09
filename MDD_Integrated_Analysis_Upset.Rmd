@@ -9,7 +9,7 @@ output: html_document
 #do cluster analysis to set cluster number
 #fix Type colors and use in bar chart
 
-knitr::opts_chunk$set(echo = FALSE, cache=TRUE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=6, fig.width=12)
 
 suppressMessages(library(tidyverse))
 library(UpSetR)
@@ -48,93 +48,6 @@ cor_df_all <- cor_mat %>%
 ## {.tabset .tabset-fade}
 
 
-
-
-### Condition Values{.tabset .tabset-fade}
-
-#### Up/down
-
-```{r ligandSets}
-
-zscore_thresh <- 1
-
-# define members of ligad sets as having any reading above a threshold
-#then do upset analysis on those ligand sets
-set_membership <- function(x, zscore_thresh = 1.5){
-  res <- numeric(length(x))
-  res[abs(x) > zscore_thresh] <- 1
-  return(res)
-}
-df <- pk_selected_rr %>%
-  mutate(value = set_membership(value, zscore_thresh = zscore_thresh)) %>%
-  spread(experimentalCondition, value, fill = 0)  %>%
-  as.data.frame()
-  
-
-upset(df, nsets = 15, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
-    mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
-    text.scale = c(1.3, 1.3, 1, 1, 1, 0.75))
-
-```
-
-
-Features are a member of a condition set if the rrscale absolute value is greater than `r zscore_thresh`.  
-
-#### Up
-
-
-```{r ligandSets_up}
-
-# define members of ligad sets as having any reading above a threshold
-#then do upset analysis on those ligand sets
-set_membership_up <- function(x, zscore_thresh = 1.5){
-  res <- numeric(length(x))
-  res[x > zscore_thresh] <- 1
-  return(res)
-}
-df <- pk_selected_rr %>%
-  mutate(value = set_membership_up(value, zscore_thresh = zscore_thresh)) %>%
-  spread(experimentalCondition, value, fill = 0)  %>%
-  as.data.frame()
-  
-
-upset(df, nsets = 15, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
-    mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
-    text.scale = c(1.3, 1.3, 1, 1, 1, 0.75))
-
-```
-
-Features are a member of a condition set if the rrscale value is greater than `r zscore_thresh`.  
-
-#### Down
-
-
-```{r ligandSets_down}
-
-# define members of ligad sets as having any reading below a threshold
-#then do upset analysis on those ligand sets
-set_membership_down <- function(x, zscore_thresh = 1.5){
-  res <- numeric(length(x))
-  res[x < -zscore_thresh] <- 1
-  return(res)
-}
-df <- pk_selected_rr %>%
-  mutate(value = set_membership_down(value, zscore_thresh = zscore_thresh)) %>%
-  spread(experimentalCondition, value, fill = 0)  %>%
-  as.data.frame()
-  
-
-upset(df, nsets = 15, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
-    mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
-    text.scale = c(1.3, 1.3, 1, 1, 1, 0.75))
-
-
-```
-
-Features are a member of a condition set if the rrscale value is less than -`r zscore_thresh`.
-
-###  
-
 ### RPPA_24 Values{.tabset .tabset-fade}
 
 #### Up/Down
@@ -143,22 +56,53 @@ Features are a member of a condition set if the rrscale value is less than -`r z
 ```{r RPPA_24HligandSets_updown}
 
 zscore_thresh <- 1
+cor_thresh <- 0.7
 
 # define members of ligand sets as having any reading above a threshold
 #then do upset analysis on those ligand sets
 set_membership <- function(x, zscore_thresh = 1.5){
   res <- numeric(length(x))
-  res[abs(x) > zscore_thresh] <- 1
+  res[x > zscore_thresh] <- 1
+  res[x < -zscore_thresh] <- -1
   return(res)
 }
+
 df <- pk_selected_rr %>%
   filter(Type == "RPPA") %>%
   filter(str_detect(experimentalCondition, "_24")) %>%
-  mutate(value = set_membership(value, zscore_thresh = zscore_thresh)) %>%
-  spread(experimentalCondition, value, fill = 0)  %>%
+  mutate(direction = set_membership(value, zscore_thresh = zscore_thresh),
+         experimentalCondition = factor(experimentalCondition, levels = c("PBS_24", "IFNG_24", "TGFB_24", "OSM_24", "HGF_24", "EGF_24", "BMP2_24"), ordered = TRUE)) %>%
+  filter(!direction == 0)
+
+p <- ggplot(df, aes(x = experimentalCondition, fill = factor(direction))) +
+  scale_fill_brewer(type = "qual") +
+  geom_bar() + 
+  labs(fill = "Direction",
+       x = "Condition",
+       y = ("Number of features in the set")) +
+  theme_bw()
+p
+
+df <- pk_selected_rr %>%
+  filter(Type == "RPPA") %>%
+  filter(str_detect(experimentalCondition, "_24")) %>%
+  mutate(direction = set_membership(value, zscore_thresh = zscore_thresh)) %>%
+  select(-value) %>%
+  group_by(feature) %>%
+  mutate(nbr = sum(!direction==0)) %>%
+  ungroup() %>%
+  spread(experimentalCondition, direction, fill = 0) %>%
   as.data.frame()
   
-
+df <- pk_selected_rr %>%
+  filter(Type == "RPPA") %>%
+  filter(str_detect(experimentalCondition, "_24")) %>%
+  mutate(direction = set_membership(value, zscore_thresh = zscore_thresh),
+         direction = abs(direction)) %>%
+    select(-value) %>%
+  spread(experimentalCondition, direction, fill = 0)  %>%
+  as.data.frame()
+  
 upset(df, nsets = 15, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
     mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
     text.scale = c(1.3, 1.3, 1, 1, 1, 0.75))
@@ -228,64 +172,6 @@ Features are a member of a condition set in the RPPA 24 hour data if the value i
 ###
 
 ### Correlations{.tabset .tabset-fade}
-
-
-#### RPPA Pathways
-
-```{r upsetPlots}
-cor_thresh <- .7
-
-#define sets as the RPPA pathways
-RPPA_pathways <- pk_selected_rr %>%
-  filter(str_detect(feature, "Pathway_Score")) %>%
-  select(feature) %>%
-  distinct
-
-#get the features with high correlations to the RPPA pathways
-df <- cor_df_all %>%
-  right_join(RPPA_pathways) %>%
-  filter(value > cor_thresh) %>%
-  mutate(value = 1L,
-         Type = str_remove(feature2, ".*_")) %>%
-  spread(key = feature, value = value, fill = 0L) %>%
-  as.data.frame()
-  
-upset(df, nsets = 9, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
-    mainbar.y.label = "RPPA Pathway Intersections", sets.x.label = "Features Per Pathway", 
-    text.scale = c(1.3, 1.3, 1, 1, 2, 0.75))
-```
-
-
-Features are a member of a condition set when the Spearman correlation rho value to an RPPA pathway is greater than `r cor_thresh`.  
-
-
-#### RNA Hallmarks
-
-```{r}
-
-#define sets as the RNA hallmarks
-RNA_hallmarks <- pk_selected_rr %>%
-  filter(str_detect(Type, "Hallmark")) %>%
-  select(feature) %>%
-  distinct
-
-#get the features with high correlations to the RPPA pathways
-df <- cor_df_all %>%
-  right_join(RNA_hallmarks) %>%
-  filter(value > cor_thresh) %>%
-  mutate(value = 1L,
-         Type = str_remove(feature2, ".*_")) %>%
-  spread(key = feature, value = value, fill = 0L) %>%
-  as.data.frame()
-  
-
-upset(df, nsets = 20, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
-    mainbar.y.label = "RNAseq Hallmark Intersections", sets.x.label = "Features Per Hallmark", 
-    text.scale = c(1.3, 1.3, 1, 1, 1, 0.75))
-```
-
-
-Features are a member of a condition set when the Spearman correlation rho value to an RNA Hallmark is greater than `r cor_thresh`.  
 
 
 #### Correlation Table
