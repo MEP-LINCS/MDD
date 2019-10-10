@@ -80,20 +80,10 @@ p <- ggplot(df, aes(x = experimentalCondition, fill = factor(direction))) +
   labs(fill = "Direction",
        x = "Condition",
        y = ("Number of features in the set")) +
-  theme_bw()
+  theme_bw() +
+  coord_flip()
 p
 
-df <- pk_selected_rr %>%
-  filter(Type == "RPPA") %>%
-  filter(str_detect(experimentalCondition, "_24")) %>%
-  mutate(direction = set_membership(value, zscore_thresh = zscore_thresh)) %>%
-  select(-value) %>%
-  group_by(feature) %>%
-  mutate(nbr = sum(!direction==0)) %>%
-  ungroup() %>%
-  spread(experimentalCondition, direction, fill = 0) %>%
-  as.data.frame()
-  
 df <- pk_selected_rr %>%
   filter(Type == "RPPA") %>%
   filter(str_detect(experimentalCondition, "_24")) %>%
@@ -103,10 +93,11 @@ df <- pk_selected_rr %>%
   spread(experimentalCondition, direction, fill = 0)  %>%
   as.data.frame()
   
-upset(df, nsets = 15, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
+upset(df, nsets = 20, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
     mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
     text.scale = c(1.3, 1.3, 1, 1, 1, 0.75))
 
+datatable(df)
 ```
 
 
@@ -136,6 +127,7 @@ upset(df, nsets = 15, number.angles = 30, point.size = 3.5, line.size = 2, ninte
     mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
     text.scale = c(1.3, 1.3, 1, 1, 1, 0.75))
 
+datatable(df)
 ```
 
 Features are a member of a condition set in the RPPA 24 hour data if the value is greater than `r zscore_thresh`.  
@@ -148,7 +140,7 @@ Features are a member of a condition set in the RPPA 24 hour data if the value i
 #then do upset analysis on those ligand sets
 set_membership_down <- function(x, zscore_thresh = 1.5){
   res <- numeric(length(x))
-  res[x < zscore_thresh] <- 1
+  res[x < -zscore_thresh] <- 1
   return(res)
 }
 df <- pk_selected_rr %>%
@@ -158,11 +150,11 @@ df <- pk_selected_rr %>%
   spread(experimentalCondition, value, fill = 0)  %>%
   as.data.frame()
   
-
-upset(df, nsets = 15, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
+upset(df, nsets = 20, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
     mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
     text.scale = c(1.3, 1.3, 1, 1, 1, 0.75))
 
+datatable(df)
 ```
 
 
