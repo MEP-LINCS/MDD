@@ -106,7 +106,7 @@ plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh =
           strip.text = element_text(size=8, hjust=0),
             panel.background = element_rect(fill = NA),
   panel.grid.major = element_line(colour = "gray95"))+
-    facet_wrap(~feature, ncol = 10,scales = "free_y")
+    facet_wrap(~feature, ncol = 3,scales = "free_y")
   p
   
   }
@@ -131,7 +131,7 @@ md <- read_csv("metadata/MDD_sample_annotations.csv")
 ```
 
 
-```{r rppa_figures, fig.height=3}
+```{r rppa_figures, fig.height=6}
 
 df <- load_data(assay_name = "RPPA", level = 3) %>%
   rename(feature = antibody) %>%
@@ -140,7 +140,7 @@ df <- load_data(assay_name = "RPPA", level = 3) %>%
   mutate(value = value - median(value, na.rm = TRUE)) %>%
   ungroup() %>%
     spread(key = specimenID, value = value) %>%
-  filter( feature %in% c("HER2_pY1248", "pMET", "Stat3_pY705", "IRF-1", "PAI-1", "S6_pS240_S244"))
+  filter( feature %in% c("HER2_pY1248", "P-Met_pY1234_Y1235", "Stat3_pY705", "IRF-1", "PAI-1", "S6_pS240_S244"))
 
 fc_thresh = 0
 
@@ -148,7 +148,7 @@ p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_
 
 p
 
-pdf(file = "MDD_RPPA_linegraphs.pdf", height =2)
+pdf(file = "MDD_RPPA_linegraphs.pdf", height =4)
 p
 dev.off()
 
