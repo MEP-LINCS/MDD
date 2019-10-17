@@ -63,18 +63,20 @@ get_iheatmap <- function(df_as_matrix, ...) {
   hm <- main_heatmap(data = df_as_matrix,
                      name = "score")
 }
-format_hm <- function(hm, k = 6, cluster_method = "hclust",...){
+format_hm <- function(hm, k = 6, cluster_method = "hclust", ...){
   hm_mod<- hm %>%
     add_col_labels() %>%
     add_row_annotation(ann_df,
                        side = "left",
-                       size = 0.05)  %>%
+                       size = 0.05,
+                       colors = list(Type = "Paired"))  %>%
     modify_layout(list(margin = list(r = 120)))
   if(!k==0){
     hm_mod <- hm_mod %>%
       add_row_clustering(name = paste0("Cluster(",cluster_method,")"),
                          k = k,
                          method = cluster_method,
+                         colors = cluster_cols
       ) 
   }
   return(hm_mod)
@@ -82,13 +84,6 @@ format_hm <- function(hm, k = 6, cluster_method = "hclust",...){
 
 ```
 
-
-```{r read_data_and_metadata}
-
-# if(file.exists("R/all_pk_data.rda")){
-#     load("R/all_pk_data.rda")
-# }
-```
 
 
 ```{r prepare_datasets}
@@ -99,6 +94,9 @@ GCP_variance_probs_thresh <- 0
 RPPA_variance_probs_thresh <- 0
 odds_ratio_thresh <- 5
 
+clust_num <- 11
+cluster_method = "kmeans"
+
 if(file.exists("R/selected_pk_data.rda")){
     load("R/selected_pk_data.rda")
 }
@@ -108,7 +106,13 @@ if(file.exists("R/rrscale_assay.rda")){
   load("R/rrscale_assay.rda")
 } 
 
+```
 
+```{r setupColors}
+#setup for common cluster colors used in heatmap and ggplot
+cluster_cols <- RColorBrewer::brewer.pal(clust_num, "Paired")
+assay_cols <- RColorBrewer::brewer.pal(length(unique(pk_selected_rr$Type)), "Paired")
+names(assay_cols) <- unique(pk_selected_rr$Type)
 ```
 
 ## {.tabset .tabset-fade}
@@ -126,11 +130,9 @@ df_as_matrix <-  prep_hm_matrix(pk_selected_rr) %>%
 
 ann_df <- prep_hm_annotations(pk_selected_rr)
 
-clust_num <- 11
-cluster_method = "kmeans"
 set.seed(42)
 hm <- get_iheatmap(df_as_matrix, assay_name = "Prior knowledge, rrscale-transformed") %>%
-  format_hm(k = clust_num, cluster_method = cluster_method) 
+  format_hm(k = clust_num, cluster_method = cluster_method, cluster_cols = cluster_cols, assay_cols = assay_cols) 
 hm
 
 hm_data <- tibble(feature = names(hm@plots@listData$`Cluster(kmeans)`@data),
@@ -145,7 +147,9 @@ pk_selected_rr_sp <- df_as_matrix %>%
 ```
 
 
+### 
 
+### heatmap with callouts
 
 ```{r staticHeatmap, fig.width=14, eval = TRUE}
 #create a second, static heatmap to have larger labels
@@ -172,7 +176,9 @@ shm
 
 ```
 
-## UMAP
+###
+
+### UMAPs
 
 ```{r UMAPAnalysis, fig.width=5.75, fig.height=4.75}
 
@@ -195,8 +201,10 @@ p <- ggplot(df_UMAP, aes(x = UMAP_1,
                          y = UMAP_2,
                          colour = factor(Cluster))) +
   geom_point(size = .8, alpha = .8) +
+  scale_color_manual(values = cluster_cols) +
   labs(title = paste("UMAP embedding colored by cluster"),
        colour = "Cluster") +
+    guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
   theme_bw() +
   theme(axis.title = element_blank())
 p
@@ -208,21 +216,54 @@ p <- ggplot(df_UMAP, aes(x = UMAP_1,
                          y = UMAP_2,
                          colour = factor(Type))) +
   geom_point(size = .8, alpha = .8) +
+  scale_colour_brewer(palette = "Paired")+
   labs(title = paste("UMAP embedding colored by assay"),
        colour = "Assay") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
   theme_bw() +
   theme(axis.title = element_blank())
 p
+
+```
+
+```{r highlightAssay, fig.width=2.5, fig.height=2.5}
+
+for(assay in unique(pk_selected_rr$Type)){
+  regex_pat <- paste0("^",assay,"$")
+  df <- df_UMAP %>%
+    mutate(Highlight = str_extract(Type, regex_pat),
+           Highlight = str_replace_na(Highlight),
+           Highlight = str_replace(Highlight, "^NA$", ".1"),
+           Highlight = str_replace(Highlight, assay, "3"),
+           Highlight = as.numeric(Highlight))
+  p <- ggplot(df, aes(x = UMAP_1,
+                      y = UMAP_2,
+                      colour = factor(Highlight),
+                      size = Highlight)) +
+    geom_point(alpha = .6) +
+    annotate("text",x = -5, y = -6, label = assay)+
+    scale_color_manual(values=c("grey", "slateblue1"))+
+    scale_size_area(limits = c(0, 30)) +
+    labs()+
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme_bw()+
+    theme(text = element_text(size = 1),
+          axis.title = element_blank())
+  print(p)
+}
+
 ```
 
 ```{r UMAPbyCondition, fig.width=2.5, fig.height=2.5}
+
 for(condition in unique(pk_selected_rr$experimentalCondition)){
   p <- ggplot(df_UMAP, aes_string(x = "UMAP_1",
                          y = "UMAP_2",
                          colour = condition)) +
-  geom_point(size = .4) +
+  geom_point(size = .4, alpha = .6) +
     annotate("text",x = -5, y = -6, label = condition)+
-  scale_color_gradient2(low = "blue4", mid = "white",
+  scale_color_gradient2(low = "blue4", mid = "azure",
   high = "red", midpoint = 0,) +
   labs()+
     guides(colour = FALSE)+
@@ -232,6 +273,54 @@ for(condition in unique(pk_selected_rr$experimentalCondition)){
 print(p)
 }
 
+```
+
+###
+
+### All features cluster table
+ 
+```{r clusterTable}
+pk_selected_rr_sp %>%
+  select(feature, Cluster, Type) %>%
+  datatable(caption = 'All features cluster assignments')
+
+```
+
+```{r clusterAnalysis, fig.width=6.5, fig.height=4.5}
+
+#create a bar chart of the feature types
+df <- pk_selected_rr_sp %>%
+  select(Cluster, Type)
+
+p <- ggplot(df, aes(x = Cluster, fill = factor(Type))) +
+  geom_bar() +
+    scale_fill_brewer(palette = "Paired")+
+  labs(title = paste("Type distribution of the",dim(df)[1], "features by cluster"),
+       x ="Cluster",
+       fill = "Assay") +
+  theme_bw()
+p
+
+p <- ggplot(df, aes(x = Type, fill = factor(Cluster))) +
+  geom_bar() +
+    scale_fill_brewer(palette = "Paired")+
+  labs(title = paste("Cluster membership of the assays"),
+       x ="Assay",
+       y = "Feature count",
+       fill = "Cluster") +
+  theme_bw() +
+    theme(axis.text.x = element_text(angle = 90))
+p
+
+
+```
+
+###
+
+### Pathway cluster table
+
+```{r HMRKRPPAclusterTables}
+
 pk_selected_rr_sp %>%
   filter(Type %in% c("Hallmark", "RPPA pathway")) %>%
   select(feature, Cluster, Type) %>%
@@ -239,13 +328,16 @@ pk_selected_rr_sp %>%
 
 ```
 
-```{r clusterAnalysis, fig.width=6.5, fig.height=4.5}
+```{r clusterAnalysisPathways, fig.width=6.5, fig.height=4.5}
+
 #create a bar chart of the feature types
 df <- pk_selected_rr_sp %>%
+    filter(Type %in% c("Hallmark", "RPPA pathway")) %>%
   select(Cluster, Type)
 
-p <- ggplot(df, aes(x = Cluster, fill = Type)) +
+p <- ggplot(df, aes(x = Cluster, fill = factor(Type))) +
   geom_bar() +
+    scale_fill_brewer(palette = "Paired")+
   labs(title = paste("Type distribution of the",dim(df)[1], "features by cluster"),
        x ="Cluster") +
   theme_bw()
@@ -254,6 +346,9 @@ p
 ```
 
 
+ 
+### 
+ 
 ### method  
 
 This dataset combines MCF10A Molecular Deep Dive (MDD) RNAseq, Reverse Phase Protein Array(RPPA), Global Chromatin Profiling (GCP) histone modifications, immunofluorescence (IF), cyclic immunofluorescence (cycIF) and ATACseq chromatin configuration data with prior knowledge of signaling pathways, DNA motifs and transcription factors. All data is collected at 0, 24 and 48 hours. Most of the data is median summarized from three replicate experiments run in sequential weeks. It is then rrscale transformed and then zscored by feature.   
@@ -316,6 +411,7 @@ df <- pk_selected_rr %>%
   distinct()
 p <- ggplot(df, aes(x = Type, fill = Type)) +
   geom_bar() +
+    scale_fill_brewer(palette = "Paired")+
   labs(title = paste("Type distribution of the",length(unique(df$feature)), "features in the MDD integrated dataset"),
        x ="Feature type") +
   theme(axis.text = element_text(angle = 90))
