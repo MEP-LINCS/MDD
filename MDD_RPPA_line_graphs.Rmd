@@ -7,6 +7,7 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
 
 suppressMessages(library(tidyverse))
+library(plotly)
 
 
 ```
@@ -133,12 +134,14 @@ md <- read_csv("metadata/MDD_sample_annotations.csv")
 
 ```{r rppa_figures, fig.height=6}
 
-df <- load_data(assay_name = "RPPA", level = 3) %>%
+RPPA_l3 <- load_data(assay_name = "RPPA", level = 3) %>%
   rename(feature = antibody) %>%
   gather(key = specimenID, value = value, -feature) %>%
   group_by(feature) %>%
   mutate(value = value - median(value, na.rm = TRUE)) %>%
-  ungroup() %>%
+  ungroup() 
+
+df <- RPPA_l3 %>%
     spread(key = specimenID, value = value) %>%
   filter( feature %in% c("HER2_pY1248", "P-Met_pY1234_Y1235", "Stat3_pY705", "IRF-1", "PAI-1", "S6_pS240_S244"))
 
@@ -148,9 +151,46 @@ p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_
 
 p
 
-pdf(file = "MDD_RPPA_linegraphs.pdf", height =4)
-p
-dev.off()
+# pdf(file = "MDD_RPPA_linegraphs.pdf", height =4)
+# p
+# dev.off()
+
+```
+
+```{r IFNG24v48, fig.width= 8, fig.height=5}
+RPPA_pathways <- read_tsv(file = "RPPA/Data/Pathway_Scores_MDD.txt")
+
+df <- RPPA_l3 %>%
+  # spread(specimenID, value) %>%
+  #   prep_data(md = md) %>%
+  #  # gather("specimenName", "value", -feature) %>%
+    inner_join(md, by = "specimenID") %>%
+    dplyr::select(specimenName,ligand, secondLigand, experimentalTimePoint, replicate,  feature, value) %>%
+  filter(experimentalTimePoint %in% c(24,48),
+         ligand == "IFNG") %>%
+    rename(Time = experimentalTimePoint,
+           Ligand = ligand,
+           Ligand2 = secondLigand,
+           Replicate = replicate) %>%
+  mutate(Time = paste0("Time_",Time)) %>%
+    group_by(feature, Time, Ligand) %>%
+    summarise(value = median(value)) %>%
+    ungroup() %>%
+  spread(Time, value) %>% 
+  left_join(RPPA_pathways, by = c("feature" = "Predictor"))
+
+df_callout <- df %>%
+  drop_na()
+
+p <- ggplot(df, aes(x = Time_24, y = Time_48, colour = Pathway, label = feature)) +
+  geom_point(colour = "lightgray", alpha = .8) +
+  geom_point(data = df_callout) +
+  geom_abline(a = c(-1, -1), b = c(2,2))+
+  labs(title = "Comparison of the RPPA IFNG 24 and 48 hour responses",
+       x = "24 hours",
+       y = "48 hours") +
+  theme_bw()
+ggplotly(p)
 
 ```
 
