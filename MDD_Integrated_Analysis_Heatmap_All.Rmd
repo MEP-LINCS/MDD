@@ -723,6 +723,27 @@ p <- ggplot(df, aes(x = value_rr, fill = Type)) +
   facet_wrap(~feature, scales = "free", ncol = 10) +
   theme(strip.text.x = element_text(size = 4))
 p
+
+winsorizeValues <- function(x, limits = c(-4, 4)){
+  x[x<limits[1]] <- limits[1]
+  x[x > limits[2]] <- limits[2]
+  return(x)
+}
+
+df <- pk_selected_rr %>%
+  mutate(value = winsorizeValues(value))
+
+
+p <- ggplot(pk_selected_rr, aes(x = value, colour = Type)) +
+  geom_density(alpha = .2)+ facet_wrap(~Type, scales = "free") +
+  labs(title = "rrscale densities")
+p
+
+p <- ggplot(df, aes(x = value, colour = Type)) +
+  geom_density(alpha = .2)+ facet_wrap(~Type, scales = "free") +
+  labs(title = "Winsorized rrscale densities")
+p
+
 ```
 
 ### cluster analysis
