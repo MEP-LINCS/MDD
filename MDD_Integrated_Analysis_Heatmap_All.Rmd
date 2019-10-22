@@ -505,11 +505,11 @@ ann_df <- prep_hm_annotations(pk_selected_rr)
 
 #prep column anotation
 phenotypes <- IF_values %>%
-  filter(str_detect(feature,"Number|Fourth")) %>%
+  filter(str_detect(feature,"Number|Fourth|Cell_Count")) %>%
   spread(feature, value) %>%
   mutate(experimentalCondition = factor(experimentalCondition, levels = colnames(df_as_matrix),ordered = TRUE)) %>%
   arrange(experimentalCondition) %>%
-  select(matches("Neighbor|cluster"))
+  select(matches("Neighbor|cluster|Cell_Count"))
 
 clust_num <- 11
 cluster_method = "kmeans"
