@@ -82,6 +82,13 @@ format_hm <- function(hm, k = 6, cluster_method = "hclust", ...){
   return(hm_mod)
 }
 
+
+winsorizeValues <- function(x, limits = c(-4, 4)){
+  x[x<limits[1]] <- limits[1]
+  x[x > limits[2]] <- limits[2]
+  return(x)
+}
+
 ```
 
 
@@ -106,6 +113,8 @@ if(file.exists("R/rrscale_assay.rda")){
   load("R/rrscale_assay.rda")
 } 
 
+pk_selected_rr <- pk_selected_rr %>%
+  mutate(value = winsorizeValues(value))
 ```
 
 ```{r setupColors}
@@ -284,6 +293,7 @@ pk_selected_rr_sp %>%
   select(feature, Cluster, Type) %>%
   datatable(caption = 'All features cluster assignments')
 
+res <- write_csv(pk_selected_rr_sp,path = "MDD_Int_rrscale.csv")
 ```
 
 ```{r clusterAnalysis, fig.width=6.5, fig.height=4.5}
@@ -342,6 +352,16 @@ p <- ggplot(df, aes(x = Cluster, fill = factor(Type))) +
        x ="Cluster") +
   theme_bw()
 p
+
+
+p <- ggplot(df, aes(x = Cluster, fill = factor(Type))) +
+  geom_bar() +
+    scale_fill_brewer(palette = "Paired")+
+  labs(title = paste("Type distribution of the",dim(df)[1], "features by cluster"),
+       x ="Cluster") +
+  theme_bw()
+p
+
 
 ```
 
