@@ -402,7 +402,7 @@ save(selected_assay_data,
 zscore_cutoff <- Inf
 if(file.exists("R/selected_assay_data_rr.rda")){
   load("R/selected_assay_data_rr.rda")
-    selected_assay_data_rr <- selected_assay_data_ %>%
+    selected_assay_data_rr <- selected_assay_data_rr %>%
     mutate(Type = str_remove(Type, "seq"))
 } else {
   ATACseq_selected_rr <- rrscale_assay(ATACseq_selected, zscore_cutoff = zscore_cutoff)
@@ -722,7 +722,7 @@ hafun <- function(x, k){
 }
 
 ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
-ligand_order <- ligand_order[ligand_order %in% df$ligand]
+ligand_order <- ligand_order[ligand_order %in% selected_assay_data_rr$ligand]
 
 df_as_matrix <- selected_assay_data_rr %>% 
   filter(ligand %in% ligand_order) %>%
