@@ -195,13 +195,32 @@ rrscale_assay <- function(df_long, zscore_cutoff = Inf){
   return(df_rr)
 }
 
+get_TFs <- function(sheet, dir_path, pattern) {
+  #read in and combine MDD TF scores
+TFs_input <- dir(path = dir_path,
+                 pattern = pattern,
+                 full.names = TRUE) %>%
+  map(readxl::read_excel, col_types = c("text"), sheet = sheet, .name_repair = "universal") %>%
+  bind_rows() %>%
+  mutate(Rank = as.numeric(Rank),
+         experimentalTime = str_extract(Query.Name, "[24][48]"),
+         experimentalTime = as.numeric(experimentalTime),
+         ligand = str_remove(Query.Name, "ctrl vs "),
+         ligand = str_remove(ligand, ",.*"),
+         condition = paste0(ligand, "_", experimentalTime),
+         value =(1633-Rank)/1632,
+         feature = TF,
+         Library_only = str_remove(Library, ",.*"),
+         Library_only = str_replace(Library_only, " ", "--"))
+}
+
 ```
 
 
 ```{r read_data_and_metadata}
 
-if(file.exists("R/assay_data.rda")){
-    load("R/assay_data.rda")
+if(file.exists("R/assay_pk_data.rda")){
+    load("R/assay_pk_data.rda")
 } else {
   
 md <- read_csv("metadata/MDD_sample_annotations.csv")
@@ -218,8 +237,8 @@ ATACseq_values <- read_csv("ATACseq/Data/MDD_ATACseq_Level3.csv") %>%
   gather(specimenID, value = value, -feature) %>%
   left_join(md, by = "specimenID") %>%
   inner_join(ATACseq_metadata, by = c("feature" = "peak")) %>%
-    mutate(feature = paste0(hgnc_symbol, "_ATACseq")) %>%
-  preprocess_level3(type = "ATACseq") %>%
+    mutate(feature = paste0(hgnc_symbol, "_ATAC")) %>%
+  preprocess_level3(type = "ATAC") %>%
   group_by(ligand, experimentalTimePoint, feature, Type) %>%
   summarise(value = max(value)) %>%
   ungroup()
@@ -314,6 +333,16 @@ GCP_values <- read_csv("GCP/Data/MDD_GCP_Level3.csv") %>%
   preprocess_level3(type = "GCP") %>%
   replace( is.na(.), .001)
 
+#Read in Hallmark pathways that are based on RNAseq data
+hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
+  gather(condition, value, -variable) %>%
+  rename(feature = variable) %>%
+   mutate(experimentalTimePoint = str_remove(condition, ".*_"),
+          experimentalTimePoint = as.integer(experimentalTimePoint),
+         ligand = str_remove(condition, "_.*")) %>%
+  select(-condition) %>%
+  preprocess_level3(type =  "Hallmark")
+
 #Read in and process IF values
 IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
   select(-ImageNumber, -barcode, -WellIndex, -collection, -ligand) %>%
@@ -333,12 +362,12 @@ replace( is.na(.), 1) %>%
 #Read in RNAseq values
 RNA_values <- read_csv("RNAseq/Data/MDD_RNAseq_med.csv") %>%
   drop_na() %>%
-  mutate(feature = paste0(feature, "_RNAseq"),
+  mutate(feature = paste0(feature, "_RNA"),
           ligand = str_remove(condition, "_.*"),
           experimentalTimePoint = str_remove(condition, ".*_"),
          experimentalTimePoint = as.integer(experimentalTimePoint)) %>%
   rename(experimentalCondition = condition) %>%
-  preprocess_level3("RNAseq")
+  preprocess_level3("RNA")
 
 #Read in RPPA values and merge with metadata
 RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
@@ -348,11 +377,46 @@ RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
   mutate(value = 2^value) %>%
   preprocess_level3(type = "RPPA")
 
-assay_data <- bind_rows(ATACseq_values, cycIF_values, GCP_values, IF_values, RNA_values, RPPA_values)
 
-save(assay_data,
+#Read in RPPA pathways scores, mean summarise within condition
+RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
+  rename(specimenID = X1) %>%
+  gather(key = feature, value = value, -specimenID) %>%
+  inner_join(md, by = "specimenID") %>%
+  dplyr::select(experimentalCondition, feature, value) %>%
+  rename(condition = experimentalCondition) %>%
+     mutate(experimentalTimePoint = str_remove(condition, ".*_"),
+          experimentalTimePoint = as.integer(experimentalTimePoint),
+         ligand = str_remove(condition, "_.*")) %>%
+  select(-condition) %>%
+  preprocess_level3(type =  "RPPApathway")
+
+TFs <- get_TFs(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
+TFs_details <- map(2:7, get_TFs, dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
+  bind_rows()
+
+TFs_input <- TFs_details %>%
+  dplyr::select(Query.Name, TF, Odds.Ratio, FDR, Library_only) %>%
+  right_join(TFs, by = c("Query.Name", "TF", "Library_only"))
+
+TFs_values <- TFs_input %>%
+  dplyr::select(condition, Odds.Ratio, feature) %>%
+  rename(experimentalCondition = condition) %>%
+  mutate(feature = paste0(feature, "_TF")) %>%
+  rename(value = Odds.Ratio) %>%
+  mutate(value = as.numeric(value),
+         Type = "ChEA3 TF") %>%
+    rename(condition = experimentalCondition) %>%
+     mutate(experimentalTimePoint = str_remove(condition, ".*_"),
+          experimentalTimePoint = as.integer(experimentalTimePoint),
+         ligand = str_remove(condition, "_.*")) %>%
+  select(-condition)
+
+assay_pk_data <- bind_rows(ATACseq_values, cycIF_values, GCP_values, hallmark_pathways, IF_values, RNA_values, RPPA_values, RPPA_pathways, TFs_values)
+
+save(assay_pk_data,
      md,
-     file = "R/assay_data.rda") 
+     file = "R/assay_pk_data.rda") 
 
 # phenotypes <- read_csv("cycIF/Data/MDD_cycIF_Level4.csv") %>%
 #   filter(str_detect(feature, "neighbor"))
@@ -365,9 +429,9 @@ ATACseq_variance_probs_thresh <- .995
 GCP_variance_probs_thresh <- 0
 RPPA_variance_probs_thresh <- 0
 
-if(file.exists("R/selected_assay_data.rda")){
-    load("R/selected_assay_data.rda")
-  selected_assay_data <- selected_assay_data %>%
+if(file.exists("R/selected_assay_pk_data.rda")){
+    load("R/selected_assay_pk_data.rda")
+  selected_assay_pk_data <- selected_assay_pk_data %>%
     mutate(Type = str_remove(Type, "seq"))
 } else {
   
@@ -387,22 +451,25 @@ RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList200_1560genes.csv") %
 RNAseq_selected <- RNA_values %>%
   inner_join(RNAseq_variance_genes)
 
-selected_assay_data <- bind_rows(ATACseq_selected, cycIF_values, GCP_selected, IF_values, RNAseq_selected,  RPPA_selected)
+selected_assay_pk_data <- bind_rows(ATACseq_selected, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected,  RPPA_selected, RPPA_pathways, TFs_values)
 
-save(selected_assay_data,
+save(selected_assay_pk_data,
      ATACseq_selected,
      cycIF_values,
-     GCP_selected,
+     GCP_selected, 
+     hallmark_pathways,
      IF_values,
      RNAseq_selected,
      RPPA_selected,
-     file = "R/selected_assay_data.rda")
+     RPPA_pathways,
+     TFs_values,
+     file = "R/selected_assay_pk_data.rda")
 }
 
 zscore_cutoff <- Inf
-if(file.exists("R/selected_assay_data_rr.rda")){
-  load("R/selected_assay_data_rr.rda")
-    selected_assay_data_rr <- selected_assay_data_rr %>%
+if(file.exists("R/selected_assay_pk_data_rr.rda")){
+  load("R/selected_assay_pk_data_rr.rda")
+    selected_assay_pk_data_rr <- selected_assay_pk_data_rr %>%
     mutate(Type = str_remove(Type, "seq"))
 } else {
   ATACseq_selected_rr <- rrscale_assay(ATACseq_selected, zscore_cutoff = zscore_cutoff)
@@ -415,8 +482,8 @@ if(file.exists("R/selected_assay_data_rr.rda")){
   RPPA_selected_rr <- rrscale_assay(RPPA_selected, zscore_cutoff = zscore_cutoff)
   RNAseq_selected_rr <- rrscale_assay(RNAseq_selected, zscore_cutoff = zscore_cutoff)
 
-  selected_assay_data_rr <-  bind_rows(ATACseq_selected_rr, cycIF_values_rr, GCP_selected_rr,  IF_values_selected_rr, RNAseq_selected_rr,  RPPA_selected_rr)
-  save(selected_assay_data_rr, file = "R/selected_assay_data_rr.rda")
+  selected_assay_pk_data_rr <-  bind_rows(ATACseq_selected_rr, cycIF_values_rr, GCP_selected_rr,  IF_values_selected_rr, RNAseq_selected_rr,  RPPA_selected_rr)
+  save(selected_assay_pk_data_rr, file = "R/selected_assay_pk_data_rr.rda")
 }
 
 # if(file.exists("R/assay_data_rr.rda")){
@@ -445,19 +512,19 @@ if(file.exists("R/selected_assay_data_rr.rda")){
 
 ```{r interactiveHeatmaps, fig.height = 8}
 
-df_as_matrix <-  prep_hm_matrix(selected_assay_data_rr) %>%
+df_as_matrix <-  prep_hm_matrix(selected_assay_pk_data_rr) %>%
   t %>%
   as.matrix() %>%
   scale %>%
   t
-ann_df <- prep_hm_annotations(selected_assay_data_rr)
+ann_df <- prep_hm_annotations(selected_assay_pk_data_rr)
 
 clust_num <- 8
 cluster_method = "kmeans"
 #setup for common cluster colors used in heatmap and ggplot
 cluster_cols <- RColorBrewer::brewer.pal(clust_num, "Paired")
-assay_cols <- RColorBrewer::brewer.pal(length(unique(selected_assay_data_rr$Type)), "Paired")
-names(assay_cols) <- unique(selected_assay_data_rr$Type)
+assay_cols <- RColorBrewer::brewer.pal(length(unique(selected_assay_pk_data_rr$Type)), "Paired")
+names(assay_cols) <- unique(selected_assay_pk_data_rr$Type)
                             
 hm <- get_iheatmap(df_as_matrix, assay_name = "Selected assay data, rrscaled") %>%
   format_hm(k = clust_num, cluster_method = cluster_method)
@@ -467,7 +534,7 @@ hm_data <- tibble(feature = names(hm@plots@listData$`Cluster(kmeans)`@data),
                   Cluster = hm@plots@listData$`Cluster(kmeans)`@data,
                   Type = hm@plots@listData$Type@text)
 
-selected_assay_data_rr_sp <- df_as_matrix %>%
+selected_assay_pk_data_rr_sp <- df_as_matrix %>%
   data.frame() %>%
   rownames_to_column("feature") %>%
   left_join(hm_data, by = "feature")
@@ -558,16 +625,16 @@ p
 #Generate a 2d scatterplot of the UMAP dimensions and color by clusters, assay type
 
 #Create annotation values
-hm_data_matrix <- selected_assay_data_rr_sp %>%
+hm_data_matrix <- selected_assay_pk_data_rr_sp %>%
   select(-feature, -Cluster, -Type) %>%
   as.matrix()
-rownames(hm_data_matrix) <- selected_assay_data_rr_sp$feature
+rownames(hm_data_matrix) <- selected_assay_pk_data_rr_sp$feature
 
 df_UMAP <- umap(hm_data_matrix, na.rm = TRUE)$layout %>%
   data.frame(feature = rownames(hm_data_matrix)) %>%
   rename(UMAP_1 = X1,
          UMAP_2 = X2) %>%
- left_join(selected_assay_data_rr_sp, by = "feature") 
+ left_join(selected_assay_pk_data_rr_sp, by = "feature") 
 
 p <- ggplot(df_UMAP, aes(x = UMAP_1,
                          y = UMAP_2,
@@ -600,7 +667,7 @@ p
 
 ```{r highlightAssay, fig.width=2.5, fig.height=2.5}
 
-for(assay in unique(selected_assay_data_rr$Type)){
+for(assay in unique(selected_assay_pk_data_rr$Type)){
   regex_pat <- paste0("^",assay,"$")
   df <- df_UMAP %>%
     mutate(Highlight = str_extract(Type, regex_pat),
@@ -690,7 +757,7 @@ kmeans clustering is used with k = `r clust_num` based on gap statistic analysis
 
 ```{r featureTypes, fig.width=8, fig.height=4}
 #create a bar chart of the feature types
-df <- selected_assay_data_rr %>%
+df <- selected_assay_pk_data_rr %>%
   drop_na() %>%
   select(feature, Type) %>%
   distinct()
@@ -722,9 +789,9 @@ hafun <- function(x, k){
 }
 
 ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
-ligand_order <- ligand_order[ligand_order %in% selected_assay_data_rr$ligand]
+ligand_order <- ligand_order[ligand_order %in% selected_assay_pk_data_rr$ligand]
 
-df_as_matrix <- selected_assay_data_rr %>% 
+df_as_matrix <- selected_assay_pk_data_rr %>% 
   filter(ligand %in% ligand_order) %>%
 spread(ligand, value) %>%
   drop_na() %>%
