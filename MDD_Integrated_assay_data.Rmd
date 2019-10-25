@@ -1,0 +1,768 @@
+---
+title: "MDD integrated data analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+####ToDOos
+
+
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+suppressMessages(library(ComplexHeatmap))
+library(iheatmapr)
+library(DT)
+library(rrscale)
+library(ggbeeswarm)
+library(umap)
+library(plotly)
+library(cluster)
+library(fpc)
+
+#process all data from all assays
+preprocess_level3 <- function(df, type){
+  df_pp <- df %>%
+    mutate(Type = type) %>%
+    group_by(ligand, feature, Type, experimentalTimePoint) %>%
+    summarise(value = median(value, na.rm = TRUE)) %>%
+    ungroup()
+  return(df_pp)
+}
+
+select_features <- function(df, var_quantile = 0){
+  df_small <- df %>%
+    group_by(feature) %>%
+    mutate(feature_variance = var(value, na.rm = TRUE)) %>%
+    ungroup() %>%
+    filter(feature_variance >= quantile(feature_variance,
+                                       probs = var_quantile,
+                                       na.rm = TRUE)) %>%
+    dplyr::select(-feature_variance)
+  return(df_small)
+}
+
+#' rrscale a numeric vector
+rrscaleValues <- function(x, zeros = .001, ncores = 4){
+  x_rr <- as.matrix(x) %>%
+    rrscale(zeros = zeros, ncores = ncores)
+  return(x_rr)
+}
+
+getrrDetails <- function(x){
+  T_name <- map(x, function(xx) xx[["T_name"]]) %>%
+    unlist
+  par_hat <- map(x, function(xx) xx[["par_hat"]]) %>%
+    unlist
+  df <- tibble(feature = names(x),
+               par_hat = par_hat,
+               T_name = T_name)
+  return(df)
+}
+
+#' df a dataframe with feature, value, condition and Type columns. The values must
+#' be all numeric and transformed to common scales
+
+#prepare a datamatrix from a dataframe of data and metadta
+prep_hm_matrix <- function(df){
+  if("experimentalCondition" %in% colnames(df)){
+     condition_order <-  c("ctrl_0",paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), rep(c(24, 48),  times = 14),   sep = "_") )
+  
+  condition_order <- condition_order[condition_order %in% df$experimentalCondition]
+  df_sp <- df %>%
+    dplyr::select(feature, value, experimentalCondition) %>%
+    spread(key = experimentalCondition, value = value, fill = median(df$value, na.rm = TRUE)) %>%
+    dplyr::select(feature, condition_order)
+ #   drop_na()
+  
+  df_as_matrix <- df_sp %>%
+    dplyr::select(-feature) %>%
+    as.matrix()
+  rownames(df_as_matrix) <- df_sp$feature
+  return(df_as_matrix)
+  } else {
+     ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
+  
+  ligand_order <- ligand_order[ligand_order %in% df$ligand]
+  df_sp <- df %>%
+    filter(ligand %in% ligand_order) %>%
+    mutate(feature = paste0(feature,"_",experimentalTimePoint)) %>%
+    dplyr::select(feature, value, ligand) %>%
+    spread(key = ligand, value = value, fill = median(df$value, na.rm = TRUE)) %>%
+    dplyr::select(feature, ligand_order)
+ #   drop_na()
+  
+  df_as_matrix <- df_sp %>%
+    dplyr::select(-feature) %>%
+    as.matrix()
+  rownames(df_as_matrix) <- df_sp$feature
+  return(df_as_matrix)
+  }
+ 
+}
+
+prep_hm_annotations <- function(df){
+  if("experimentalCondition" %in% colnames(df)){
+     df_as_matrix <- prep_hm_matrix(df)
+  #create top annotations
+  ann_nv_pairs <- df %>%
+    dplyr::select(feature, Type) %>%
+    distinct()
+#    drop_na()
+  
+  ann_df <- tibble(feature = rownames(df_as_matrix)) %>%
+    left_join(ann_nv_pairs, by = "feature") %>%
+    dplyr::select(Type)
+  return(ann_df)
+  } else {
+     df_as_matrix <- prep_hm_matrix(df)
+  #create top annotations
+  ann_nv_pairs <- df %>%
+    dplyr::select(feature, Type, experimentalTimePoint) %>%
+    mutate(feature = paste0(feature, "_", experimentalTimePoint)) %>%
+    distinct()
+#    drop_na()
+  
+  ann_df <- tibble(feature = rownames(df_as_matrix)) %>%
+    left_join(ann_nv_pairs, by = "feature") %>%
+    dplyr::select(Type, experimentalTimePoint) %>%
+    rename(Time = experimentalTimePoint)
+  return(ann_df)
+  }
+ 
+}
+
+get_iheatmap <- function(df_as_matrix, ...) {
+  #Create the heatmap
+  hm <- main_heatmap(data = df_as_matrix,
+                     name = "score")
+}
+
+format_hm <- function(hm, k = 6, cluster_method = "hclust",...){
+  hm_mod<- hm %>%
+    add_row_labels(font = list(size = 4),
+                   side = "right") %>%
+    add_col_labels() %>%
+    add_row_annotation(ann_df,
+                       side = "left",
+                       size = 0.05)  %>%
+    modify_layout(list(margin = list(r = 120)))
+  if(!k==0){
+    hm_mod <- hm_mod %>%
+      add_row_clustering(name = paste0("Cluster(",cluster_method,")"),
+                         k = k,
+                         method = cluster_method,
+      ) %>%
+      add_col_summary(size = .1,
+                      groups = paste0("Cluster(",cluster_method,")"))
+  }
+  return(hm_mod)
+}
+
+#apply rrscale on all values of an assay
+rrscale_assay <- function(df_long, zscore_cutoff = Inf){
+  df_sp <- df_long %>%
+    spread(feature, value)
+  if("experimentalCondition" %in% colnames(df_sp)) {
+      rr_objects <- df_sp %>%
+    select(-Type, -experimentalCondition) %>%
+    as.matrix() %>%
+    rrscale(zeros = 0.01,z = zscore_cutoff)
+  
+  rr_mat <- rr_objects[["RR"]] %>%
+    as_tibble()
+  
+  df_rr <- df_sp %>%
+    select(experimentalCondition, Type) %>%
+    bind_cols(rr_mat) %>%
+    gather("feature", "value", -Type, -experimentalCondition)
+  } else {
+    rr_objects <- df_sp %>%
+    select(-Type, -ligand, -experimentalTimePoint) %>%
+    as.matrix() %>%
+    rrscale(zeros = 0.01,z = zscore_cutoff)
+  
+  rr_mat <- rr_objects[["RR"]] %>%
+    as_tibble()
+  
+  df_rr <- df_sp %>%
+    select(ligand, experimentalTimePoint, Type) %>%
+    bind_cols(rr_mat) %>%
+    gather("feature", "value", -Type, -ligand, -experimentalTimePoint)
+  }
+
+  
+  return(df_rr)
+}
+
+```
+
+
+```{r read_data_and_metadata}
+
+if(file.exists("R/assay_data.rda")){
+    load("R/assay_data.rda")
+} else {
+  
+md <- read_csv("metadata/MDD_sample_annotations.csv")
+#Read and and process ATACseq metadata
+ATACseq_metadata <- read_csv("ATACseq/Metadata/MDD_ATACseq_peakMetadata.csv") %>%
+  select(peak, hgnc_symbol, annotation) %>%
+  drop_na() %>%
+  filter(str_detect(annotation, "Promoter|3' UTR|5' UTR|1st Exon")) %>%
+  dplyr::select(-annotation)
+
+#Read in and process ATACseq values
+ATACseq_values <- read_csv("ATACseq/Data/MDD_ATACseq_Level3.csv") %>%
+  rename(feature = peak) %>%
+  gather(specimenID, value = value, -feature) %>%
+  left_join(md, by = "specimenID") %>%
+  inner_join(ATACseq_metadata, by = c("feature" = "peak")) %>%
+    mutate(feature = paste0(hgnc_symbol, "_ATACseq")) %>%
+  preprocess_level3(type = "ATACseq") %>%
+  group_by(ligand, experimentalTimePoint, feature, Type) %>%
+  summarise(value = max(value)) %>%
+  ungroup()
+
+#Read in and process cycIF values
+biomarkers <- c("p21waf1cip1_3_af647cy5_int_mean_nuc",
+                "cyclind1_8_af488fitc_int_mean_nuc",
+                "ki67_5_efluor570cy3_int_mean_nuc",
+                "egfr_2_af488fitc_int_mean_nuc",
+                "egfr_2_af488fitc_int_mean_cytoplasm",
+                "met_6_af488fitc_int_mean_nuc",
+                "met_6_af488fitc_int_mean_cytoplasm",
+                "ndg1pt346_3_af488fitc_int_mean_nuc",
+                "ndg1pt346_3_af488fitc_int_mean_cytoplasm",
+                "s6_6_pecy3_int_mean_nuc",
+                "s6_6_pecy3_int_mean_cytoplasm",
+                "s6ps235s236_5_af647cy5_int_mean_nuc",
+                "s6ps235s236_5_af647cy5_int_mean_cytoplasm",
+                "s6ps240244_5_af488fitc_int_mean_nuc",
+                "s6ps240244_5_af488fitc_int_mean_cytoplasm",
+                "cateninbeta_4_af647cy5_int_mean_nuc",
+                "cateninbeta_4_af647cy5_int_mean_cytoplasm",
+                "nfkbp65_2_af647cy5_int_mean_nuc",
+                "cjun_9_af488fitc_int_mean_nuc",
+                "stat1ps727_2_pecy3_int_mean_nuc",
+                "stat1alphaisoform_8_af647cy5_int_mean_nuc",
+                "pdl1_6_af647cy5_int_mean_cytoplasm",
+                "stat3_4_af488fitc_int_mean_nuc",
+                "ecadherin_7_af647cy5_int_mean_nuc",
+                "ecadherin_7_af647cy5_int_mean_cytoplasm",
+                "vimentin_3_af555cy3_int_mean_nuc",
+                "vimentin_3_af555cy3_int_mean_cytoplasm",
+                "cytokeratin7human_4_af555cy3_int_mean_nuc",
+                "cytokeratin7human_4_af555cy3_int_mean_cytoplasm",
+                "cytokeratin18_7_af488fitc_int_mean_nuc",
+                "cytokeratin18_7_af488fitc_int_mean_cytoplasm",
+                "hes1_9_af647cy5_int_mean_nuc",
+                "lc3ab_7_af555cy3_txt_standev_cytoplasm")
+
+cycIF_values <- read_csv("cycIF/Data/MDD_cycIF_Level3.csv") %>%
+  filter(feature %in% biomarkers) %>%
+  gather(specimenID, value = value, -feature) %>%
+  spread(key = feature, value = value) %>%
+  mutate(egfr_2_af488fitc_int_mean_cell = (egfr_2_af488fitc_int_mean_nuc + egfr_2_af488fitc_int_mean_cytoplasm)/2,
+         met_6_af488fitc_int_mean_cell = (met_6_af488fitc_int_mean_nuc + met_6_af488fitc_int_mean_cytoplasm)/2,
+         ndg1pt346_3_af488fitc_int_mean_cell = (ndg1pt346_3_af488fitc_int_mean_nuc + ndg1pt346_3_af488fitc_int_mean_cytoplasm)/2,
+         s6_6_pecy3_int_mean_cell = (s6_6_pecy3_int_mean_nuc + s6_6_pecy3_int_mean_cytoplasm)/2,
+         s6ps235s236_5_af647cy5_cell = (s6ps235s236_5_af647cy5_int_mean_nuc + s6ps235s236_5_af647cy5_int_mean_cytoplasm)/2,
+         s6_6_pecy3_int_mean_cell = (s6_6_pecy3_int_mean_nuc + s6_6_pecy3_int_mean_cytoplasm)/2,
+         s6ps240244_5_af488fitc_int_mean_cell = (s6ps240244_5_af488fitc_int_mean_nuc + s6ps240244_5_af488fitc_int_mean_cytoplasm)/2,
+         cateninbeta_4_af647cy5_int_mean_cell = (cateninbeta_4_af647cy5_int_mean_nuc + cateninbeta_4_af647cy5_int_mean_cytoplasm)/2,
+         ecadherin_7_af647cy5_int_mean_cell = (ecadherin_7_af647cy5_int_mean_nuc + ecadherin_7_af647cy5_int_mean_cytoplasm)/2,
+         vimentin_3_af555cy3_int_mean_cell = (vimentin_3_af555cy3_int_mean_nuc + vimentin_3_af555cy3_int_mean_cytoplasm)/2,
+         cytokeratin7human_4_af555cy3_int_mean_cell = (cytokeratin7human_4_af555cy3_int_mean_nuc + cytokeratin7human_4_af555cy3_int_mean_cytoplasm)/2,
+         cytokeratin18_7_af488fitc_int_mean_cell = (cytokeratin18_7_af488fitc_int_mean_nuc + cytokeratin18_7_af488fitc_int_mean_cytoplasm)/2) %>%
+  select(-egfr_2_af488fitc_int_mean_nuc,
+         -egfr_2_af488fitc_int_mean_cytoplasm,
+         -met_6_af488fitc_int_mean_nuc,
+         -met_6_af488fitc_int_mean_cytoplasm,
+         -ndg1pt346_3_af488fitc_int_mean_nuc,
+         -ndg1pt346_3_af488fitc_int_mean_cytoplasm,
+         -s6_6_pecy3_int_mean_nuc,
+         -s6_6_pecy3_int_mean_cytoplasm,
+         -s6ps235s236_5_af647cy5_int_mean_nuc,
+         -s6ps235s236_5_af647cy5_int_mean_cytoplasm,
+         -s6ps240244_5_af488fitc_int_mean_nuc,
+         -s6ps240244_5_af488fitc_int_mean_cytoplasm,
+         -cateninbeta_4_af647cy5_int_mean_nuc,
+         -cateninbeta_4_af647cy5_int_mean_cytoplasm,
+         -ecadherin_7_af647cy5_int_mean_nuc,
+         -ecadherin_7_af647cy5_int_mean_cytoplasm,
+         -vimentin_3_af555cy3_int_mean_nuc,
+         -vimentin_3_af555cy3_int_mean_cytoplasm,
+         -cytokeratin7human_4_af555cy3_int_mean_nuc,
+         -cytokeratin7human_4_af555cy3_int_mean_cytoplasm,
+         -cytokeratin18_7_af488fitc_int_mean_nuc,
+         -cytokeratin18_7_af488fitc_int_mean_cytoplasm) %>%
+  gather(feature, value, -specimenID) %>%
+left_join(md, by = "specimenID") %>%
+  mutate(feature = str_remove(feature, "_.*"),
+         feature = paste0(feature, "_cycIF")) %>%
+  preprocess_level3(type = "cycIF")
+
+#Read in and process GCP values
+GCP_values <- read_csv("GCP/Data/MDD_GCP_Level3.csv") %>%
+  rename(feature = histone) %>%
+  gather(specimenID, value = value, -feature) %>%
+  left_join(md, by = "specimenID") %>%
+  mutate(value = 2^value,
+         feature = paste0(feature, "_GCP")) %>%
+  filter(!feature == "H3K27ac1K36me0_GCP") %>%
+  preprocess_level3(type = "GCP") %>%
+  replace( is.na(.), .001)
+
+#Read in and process IF values
+IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
+  select(-ImageNumber, -barcode, -WellIndex, -collection, -ligand) %>%
+  gather(feature, value, -specimenName, -time, -replicate) %>%
+  mutate(experimentalTimePoint = time,
+         experimentalCondition = str_remove(specimenName, "_C[12]_."),
+         ligand = str_remove(specimenName, "_.*"),
+         feature = paste0(feature, "_IF")) %>%
+  filter(!feature =="AreaShape_EulerNumber_IF",
+         !str_detect(feature,"CellMask")) %>%
+  preprocess_level3(type = "IF") %>%
+replace( is.na(.), 1) %>%
+  group_by(ligand, experimentalTimePoint, feature, Type) %>%
+  summarise(value = median(value, na.rm = TRUE)) %>%
+  ungroup()
+
+#Read in RNAseq values
+RNA_values <- read_csv("RNAseq/Data/MDD_RNAseq_med.csv") %>%
+  drop_na() %>%
+  mutate(feature = paste0(feature, "_RNAseq"),
+          ligand = str_remove(condition, "_.*"),
+          experimentalTimePoint = str_remove(condition, ".*_"),
+         experimentalTimePoint = as.integer(experimentalTimePoint)) %>%
+  rename(experimentalCondition = condition) %>%
+  preprocess_level3("RNAseq")
+
+#Read in RPPA values and merge with metadata
+RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
+  mutate(feature = paste0(antibody,"_RPPA")) %>%
+  gather(specimenID, value = value, -feature, -antibody) %>%
+  left_join(md, by = "specimenID") %>%
+  mutate(value = 2^value) %>%
+  preprocess_level3(type = "RPPA")
+
+assay_data <- bind_rows(ATACseq_values, cycIF_values, GCP_values, IF_values, RNA_values, RPPA_values)
+
+save(assay_data,
+     md,
+     file = "R/assay_data.rda") 
+
+# phenotypes <- read_csv("cycIF/Data/MDD_cycIF_Level4.csv") %>%
+#   filter(str_detect(feature, "neighbor"))
+}
+```
+
+
+```{r prepare_datasets}
+ATACseq_variance_probs_thresh <- .995
+GCP_variance_probs_thresh <- 0
+RPPA_variance_probs_thresh <- 0
+
+if(file.exists("R/selected_assay_data.rda")){
+    load("R/selected_assay_data.rda")
+  selected_assay_data <- selected_assay_data %>%
+    mutate(Type = str_remove(Type, "seq"))
+} else {
+  
+ATACseq_selected <- select_features(ATACseq_values, ATACseq_variance_probs_thresh)
+
+#filter RPPA features on variance
+RPPA_selected <- select_features(RPPA_values, RPPA_variance_probs_thresh)
+
+#filter GCP features on variance
+GCP_selected <- select_features(GCP_values, GCP_variance_probs_thresh)
+
+#use RNAseq genes filterd on variance within each condition
+RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList200_1560genes.csv") %>%
+  mutate(feature= paste0(hgnc_symbol, "_RNAseq")) %>%
+  dplyr::select(-hgnc_symbol)
+
+RNAseq_selected <- RNA_values %>%
+  inner_join(RNAseq_variance_genes)
+
+selected_assay_data <- bind_rows(ATACseq_selected, cycIF_values, GCP_selected, IF_values, RNAseq_selected,  RPPA_selected)
+
+save(selected_assay_data,
+     ATACseq_selected,
+     cycIF_values,
+     GCP_selected,
+     IF_values,
+     RNAseq_selected,
+     RPPA_selected,
+     file = "R/selected_assay_data.rda")
+}
+
+zscore_cutoff <- Inf
+if(file.exists("R/selected_assay_data_rr.rda")){
+  load("R/selected_assay_data_rr.rda")
+    selected_assay_data_rr <- selected_assay_data_rr %>%
+    mutate(Type = str_remove(Type, "seq"))
+} else {
+  ATACseq_selected_rr <- rrscale_assay(ATACseq_selected, zscore_cutoff = zscore_cutoff)
+  cycIF_values_rr <- rrscale_assay(cycIF_values, zscore_cutoff = zscore_cutoff)
+  GCP_selected_rr <- rrscale_assay(GCP_selected, zscore_cutoff = zscore_cutoff)
+  IF_values_selected_rr <- IF_values %>%
+    filter(str_detect(feature, "Intensity"),
+           !str_detect(feature, "Std")) %>%
+    rrscale_assay(zscore_cutoff = zscore_cutoff)
+  RPPA_selected_rr <- rrscale_assay(RPPA_selected, zscore_cutoff = zscore_cutoff)
+  RNAseq_selected_rr <- rrscale_assay(RNAseq_selected, zscore_cutoff = zscore_cutoff)
+
+  selected_assay_data_rr <-  bind_rows(ATACseq_selected_rr, cycIF_values_rr, GCP_selected_rr,  IF_values_selected_rr, RNAseq_selected_rr,  RPPA_selected_rr)
+  save(selected_assay_data_rr, file = "R/selected_assay_data_rr.rda")
+}
+
+# if(file.exists("R/assay_data_rr.rda")){
+#   load("R/assay_data_rr.rda")
+# } else {
+#   ATACseq_rr <- rrscale_assay(ATACseq_values, zscore_cutoff = zscore_cutoff)
+#   cycIF_values_rr <- rrscale_assay(cycIF_values, zscore_cutoff = zscore_cutoff)
+#   GCP_rr <- rrscale_assay(GCP_values, zscore_cutoff = zscore_cutoff)
+#     IF_values_rr <- IF_values %>%
+#     filter(str_detect(feature, "Intensity"),
+#            !str_detect(feature, "Std")) %>%
+#     rrscale_assay(zscore_cutoff = zscore_cutoff)
+#   RPPA_rr <- rrscale_assay(RPPA_values, zscore_cutoff = zscore_cutoff)
+#   RNAseq_rr <- rrscale_assay(RNA_values, zscore_cutoff = zscore_cutoff)
+# 
+#   assay_data_rr <-  bind_rows(ATACseq_rr,  cycIF_values_rr, GCP_rr, IF_values_rr, RNAseq_rr,  RPPA_rr)
+#   save(assay_data_rr, file = "R/assay_data_rr.rda")
+# }
+
+
+```
+
+## {.tabset .tabset-fade}
+
+### heatmap
+
+```{r interactiveHeatmaps, fig.height = 8}
+
+df_as_matrix <-  prep_hm_matrix(selected_assay_data_rr) %>%
+  t %>%
+  as.matrix() %>%
+  scale %>%
+  t
+ann_df <- prep_hm_annotations(selected_assay_data_rr)
+
+clust_num <- 8
+cluster_method = "kmeans"
+#setup for common cluster colors used in heatmap and ggplot
+cluster_cols <- RColorBrewer::brewer.pal(clust_num, "Paired")
+assay_cols <- RColorBrewer::brewer.pal(length(unique(selected_assay_data_rr$Type)), "Paired")
+names(assay_cols) <- unique(selected_assay_data_rr$Type)
+                            
+hm <- get_iheatmap(df_as_matrix, assay_name = "Selected assay data, rrscaled") %>%
+  format_hm(k = clust_num, cluster_method = cluster_method)
+hm
+
+hm_data <- tibble(feature = names(hm@plots@listData$`Cluster(kmeans)`@data),
+                  Cluster = hm@plots@listData$`Cluster(kmeans)`@data,
+                  Type = hm@plots@listData$Type@text)
+
+selected_assay_data_rr_sp <- df_as_matrix %>%
+  data.frame() %>%
+  rownames_to_column("feature") %>%
+  left_join(hm_data, by = "feature")
+
+```
+
+###
+
+
+### PCA  
+
+```{r PCAAnalysis}
+
+pca_obj <- prcomp(df_as_matrix)
+plot(pca_obj)
+
+pca_df <- as_tibble(pca_obj$x) %>%
+  mutate(feature = rownames(pca_obj$x),
+         Time = str_remove(feature,".*_"),
+         Time = as.integer(Time),
+         Type = str_extract(feature,"_(RNA|RPPA|cycIF|ATAC|GCP|IF)_"),
+         Type = str_remove_all(Type, "_")) %>%
+  left_join(hm_data, by = c("feature", "Type")) %>%
+  mutate(feature = str_remove(feature, "_.*"))
+  
+
+pca_diagnostics_df <- as_tibble(pca_obj$rotation) %>%
+  mutate(ligand = rownames(pca_obj$rotation)) %>%
+  select(-PC7)
+
+```
+
+```{r pcaFigures}
+
+p <- ggplot(pca_df, aes(x = PC1, y = PC2, colour = factor(Time))) +
+              geom_point(alpha = .5)
+p
+
+p <- ggplot(pca_df, aes(x = PC3, y = PC4, colour = factor(Time))) +
+              geom_point(alpha = .5)
+p
+
+p <- ggplot(pca_df, aes(x = PC1, y = PC2, colour = factor(Type))) +
+              geom_point(alpha = .5)
+p
+
+p <- ggplot(pca_df, aes(x = PC3, y = PC4, colour = factor(Type))) +
+              geom_point(alpha = .5)
+p
+
+p <- ggplot(pca_df, aes(x = PC5, y = PC6, colour = factor(Time))) +
+              geom_point(alpha = .5)
+p
+
+p <- ggplot(pca_df, aes(x = PC1, y = PC2, colour = factor(Cluster))) +
+              geom_point(alpha = .5)
+p
+
+p <- ggplot(pca_df, aes(x = PC3, y = PC4, colour = factor(Cluster))) +
+              geom_point(alpha = .5)
+p
+
+p <- ggplot(pca_df, aes(x = PC5, y = PC6, colour = factor(Cluster))) +
+              geom_point(alpha = .5)
+p
+
+
+df <- pca_diagnostics_df %>%
+  gather(PC, value, -ligand)
+
+p <- ggplot(df, aes(x = PC, y = value, fill = ligand)) +
+  geom_bar(stat = "identity", position = "dodge")
+p
+
+p <- ggplot(df, aes(x = ligand, y = value, fill = PC)) +
+  geom_bar(stat = "identity", position = "dodge")
+p
+
+```
+
+###
+
+
+### UMAPs
+
+```{r UMAPAnalysis, fig.width=5.75, fig.height=4.75}
+
+#Generate a 2d scatterplot of the UMAP dimensions and color by clusters, assay type
+
+#Create annotation values
+hm_data_matrix <- selected_assay_data_rr_sp %>%
+  select(-feature, -Cluster, -Type) %>%
+  as.matrix()
+rownames(hm_data_matrix) <- selected_assay_data_rr_sp$feature
+
+df_UMAP <- umap(hm_data_matrix, na.rm = TRUE)$layout %>%
+  data.frame(feature = rownames(hm_data_matrix)) %>%
+  rename(UMAP_1 = X1,
+         UMAP_2 = X2) %>%
+ left_join(selected_assay_data_rr_sp, by = "feature") 
+
+p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                         y = UMAP_2,
+                         colour = factor(Cluster))) +
+  geom_point(size = .8, alpha = .8) +
+  scale_color_manual(values = cluster_cols) +
+  labs(title = paste("UMAP embedding colored by cluster"),
+       colour = "Cluster") +
+    guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
+  theme_bw() +
+  theme(axis.title = element_blank())
+p
+```
+
+
+```{r UMAPAnalysis2, fig.width=6.5, fig.height=4.5}
+p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                         y = UMAP_2,
+                         colour = factor(Type))) +
+  geom_point(size = .8, alpha = .8) +
+  scale_colour_brewer(palette = "Paired")+
+  labs(title = paste("UMAP embedding colored by assay"),
+       colour = "Assay") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
+  theme_bw() +
+  theme(axis.title = element_blank())
+p
+
+```
+
+```{r highlightAssay, fig.width=2.5, fig.height=2.5}
+
+for(assay in unique(selected_assay_data_rr$Type)){
+  regex_pat <- paste0("^",assay,"$")
+  df <- df_UMAP %>%
+    mutate(Highlight = str_extract(Type, regex_pat),
+           Highlight = str_replace_na(Highlight),
+           Highlight = str_replace(Highlight, "^NA$", ".1"),
+           Highlight = str_replace(Highlight, assay, "3"),
+           Highlight = as.numeric(Highlight))
+  p <- ggplot(df, aes(x = UMAP_1,
+                      y = UMAP_2,
+                      colour = factor(Highlight),
+                      size = Highlight)) +
+    geom_point(alpha = .6) +
+    annotate("text",x = -5, y = -6, label = assay)+
+    scale_color_manual(values=c("grey", "slateblue1"))+
+    scale_size_area(limits = c(0, 30)) +
+    labs()+
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme_bw()+
+    theme(text = element_text(size = 1),
+          axis.title = element_blank())
+  print(p)
+}
+
+```
+
+```{r UMAPbyCondition, fig.width=2.5, fig.height=2.5}
+
+df_UMAP_ligands <- colnames(df_UMAP)[str_detect(colnames(df_UMAP), "PBS|HGF|OSM|EG|BMP2|IFNG|TGFB")]
+for(ligand in df_UMAP_ligands){
+  p <- ggplot(df_UMAP, aes_string(x = "UMAP_1",
+                         y = "UMAP_2",
+                         colour = ligand)) +
+  geom_point(size = .4, alpha = .6) +
+    annotate("text",x = -5, y = -6, label = ligand)+
+  scale_color_gradient2(low = "blue4", mid = "azure",
+  high = "red", midpoint = 0,) +
+  labs()+
+    guides(colour = FALSE)+
+  theme_bw()+
+    theme(text = element_text(size = 1),
+          axis.title = element_blank())
+print(p)
+}
+
+```
+
+###
+
+### method  
+
+This dataset combines MCF10A Molecular Deep Dive (MDD) RNAseq, Reverse Phase Protein Array(RPPA), Global Chromatin Profiling (GCP) histone modifications, immunofluorescence (IF), cyclic immunofluorescence (cycIF) and ATACseq chromatin configuration data. All data at all timepoints is used. Most of the data is median summarized from three replicate experiments run in sequential weeks. It is then rrscale transformed and then zscored by feature.   
+
+RRscale  
+Use rrscale https://CRAN.R-project.org/package=rrscale to transform features in the heatmap before clustering.  This method performs a box-cox gaussianizing transformation on each feature, zscores the results then eliminates outliers with absolute values greater than `r zscore_cutoff`. All values from each assay was rrscaled as a matrix with features in the columns and conditions in the rows. Because of the differences in scales in the morphology, spatial and statistical values in the IF dataset, only the intensity values are included.      
+
+This analysis is based on the LINCS Molecular Deep Dive data files on Synapse at  https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
+
+
+ATACseq Values  
+Median summarize the values across the replicates  
+Select the genes with a variance above the `r ATACseq_variance_probs_thresh*100`th percentile. This yields `r length(unique(ATACseq_selected$feature))` high variance genes in the heatmap.  
+
+cycIF Values  
+Select `r length(unique(cycIF_values$feature))` cycIF features based on their biological relevance  
+Median summarize the values across the replicates  
+
+GCP Values  
+Median summarize the values across the replicates  
+Select the GCP histones with a variance above the `r GCP_variance_probs_thresh*100`th percentile. This yields `r length(unique(GCP_selected$feature))` high variance histones in the heatmap.  
+
+IF Values  
+Filter out the CellMask intensities and use the remaining `r length(unique(IF_values$feature))` IF features  
+Median summarize the values across the replicates  
+
+RNAseq Values  
+A gene list representative of the largest gene expression changes across all ligand treatments was produced from differential expression analyses of each experimental condition compared to the control condition. For each experimental condition, a differential expression analysis was performed using the R package DESeq2 (1.24.0), with shrunken log2 fold change estimates calculated using the apeglm method. Each list was filtered to include only genes with an adjusted p value < 0.05, then ranked by the absolute value of their log2 fold change estimate. The 200 most differentially expressed genes per condition were selected. Redundant genes were removed, yielding a list of `r length(unique(RNAseq_selected$feature))` unique genes included in the heatmap.  
+
+RPPA Values  
+Median summarize the values across the replicates  
+Select the RPPA antibodies with a variance above the `r RPPA_variance_probs_thresh*100`th percentile. 
+This yields `r length(unique(RPPA_selected$feature))` high variance antibodies in the heatmap.  
+
+Clustering  
+kmeans clustering is used with k = `r clust_num` based on gap statistic analysis. The scatter plot above the heatmap shows the mean value for each cluster within each condition.  
+
+
+```{r featureTypes, fig.width=8, fig.height=4}
+#create a bar chart of the feature types
+df <- selected_assay_data_rr %>%
+  drop_na() %>%
+  select(feature, Type) %>%
+  distinct()
+p <- ggplot(df, aes(x = Type, fill = Type)) +
+  geom_bar() +
+  labs(title = paste("Type distribution of the",length(unique(df$feature)), "features in the MDD integrated dataset"),
+       x ="Feature type") +
+  theme(axis.text = element_text(angle = 90))
+p
+
+```
+
+###
+
+### cluster analysis
+
+```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
+#implement gap statistic analysis
+
+hafun <- function(x, k){
+    hm <- get_iheatmap(x, assay_name = "Prior knowledge, rrscale-transformed") %>%
+  format_hm(k = k, cluster_method = cluster_method)
+    Cluster <- hm@plots@listData$score@data %>%
+      as.data.frame() %>%
+      mutate(cluster = hm@plots@listData$Cluster@data) %>%
+      drop_na() %>%
+      dplyr::select(cluster) %>%
+      as.list()
+}
+
+ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
+ligand_order <- ligand_order[ligand_order %in% selected_assay_data_rr$ligand]
+
+df_as_matrix <- selected_assay_data_rr %>% 
+  filter(ligand %in% ligand_order) %>%
+spread(ligand, value) %>%
+  drop_na() %>%
+  gather(ligand, value, -Type, -feature, -experimentalTimePoint) %>%
+  prep_hm_matrix
+if(file.exists(paste0("R/gss_",cluster_method,"_assay_data.rda"))){
+  load(paste0("R/gss_",cluster_method,"_assay_data.rda"))
+} else {
+  gss <- clusGap(df_as_matrix, FUN = hafun, K.max = 20, B = 100, verbose = FALSE)
+  save(gss, file = paste0("R/gss_",cluster_method,"_assay_data.rda"))
+}
+
+plot_gap = function(x) {
+  gstab = data.frame(x$Tab, k = seq_len(nrow(x$Tab)))
+  ggplot(gstab, aes(k, gap)) + 
+    geom_line() +
+    geom_errorbar(aes(ymax = gap + SE.sim,
+                      ymin = gap - SE.sim), width=0.1) +
+    geom_point(size = 3, col=  "red") +
+    labs(title = paste("Gap analysis to determine cluster number,",cluster_method))
+}
+plot_gap(gss)
+
+```
+
+
+This analysis can be interpreted to select the number of clusters in the dataset. It is based on a method described in Modern Statistics for Modern Biology by Susan Holmes and Wolfgang Huber http://web.stanford.edu/class/bios221/book/Chap-Clustering.html and is excerpted below.  
+
+Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it to averages from simulated data with less structure can be a good way of choosing k. This is the basic idea of the gap statistic introduced by Tibshirani, Walther, and Hastie (2001). We compute log(WSSk) for a range of values of k, the number of clusters, and compare it to that obtained on reference data of similar dimensions with various possible ‘non-clustered’ distributions. We can use uniformly distributed data as we did above or data simulated with the same covariance structure as our original data.
+
+The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
+
+The first local maximum is k = 3 which does not yield informative clusters. The second local maximum is k = `r clust_num-1`. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value minus its standard error is less than this local maximum at `r clust_num-1`.  
+
+
+<bksp>
+
+<bksp>
+
+###
+
