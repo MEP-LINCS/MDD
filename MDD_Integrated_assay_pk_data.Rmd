@@ -1,5 +1,5 @@
 ---
-title: "MDD integrated data analysis"
+title: "MDD integrated data analysis by ligand"
 output: html_document
 ---
 
@@ -224,6 +224,11 @@ if(file.exists("R/assay_pk_data.rda")){
 } else {
   
 md <- read_csv("metadata/MDD_sample_annotations.csv")
+
+#read list of selected peaks to include in analysis
+  ATACseq_selected_peaks <- read_csv("ATACseq/Data/MDD_peakList200.csv") %>%
+  rename(feature = peak)
+
 #Read and and process ATACseq metadata
 ATACseq_metadata <- read_csv("ATACseq/Metadata/MDD_ATACseq_peakMetadata.csv") %>%
   select(peak, hgnc_symbol, annotation) %>%
@@ -236,12 +241,17 @@ ATACseq_values <- read_csv("ATACseq/Data/MDD_ATACseq_Level3.csv") %>%
   rename(feature = peak) %>%
   gather(specimenID, value = value, -feature) %>%
   left_join(md, by = "specimenID") %>%
+  inner_join(ATACseq_selected_peaks) %>%
   inner_join(ATACseq_metadata, by = c("feature" = "peak")) %>%
     mutate(feature = paste0(hgnc_symbol, "_ATAC")) %>%
   preprocess_level3(type = "ATAC") %>%
   group_by(ligand, experimentalTimePoint, feature, Type) %>%
   summarise(value = max(value)) %>%
   ungroup()
+
+#Read on the ATAC seq motif values
+ATACseq_motif_values <- read_csv("ATACseq/Data/MDD_ATACseq_MotifFamilyScores.csv")
+###ToDo merge with metadata and incorporate into analysis
 
 #Read in and process cycIF values
 biomarkers <- c("p21waf1cip1_3_af647cy5_int_mean_nuc",
@@ -435,6 +445,7 @@ if(file.exists("R/selected_assay_pk_data.rda")){
     mutate(Type = str_remove(Type, "seq"))
 } else {
   
+
 ATACseq_selected <- select_features(ATACseq_values, ATACseq_variance_probs_thresh)
 
 #filter RPPA features on variance
@@ -444,14 +455,37 @@ RPPA_selected <- select_features(RPPA_values, RPPA_variance_probs_thresh)
 GCP_selected <- select_features(GCP_values, GCP_variance_probs_thresh)
 
 #use RNAseq genes filterd on variance within each condition
-RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList200_1560genes.csv") %>%
-  mutate(feature= paste0(hgnc_symbol, "_RNAseq")) %>%
+RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList100_866genes.csv") %>%
+  mutate(feature= paste0(hgnc_symbol, "_RNA")) %>%
   dplyr::select(-hgnc_symbol)
 
 RNAseq_selected <- RNA_values %>%
   inner_join(RNAseq_variance_genes)
 
-selected_assay_pk_data <- bind_rows(ATACseq_selected, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected,  RPPA_selected, RPPA_pathways, TFs_values)
+# #Select top TFs of each ligand
+
+TFs_selected_names <- TFs_values %>%
+  spread(key = feature, value = value) %>%
+  group_by(ligand) %>%
+  summarise_if(is.numeric, min) %>%
+  ungroup %>%
+  gather(key = TF, value = Odds.Ratio, -experimentalTimePoint, -ligand) %>%
+  group_by(ligand) %>%
+  #filter(Odds.Ratio >= odds_ratio_thresh)%>%
+  arrange(Odds.Ratio) %>%
+  top_n(25) %>%
+  ungroup() %>%
+  spread(key = TF, value = Odds.Ratio) %>%
+  dplyr::select(-experimentalTimePoint, -ligand)
+
+TFs_selected <- TFs_values %>%
+  spread(key = feature, value = value)  %>%
+  dplyr::select(ligand, experimentalTimePoint, colnames(TFs_selected_names)) %>%
+  gather(feature, value, -experimentalTimePoint, -ligand) %>%
+  mutate(Type = "ChEA3TF") %>%
+  drop_na()
+
+selected_assay_pk_data <- bind_rows(ATACseq_selected, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected,  RPPA_selected, RPPA_pathways, TFs_selected)
 
 save(selected_assay_pk_data,
      ATACseq_selected,
@@ -462,7 +496,7 @@ save(selected_assay_pk_data,
      RNAseq_selected,
      RPPA_selected,
      RPPA_pathways,
-     TFs_values,
+     TFs_selected,
      file = "R/selected_assay_pk_data.rda")
 }
 
@@ -475,14 +509,17 @@ if(file.exists("R/selected_assay_pk_data_rr.rda")){
   ATACseq_selected_rr <- rrscale_assay(ATACseq_selected, zscore_cutoff = zscore_cutoff)
   cycIF_values_rr <- rrscale_assay(cycIF_values, zscore_cutoff = zscore_cutoff)
   GCP_selected_rr <- rrscale_assay(GCP_selected, zscore_cutoff = zscore_cutoff)
+    hallmark_pathways_rr <- rrscale_assay(hallmark_pathways, zscore_cutoff = zscore_cutoff)
   IF_values_selected_rr <- IF_values %>%
     filter(str_detect(feature, "Intensity"),
            !str_detect(feature, "Std")) %>%
     rrscale_assay(zscore_cutoff = zscore_cutoff)
   RPPA_selected_rr <- rrscale_assay(RPPA_selected, zscore_cutoff = zscore_cutoff)
+    RPPA_pathways_rr <- rrscale_assay(RPPA_pathways, zscore_cutoff = zscore_cutoff)
   RNAseq_selected_rr <- rrscale_assay(RNAseq_selected, zscore_cutoff = zscore_cutoff)
+    TFs_selected_rr <- rrscale_assay(TFs_selected, zscore_cutoff = zscore_cutoff)
 
-  selected_assay_pk_data_rr <-  bind_rows(ATACseq_selected_rr, cycIF_values_rr, GCP_selected_rr,  IF_values_selected_rr, RNAseq_selected_rr,  RPPA_selected_rr)
+  selected_assay_pk_data_rr <-  bind_rows(ATACseq_selected_rr, cycIF_values_rr, GCP_selected_rr,  hallmark_pathways_rr, IF_values_selected_rr, RNAseq_selected_rr,  RPPA_selected_rr, RPPA_pathways_rr, TFs_selected_rr)
   save(selected_assay_pk_data_rr, file = "R/selected_assay_pk_data_rr.rda")
 }
 
@@ -680,7 +717,7 @@ for(assay in unique(selected_assay_pk_data_rr$Type)){
                       colour = factor(Highlight),
                       size = Highlight)) +
     geom_point(alpha = .6) +
-    annotate("text",x = -5, y = -6, label = assay)+
+    annotate("text",x = -2, y = -6, label = assay)+
     scale_color_manual(values=c("grey", "slateblue1"))+
     scale_size_area(limits = c(0, 30)) +
     labs()+
@@ -696,13 +733,13 @@ for(assay in unique(selected_assay_pk_data_rr$Type)){
 
 ```{r UMAPbyCondition, fig.width=2.5, fig.height=2.5}
 
-df_UMAP_ligands <- colnames(df_UMAP)[str_detect(colnames(df_UMAP), "PBS|HGF|OSM|EG|BMP2|IFNG|TGFB")]
+df_UMAP_ligands <- colnames(df_UMAP)[str_detect(colnames(df_UMAP), "PBS|HGF|OSM|EGF|BMP2|IFNG|TGFB")]
 for(ligand in df_UMAP_ligands){
   p <- ggplot(df_UMAP, aes_string(x = "UMAP_1",
                          y = "UMAP_2",
                          colour = ligand)) +
   geom_point(size = .4, alpha = .6) +
-    annotate("text",x = -5, y = -6, label = ligand)+
+    annotate("text",x = -2, y = -6, label = ligand)+
   scale_color_gradient2(low = "blue4", mid = "azure",
   high = "red", midpoint = 0,) +
   labs()+
@@ -759,11 +796,11 @@ kmeans clustering is used with k = `r clust_num` based on gap statistic analysis
 #create a bar chart of the feature types
 df <- selected_assay_pk_data_rr %>%
   drop_na() %>%
-  select(feature, Type) %>%
+  select(feature, Type, experimentalTimePoint) %>%
   distinct()
 p <- ggplot(df, aes(x = Type, fill = Type)) +
   geom_bar() +
-  labs(title = paste("Type distribution of the",length(unique(df$feature)), "features in the MDD integrated dataset"),
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature, df$experimentalTimePoint))), "features in the MDD integrated dataset"),
        x ="Feature type") +
   theme(axis.text = element_text(angle = 90))
 p
