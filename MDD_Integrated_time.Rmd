@@ -28,19 +28,33 @@ load(data_path)
 
 ```{r interactiveHeatmaps, fig.height = 8}
 
-df_p <- selected_assay_pk_data_rr %>%
+df_0 <-  selected_assay_pk_data_rr %>%
   mutate(experimentalCondition = paste0(ligand,"_",experimentalTimePoint)) %>%
-  filter(experimentalTimePoint %in% c(24,48))
+  filter(experimentalTimePoint %in% c(0),
+         Type %in% c("cycIF", "GCP","RPPA", "RPPApathway")) %>%
+  select(feature, value, Type)
+
+df_p_subset <- selected_assay_pk_data_rr %>%
+  mutate(experimentalCondition = paste0(ligand,"_",experimentalTimePoint)) %>%
+  filter(experimentalTimePoint %in% c(4, 8, 24,48),
+         Type %in% c("cycIF", "GCP","RPPA", "RPPApathway"))
+
+df_p <- df_p_subset %>%
+  select(feature, ligand) %>%
+  distinct() %>%
+  left_join(df_0, by = "feature") %>%
+  mutate(experimentalTimePoint = 0,
+         experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  bind_rows(df_p_subset)
 
 df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "time") %>%
   t %>%
   as.matrix() %>%
-  rrscale::winsor() %>%
-  scale(scale = FALSE) %>%
+  scale() %>%
   t
 ann_df <- prep_hm_annotations(df_p, columns = "time")
 
-clust_num <- 5
+clust_num <- 10
 cluster_method = "kmeans"
 #setup for common cluster colors used in heatmap and ggplot
 cluster_cols <- RColorBrewer::brewer.pal(clust_num, "Paired")
