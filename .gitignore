@@ -54,6 +54,3 @@ rsconnect/
 #presentation files
 *.key
 *.ppt
-
-#subdirectories
-*/*
