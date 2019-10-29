@@ -1,5 +1,5 @@
 ---
-title: "MDD integrated data analysis by ligand"
+title: "MDD integrated data analysis by condition"
 output: html_document
 ---
 
@@ -15,6 +15,7 @@ source("R/MDD_functions.R")
 
 
 ```{r read_data_and_metadata}
+  
 data_path <- "Data/selected_assay_pk_data_rr.rda"
 if(!file.exists(data_path)) stop("cannot load ",data_path)
 load(data_path)
@@ -26,14 +27,16 @@ load(data_path)
 ### heatmap
 
 ```{r interactiveHeatmaps, fig.height = 8}
-df_p <- selected_assay_pk_data_rr
 
-df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "ligand") %>%
+df_p <- selected_assay_pk_data_rr %>%
+  mutate(experimentalCondition = paste0(ligand,"_",experimentalTimePoint))
+
+df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "condition") %>%
   t %>%
   as.matrix() %>%
   scale() %>%
   t
-ann_df <- prep_hm_annotations(df_p, columns = "ligand")
+ann_df <- prep_hm_annotations(df_p, columns = "condition")
 
 clust_num <- 10
 cluster_method = "kmeans"
@@ -71,39 +74,24 @@ plot(pca_obj)
 
 pca_df <- as_tibble(pca_obj$x) %>%
   mutate(feature = rownames(pca_obj$x),
-         Time = str_remove(feature,".*_"),
-         Time = as.integer(Time),
-         Type = str_extract(feature,"_(RNA|RPPA|cycIF|ATAC|GCP|IF)_"),
+         Type = str_extract(feature,"_(RNA|RPPA|cycIF|ATAC|GCP|IF)"),
          Type = str_remove_all(Type, "_")) %>%
   left_join(hm_data, by = c("feature", "Type")) %>%
   mutate(feature = str_remove(feature, "_.*"))
   
 
 pca_diagnostics_df <- as_tibble(pca_obj$rotation) %>%
-  mutate(ligand = rownames(pca_obj$rotation)) %>%
-  select(-PC7)
-
+  mutate(condition = rownames(pca_obj$rotation)) 
 ```
 
 ```{r pcaFigures}
 
-p <- ggplot(pca_df, aes(x = PC1, y = PC2, colour = factor(Time))) +
-              geom_point(alpha = .5)
-p
-
-p <- ggplot(pca_df, aes(x = PC3, y = PC4, colour = factor(Time))) +
-              geom_point(alpha = .5)
-p
 
 p <- ggplot(pca_df, aes(x = PC1, y = PC2, colour = factor(Type))) +
               geom_point(alpha = .5)
 p
 
 p <- ggplot(pca_df, aes(x = PC3, y = PC4, colour = factor(Type))) +
-              geom_point(alpha = .5)
-p
-
-p <- ggplot(pca_df, aes(x = PC5, y = PC6, colour = factor(Time))) +
               geom_point(alpha = .5)
 p
 
@@ -121,13 +109,13 @@ p
 
 
 df <- pca_diagnostics_df %>%
-  gather(PC, value, -ligand)
+  gather(PC, value, -condition)
 
-p <- ggplot(df, aes(x = PC, y = value, fill = ligand)) +
+p <- ggplot(df, aes(x = PC, y = value, fill = condition)) +
   geom_bar(stat = "identity", position = "dodge")
 p
 
-p <- ggplot(df, aes(x = ligand, y = value, fill = PC)) +
+p <- ggplot(df, aes(x = condition, y = value, fill = PC)) +
   geom_bar(stat = "identity", position = "dodge")
 p
 
@@ -185,7 +173,7 @@ p
 
 ```{r highlightAssay, fig.width=2.5, fig.height=2.5}
 
-for(assay in unique(df_p$Type)){
+for(assay in unique(df$Type)){
   regex_pat <- paste0("^",assay,"$")
   df <- df_UMAP %>%
     mutate(Highlight = str_extract(Type, regex_pat),
@@ -278,7 +266,7 @@ df <- df_p %>%
   distinct()
 p <- ggplot(df, aes(x = Type, fill = Type)) +
   geom_bar() +
-  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature, df$experimentalTimePoint))), "features in the MDD integrated dataset"),
+  labs(title = paste("Type distribution of the",length(unique(paste0(df_p$feature, df_p$experimentalTimePoint))), "features in the MDD integrated dataset"),
        x ="Feature type") +
   theme(axis.text = element_text(angle = 90))
 p
@@ -293,9 +281,9 @@ p
 #implement gap statistic analysis
 
 ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
-ligand_order <- ligand_order[ligand_order %in% df_p$ligand]
+ligand_order <- ligand_order[ligand_order %in% selected_assay_pk_data_rr$ligand]
 
-df_p_as_matrix <- df_p %>% 
+df_as_matrix <- df_p %>% 
   filter(ligand %in% ligand_order) %>%
 spread(ligand, value) %>%
   drop_na() %>%
@@ -304,7 +292,7 @@ spread(ligand, value) %>%
 if(file.exists(paste0("R/gss_",cluster_method,"_assay_data.rda"))){
   load(paste0("R/gss_",cluster_method,"_assay_data.rda"))
 } else {
-  gss <- clusGap(df_p_as_matrix, FUN = hafun, K.max = 20, B = 100, verbose = FALSE)
+  gss <- clusGap(df_as_matrix, FUN = hafun, K.max = 20, B = 100, verbose = FALSE)
   save(gss, file = paste0("R/gss_",cluster_method,"_assay_data.rda"))
 }
 
