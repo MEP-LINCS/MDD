@@ -49,7 +49,11 @@ rsconnect/
 *.csv
 *.tsv
 *.gct
+*.rda
 
 #presentation files
 *.key
 *.ppt
+
+#subdirectories
+*/*
