@@ -1,5 +1,5 @@
 ---
-title: "MDD integrated data analysis by ligand, with rrscale"
+title: "MDD integrated data analysis by ligand"
 output: html_document
 ---
 
