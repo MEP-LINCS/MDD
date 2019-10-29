@@ -51,13 +51,13 @@ prep_hm_matrix <- function(df, columns = "condition"){
       dplyr::select(feature, value, experimentalCondition) %>%
       spread(key = experimentalCondition, value = value, fill = median(df$value, na.rm = TRUE)) %>%
       dplyr::select(feature, condition_order)
-    #   drop_na()
     
     df_as_matrix <- df_sp %>%
       dplyr::select(-feature) %>%
       as.matrix()
     rownames(df_as_matrix) <- df_sp$feature
     return(df_as_matrix)
+    
   } else if(columns == "ligand") {
     ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
     
@@ -68,17 +68,34 @@ prep_hm_matrix <- function(df, columns = "condition"){
       dplyr::select(feature, value, ligand) %>%
       spread(key = ligand, value = value, fill = median(df$value, na.rm = TRUE)) %>%
       dplyr::select(feature, ligand_order)
-    #   drop_na()
     
     df_as_matrix <- df_sp %>%
       dplyr::select(-feature) %>%
       as.matrix()
     rownames(df_as_matrix) <- df_sp$feature
     return(df_as_matrix)
+    
   } else if(columns == "time") {
     #feature_ligand x time code
+    time_order <-c(0,1,4,8,24,48)
+    time_order <- time_order[time_order %in% df$experimentalTimePoint] %>%
+      paste0("T",.)
+    
+    df_sp <- df %>%
+      mutate(Time = paste0("T",experimentalTimePoint)) %>%
+      filter(Time %in% time_order) %>%
+      mutate(feature = paste0(feature,"_",ligand)) %>%
+      dplyr::select(feature, value, Time) %>%
+      spread(key = Time, value = value) %>%
+      dplyr::select(feature, time_order)
+    #removing median fill on missing data
+    df_as_matrix <- df_sp %>%
+      dplyr::select(-feature) %>%
+      as.matrix()
+    rownames(df_as_matrix) <- df_sp$feature
+    return(df_as_matrix)
+    
   } else stop("received columns value of ",columns, " which must be condition, ligand or time")
-  
 }
 
 prep_hm_annotations <- function(df, columns = "condition"){
@@ -107,7 +124,17 @@ prep_hm_annotations <- function(df, columns = "condition"){
       rename(Time = experimentalTimePoint)
     return(ann_df)
   } else if(columns == "time") {
-    #feature_ligand x time code
+    df_as_matrix <- prep_hm_matrix(df, columns = "time")
+    #create top annotations
+    ann_nv_pairs <- df %>%
+      dplyr::select(feature, Type, ligand) %>%
+      mutate(feature = paste0(feature, "_", ligand)) %>%
+      distinct()
+    
+    ann_df <- tibble(feature = rownames(df_as_matrix)) %>%
+      left_join(ann_nv_pairs, by = "feature") %>%
+      dplyr::select(Type, ligand)
+    return(ann_df)
   } else stop("received columns value of ",columns, " which must be condition, ligand or time")
   
 }

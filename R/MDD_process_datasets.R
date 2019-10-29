@@ -34,6 +34,7 @@ ATACseq_motif_values <- read_csv("ATACseq/Data/MDD_ATACseq_MotifFamilyScores.csv
   gather(specimenID, value, -family) %>%
   rename(feature = family) %>%
   left_join(md,by = "specimenID") %>%
+  mutate(feature = paste0(feature, "_motif")) %>%
   preprocess_level3("motifs")
 
 #Read in and process cycIF values
