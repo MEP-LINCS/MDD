@@ -46,7 +46,10 @@ assay_cols <- RColorBrewer::brewer.pal(length(unique(df_p$Type)), "Paired")
 names(assay_cols) <- unique(df_p$Type)
                             
 hm <- get_iheatmap(df_p_as_matrix, assay_name = "Selected assay data, rrscaled") %>%
-  format_hm(k = clust_num, cluster_method = cluster_method)
+  format_hm(k = clust_num,
+            cluster_method = cluster_method,
+            colors = cluster_cols,
+            type_colors = assay_cols)
 hm
 
 hm_data <- tibble(feature = names(hm@plots@listData$`Cluster(kmeans)`@data),
