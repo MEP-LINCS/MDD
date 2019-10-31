@@ -1,7 +1,7 @@
 ---
 title: "MDD figure 2 panel"
 date: "`r Sys.Date()`"
-output: pdf_document
+output: html_document
 
 ---
 
@@ -26,6 +26,8 @@ load_data <- function(assay_name, level = 4){
   } else if (str_detect(file_name, "tsv")){
     df <- read_tsv(file_name)
   } else stop("The data file ",file_name, " must be a csv or tsv file type")
+  df_g <- gather(df, key = "specimenID", value = "value", -feature)
+  return(df_g)
 } #end of function
 
 ```
@@ -49,8 +51,9 @@ ligand_cols <- c("ctrl" = "#7A4A2A",
 l3_data <- load_data(assay_name = "IF", level = 3)
 
 l3 <- read_csv("../Metadata/MDD_sample_annotations.csv") %>%
-  select(specimenID, ligand, experimentalCondition, secondLigand) %>%
-  right_join(l3_data, by=c("specimenID"))
+  select(specimenID, specimenName, ligand, experimentalCondition, secondLigand, experimentalTimePoint, collection, replicate) %>%
+  right_join(l3_data, by=c("specimenID")) %>%
+  spread(key = feature, value = value)
 
 ```
 
