@@ -220,9 +220,9 @@ get_TFs <- function(sheet, dir_path, pattern) {
            Library_only = str_replace(Library_only, " ", "--"))
 }
 
-hafun <- function(x, k){
-  hm <- get_iheatmap(x, assay_name = "Prior knowledge, rrscale-transformed") %>%
-    format_hm(k = k, cluster_method = cluster_method)
+hafun <- function(x, k, ...){
+  hm <- get_iheatmap(x, assay_name = "Prior knowledge, rrscale-transformed", ...) %>%
+    format_hm(k = k, cluster_method = cluster_method, ...)
   Cluster <- hm@plots@listData$score@data %>%
     as.data.frame() %>%
     mutate(cluster = hm@plots@listData$Cluster@data) %>%
