@@ -9,6 +9,7 @@ knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FAL
 suppressMessages(library(tidyverse))
 library(iheatmapr)
 library(umap)
+library(cluster)
 
 source("R/MDD_functions.R")
 ```
@@ -176,7 +177,7 @@ p
 
 ```{r highlightAssay, fig.width=2.5, fig.height=2.5}
 
-for(assay in unique(df$Type)){
+for(assay in unique(df_UMAP$Type)){
   regex_pat <- paste0("^",assay,"$")
   df <- df_UMAP %>%
     mutate(Highlight = str_extract(Type, regex_pat),
@@ -205,20 +206,25 @@ for(assay in unique(df$Type)){
 
 ```{r UMAPbyCondition, fig.width=2.5, fig.height=2.5}
 
-df_UMAP_ligands <- colnames(df_UMAP)[str_detect(colnames(df_UMAP), "PBS|HGF|OSM|EGF|BMP2|IFNG|TGFB")]
+df_UMAP_ligands <- colnames(df_UMAP)[str_detect(colnames(df_UMAP), "ctrl|PBS|HGF|OSM|EGF|BMP2|IFNG|TGFB")]
 for(ligand in df_UMAP_ligands){
   p <- ggplot(df_UMAP, aes_string(x = "UMAP_1",
                          y = "UMAP_2",
                          colour = ligand)) +
-  geom_point(size = .4, alpha = .6) +
+  geom_point(size = .4, alpha = .8) +
     annotate("text",x = -2, y = -6, label = ligand)+
-  scale_color_gradient2(low = "blue4", mid = "azure",
+  scale_color_gradient2(low = "blue4", mid = "lavenderblush1",
   high = "red", midpoint = 0,) +
   labs()+
     guides(colour = FALSE)+
-  theme_bw()+
+  # theme_bw()+
     theme(text = element_text(size = 1),
-          axis.title = element_blank())
+          axis.title = element_blank(),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.border =  element_rect(fill = "transparent"),
+panel.background = element_blank()
+)
 print(p)
 }
 
@@ -265,11 +271,12 @@ kmeans clustering is used with k = `r clust_num` based on gap statistic analysis
 #create a bar chart of the feature types
 df <- df_p %>%
   drop_na() %>%
-  select(feature, Type, experimentalTimePoint) %>%
+  select(feature, Type) %>%
   distinct()
 p <- ggplot(df, aes(x = Type, fill = Type)) +
   geom_bar() +
-  labs(title = paste("Type distribution of the",length(unique(paste0(df_p$feature, df_p$experimentalTimePoint))), "features in the MDD integrated dataset"),
+  scale_fill_manual(values = assay_cols) +
+  labs(title = paste("Type distribution of the",length(unique(df$feature)), "features in the MDD integrated dataset"),
        x ="Feature type") +
   theme(axis.text = element_text(angle = 90))
 p
@@ -282,20 +289,21 @@ p
 
 ```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
 #implement gap statistic analysis
+#Adding ctrl0 broke this gap statistic code
 
-ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
+ligand_order <-  c("ctrl", "PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
 ligand_order <- ligand_order[ligand_order %in% selected_assay_pk_data_rr$ligand]
 
 df_as_matrix <- df_p %>% 
   filter(ligand %in% ligand_order) %>%
-spread(ligand, value) %>%
+spread(experimentalCondition, value) %>%
   drop_na() %>%
   gather(ligand, value, -Type, -feature, -experimentalTimePoint) %>%
-  prep_hm_matrix(columns = "ligand")
+  prep_hm_matrix(columns = "condition")
 if(file.exists(paste0("R/gss_",cluster_method,"_assay_data.rda"))){
   load(paste0("R/gss_",cluster_method,"_assay_data.rda"))
 } else {
-  gss <- clusGap(df_as_matrix, FUN = hafun, K.max = 20, B = 100, verbose = FALSE)
+  gss <- clusGap(df_p_as_matrix, FUN = hafun, type_colors = assay_cols, K.max = 20, B = 100, verbose = FALSE)
   save(gss, file = paste0("R/gss_",cluster_method,"_assay_data.rda"))
 }
 
