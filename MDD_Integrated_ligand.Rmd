@@ -9,6 +9,7 @@ knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FAL
 suppressMessages(library(tidyverse))
 library(iheatmapr)
 library(umap)
+library(cluster)
 
 source("R/MDD_functions.R")
 ```
@@ -30,24 +31,32 @@ df_p <- selected_assay_pk_data_rr
 
 df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "ligand") %>%
   t %>%
-  as.matrix() %>%
   scale() %>%
   t
 ann_df <- prep_hm_annotations(df_p, columns = "ligand")
 
+colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")] <- paste0(colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")], "_EGF")
 clust_num <- 10
 cluster_method = "kmeans"
+#seed the kmeans clustering with a fixed, random set of points
+set.seed(42)
+centers <- df_p_as_matrix[sample(1:nrow(df_p_as_matrix), size = clust_num, replace = FALSE),]
+cluster_groups <- kmeans(df_p_as_matrix, clust_num, centers = centers)$cluster
 #setup for common cluster colors used in heatmap and ggplot
 cluster_cols <- RColorBrewer::brewer.pal(clust_num, "Paired")
 assay_cols <- RColorBrewer::brewer.pal(length(unique(df_p$Type)), "Paired")
 names(assay_cols) <- unique(df_p$Type)
-                            
+
 hm <- get_iheatmap(df_p_as_matrix, assay_name = "Selected assay data, rrscaled") %>%
-  format_hm(k = clust_num, cluster_method = cluster_method)
+  format_hm(k = clust_num,
+            cluster_method = cluster_method,
+            colors = cluster_cols,
+            type_colors = assay_cols,
+            groups = cluster_groups)
 hm
 
-hm_data <- tibble(feature = names(hm@plots@listData$`Cluster(kmeans)`@data),
-                  Cluster = hm@plots@listData$`Cluster(kmeans)`@data,
+hm_data <- tibble(feature = names(hm@plots@listData$Cluster@data),
+                  Cluster = hm@plots@listData$Cluster@data,
                   Type = hm@plots@listData$Type@text)
 
 df_p_sp <- df_p_as_matrix %>%
@@ -55,6 +64,8 @@ df_p_sp <- df_p_as_matrix %>%
   rownames_to_column("feature") %>%
   left_join(hm_data, by = "feature")
 
+
+write_csv(df_p_sp, "MDD_ligand.csv")
 ```
 
 
@@ -292,20 +303,20 @@ p
 ```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
 #implement gap statistic analysis
 
-ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
-ligand_order <- ligand_order[ligand_order %in% df_p$ligand]
-
-df_p_as_matrix <- df_p %>% 
-  filter(ligand %in% ligand_order) %>%
-spread(ligand, value) %>%
-  drop_na() %>%
-  gather(ligand, value, -Type, -feature, -experimentalTimePoint) %>%
-  prep_hm_matrix(columns = "ligand")
-if(file.exists(paste0("R/gss_",cluster_method,"_assay_data.rda"))){
-  load(paste0("R/gss_",cluster_method,"_assay_data.rda"))
+# ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
+# ligand_order <- ligand_order[ligand_order %in% df_p$ligand]
+# 
+# df_p_as_matrix <- df_p %>% 
+#   filter(ligand %in% ligand_order) %>%
+# spread(ligand, value) %>%
+#   drop_na() %>%
+#   gather(ligand, value, -Type, -feature, -experimentalTimePoint) %>%
+#   prep_hm_matrix(columns = "ligand")
+if(file.exists(paste0("R/gss_",cluster_method,"_ligand_data.rda"))){
+  load(paste0("R/gss_",cluster_method,"_ligand_data.rda"))
 } else {
-  gss <- clusGap(df_p_as_matrix, FUN = hafun, K.max = 20, B = 100, verbose = FALSE)
-  save(gss, file = paste0("R/gss_",cluster_method,"_assay_data.rda"))
+  gss <- clusGap(df_p_as_matrix, FUN = kmeans, K.max = 20, B = 100, verbose = FALSE)
+  save(gss, file = paste0("R/gss_",cluster_method,"_ligand_data.rda"))
 }
 
 plot_gap(gss)

@@ -306,11 +306,11 @@ p
 #   drop_na() %>%
 #   gather(ligand, value, -Type, -feature, -experimentalTimePoint) %>%
 #   prep_hm_matrix(columns = "condition")
-if(file.exists(paste0("R/gss_",cluster_method,"_assay_data.rda"))){
-  load(paste0("R/gss_",cluster_method,"_assay_data.rda"))
+if(file.exists(paste0("R/gss_",cluster_method,"_condition_data.rda"))){
+  load(paste0("R/gss_",cluster_method,"_condition_data.rda"))
 } else {
   gss <- clusGap(df_p_as_matrix, FUN = kmeans, K.max = 17, B = 50, verbose = FALSE)
-  save(gss, file = paste0("R/gss_",cluster_method,"_assay_data.rda"))
+  save(gss, file = paste0("R/gss_",cluster_method,"_condition_data.rda"))
 }
 
 plot_gap(gss)
@@ -340,10 +340,6 @@ The default choice for the number of clusters, k1, is the first value of k for w
 
 The first local maximum is k = 3 which does not yield informative clusters. The second local maximum is k = `r clust_num-1`. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value minus its standard error is less than this local maximum at `r clust_num-1`.  
 
-
-<bksp>
-
-<bksp>
 
 ###
 
