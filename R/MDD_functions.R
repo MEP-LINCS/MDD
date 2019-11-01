@@ -145,10 +145,10 @@ get_iheatmap <- function(df_as_matrix, ...) {
                      name = "score")
 }
 
-format_hm <- function(hm, k = 6, cluster_method = "hclust", type_colors = NULL, ...){
+format_hm <- function(hm, k = 6, cluster_method = "hclust", type_colors = NULL, groups = NULL, ...){
   hm_mod<- hm %>%
-    add_row_labels(font = list(size = 4),
-                   side = "right") %>%
+    # add_row_labels(font = list(size = 4),
+    #                side = "right") %>%
     add_col_labels() %>%
     add_row_annotation(ann_df,
                        side = "left",
@@ -157,9 +157,10 @@ format_hm <- function(hm, k = 6, cluster_method = "hclust", type_colors = NULL, 
     modify_layout(list(margin = list(r = 120)))
   if(!k==0){
     hm_mod <- hm_mod %>%
-      add_row_clustering(name = paste0("Cluster(",cluster_method,")"),
+      add_row_clustering(name = "Cluster",
                          k = k,
                          method = cluster_method,
+                         groups = groups,
                          colors = cluster_cols)
   }
   return(hm_mod)
