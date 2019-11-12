@@ -4,7 +4,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
 
 suppressMessages(library(tidyverse))
 library(plotly)
@@ -151,9 +151,9 @@ p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_
 
 p
 
-# pdf(file = "MDD_RPPA_linegraphs.pdf", height =4)
-# p
-# dev.off()
+pdf(file = "MDD_RPPA_linegraphs.pdf", height =4)
+p
+dev.off()
 
 ```
 
@@ -190,7 +190,9 @@ p <- ggplot(df, aes(x = Time_24, y = Time_48, colour = Pathway, label = feature)
        x = "24 hours",
        y = "48 hours") +
   theme_bw()
-ggplotly(p)
+pdf("RPPA_IFNG_24_48.pdf")
+print(p)
+dev.off()
 
 ```
 
