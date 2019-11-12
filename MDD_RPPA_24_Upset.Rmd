@@ -19,9 +19,11 @@ library(DT)
 
 ```{r read_data_and_metadata}
 
-load("R/selected_pk_data.rda")
+load("Data/selected_assay_pk_data.rda")
 
 df_sp <- RPPA_selected %>%
+  mutate(experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(experimentalCondition, feature, Type, value) %>%
   spread(experimentalCondition, value) 
 
 cor_mat <- df_sp %>%
@@ -68,16 +70,18 @@ set_membership <- function(x, zscore_thresh){
 }
 
 df <- RPPA_selected %>%
+  mutate(experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(experimentalCondition, feature, Type, value) %>%
   filter(str_detect(experimentalCondition, "_24")) %>%
-    group_by(feature) %>%
+  group_by(feature) %>%
   mutate(value = value/median(value)) %>%
   ungroup() %>%
   mutate(value = log2(value),
          direction = set_membership(value, zscore_thresh = zscore_thresh),
          direction = as.character(direction),
          direction = str_replace(direction, "-1", "down"),
-        direction = str_replace(direction, "1", "up"),
-        direction = factor(direction, ordered = TRUE, levels = c("up","down")),
+         direction = str_replace(direction, "1", "up"),
+         direction = factor(direction, ordered = TRUE, levels = c("up","down")),
          experimentalCondition = factor(experimentalCondition, levels = c("PBS_24",  "TGFB_24", "IFNG_24", "OSM_24",  "EGF_24","HGF_24", "BMP2_24"), ordered = TRUE)) %>%
   filter(!direction == 0) %>%
   arrange(direction)
@@ -97,6 +101,8 @@ p
 dev.off()
 
 df_mc <- RPPA_selected %>%
+  mutate(experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(experimentalCondition, feature, Type, value) %>%
   filter(str_detect(experimentalCondition, "_24")) %>%
   group_by(feature) %>%
   mutate(value = value/median(value)) %>%
@@ -109,13 +115,15 @@ df_mc <- RPPA_selected %>%
   as.data.frame()
 
 upset(df_mc, nsets = 25, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
-    mainbar.y.label = "Set Intersections", sets.x.label = "Total Features Per Condition", 
-    text.scale = c(1.3, 1.3, 1, 1, 1, 1),
-    mb.ratio = c(0.5, 0.5))
+      mainbar.y.label = "Set Intersections", sets.x.label = "Total Features Per Condition", 
+      text.scale = c(1.3, 1.3, 1, 1, 1, 1),
+      mb.ratio = c(0.5, 0.5))
 
 #datatable(df)
 
 df_mc <- RPPA_selected %>%
+  mutate(experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(experimentalCondition, feature, Type, value) %>%
   filter(str_detect(experimentalCondition, "_24")) %>%
   group_by(feature) %>%
   mutate(value = value/median(value)) %>%
@@ -143,6 +151,8 @@ set_membership_up <- function(x, zscore_thresh = 1.5){
 }
 
 df_mc <- RPPA_selected %>%
+      mutate(experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(experimentalCondition, feature, Type, value) %>%
   filter(str_detect(experimentalCondition, "_24")) %>%
    group_by(feature) %>%
   mutate(value = value/median(value)) %>%
@@ -158,7 +168,15 @@ upset(df_mc, nsets = 25, number.angles = 30, point.size = 3.5, line.size = 2, ni
     text.scale = c(1.3, 1.3, 1, 1, 1, 1),
     mb.ratio = c(0.5, 0.5))
 
+pdf("RPPA_24_upset_up.pdf")
+upset(df_mc, nsets = 25, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
+    mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
+    text.scale = c(1.3, 1.3, 1, 1, 1, 1),
+    mb.ratio = c(0.5, 0.5))
+dev.off()
 df_mc <- RPPA_selected %>%
+      mutate(experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(experimentalCondition, feature, Type, value) %>%
   filter(str_detect(experimentalCondition, "_24")) %>%
   group_by(feature) %>%
   mutate(value = value/median(value)) %>%
@@ -182,6 +200,8 @@ set_membership_down <- function(x, zscore_thresh = 1.5){
   return(res)
 }
 df_mc <- RPPA_selected %>%
+        mutate(experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(experimentalCondition, feature, Type, value) %>%
    filter(str_detect(experimentalCondition, "_24")) %>%
    group_by(feature) %>%
   mutate(value = value/median(value)) %>%
@@ -197,7 +217,16 @@ upset(df_mc, nsets = 25, number.angles = 30, point.size = 3.5, line.size = 2, ni
     text.scale = c(1.3, 1.3, 1, 1, 1, 1),
     mb.ratio = c(0.5, 0.5))
 
+pdf("RPPA_24_upset_down.pdf")
+upset(df_mc, nsets = 25, number.angles = 30, point.size = 3.5, line.size = 2, nintersects = 40, order = "freq",
+    mainbar.y.label = "Condition sets Intersections", sets.x.label = "Total Features Per Condition", 
+    text.scale = c(1.3, 1.3, 1, 1, 1, 1),
+    mb.ratio = c(0.5, 0.5))
+dev.off()
+
 df_mc <- RPPA_selected %>%
+        mutate(experimentalCondition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(experimentalCondition, feature, Type, value) %>%
   filter(str_detect(experimentalCondition, "_24")) %>%
   group_by(feature) %>%
   mutate(value = value/median(value)) %>%
