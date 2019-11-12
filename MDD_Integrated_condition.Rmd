@@ -39,7 +39,7 @@ df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "condition") %>%
 ann_df <- prep_hm_annotations(df_p, columns = "condition")
 
   colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")] <- str_replace(colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")], "_","_EGF_")
-clust_num <- 11
+clust_num <- 10
 cluster_method = "kmeans"
 #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
@@ -264,7 +264,7 @@ Filter out the CellMask intensities and use the remaining  intensity IF features
 Median summarize the values across the replicates  
 
 RNAseq Values  
-A gene list representative of the largest gene expression changes across all ligand treatments was produced from differential expression analyses of each experimental condition compared to the control condition. For each experimental condition, a differential expression analysis was performed using the R package DESeq2 (1.24.0), with shrunken log2 fold change estimates calculated using the apeglm method. Each list was filtered to include only genes with an adjusted p value < 0.05, then ranked by the absolute value of their log2 fold change estimate. The 50 most differentially expressed genes per condition were selected. Redundant genes were removed.
+A gene list representative of the largest gene expression changes across all ligand treatments was produced from differential expression analyses of each experimental condition compared to the control condition. For each experimental condition, a differential expression analysis was performed using the R package DESeq2 (1.24.0), with shrunken log2 fold change estimates calculated using the apeglm method. Each list was filtered to include only genes with an adjusted p value < 0.05, then ranked by the absolute value of their log2 fold change estimate. The 100 most differentially expressed genes per condition were selected. Redundant genes were removed.
 
 RPPA Values  
 Median summarize the values across the replicates  
@@ -338,7 +338,7 @@ Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it t
 
 The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
 
-The first local maximum is k = 3 which does not yield informative clusters. The second local maximum is k = `r clust_num-1`. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value minus its standard error is less than this local maximum at `r clust_num-1`.  
+The first local maximum is k = `r clust_num-1`. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value minus its standard error is less than this local maximum at `r clust_num-1`.  
 
 
 ###
