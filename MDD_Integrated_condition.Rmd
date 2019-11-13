@@ -74,6 +74,35 @@ write_csv(df_p_sp, "MDD_condition.csv")
 
 ###
 
+### Correlations
+
+###
+
+
+```{r}
+df_a <- df_p_sp %>%
+  arrange(Cluster, feature)
+
+df <- df_a %>%
+  select(-Cluster, -Type)
+
+df_cl <- df_a %>%
+  select(feature, Cluster)
+
+dfm <- df %>%
+  select(-feature) %>%
+  t
+colnames(dfm) <- df$feature
+  
+df_cor <- dfm %>%
+  cor %>%
+  signif(4) %>%
+  as_tibble(rownames = "feature") %>%
+  left_join(df_cl, by = "feature") %>%
+  select(feature, Cluster, everything())
+write_csv(df_cor, "MDD_integrated_cluster_correlations.csv")
+
+```
 
 ### PCA  
 
