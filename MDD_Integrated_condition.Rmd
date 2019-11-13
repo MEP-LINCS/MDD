@@ -49,7 +49,7 @@ cluster_groups <- kmeans(df_p_as_matrix, clust_num, centers = centers)$cluster
 cluster_cols <- RColorBrewer::brewer.pal(clust_num, "Paired")
 assay_cols <- RColorBrewer::brewer.pal(length(unique(df_p$Type)), "Paired")
 names(assay_cols) <- unique(df_p$Type)
-                            
+
 hm <- get_iheatmap(df_p_as_matrix, assay_name = "Selected assay data, rrscaled") %>%
   format_hm(k = clust_num,
             cluster_method = cluster_method,
@@ -74,7 +74,46 @@ write_csv(df_p_sp, "MDD_condition.csv")
 
 ###
 
-### Correlations
+### Cluster heatmaps
+
+```{r}
+
+cluster_method <- "hclust"
+
+clusters <- lapply(1:clust_num, function(cl_select){
+  df_p_sp_sel <- df_p_sp %>%
+    filter(Cluster == cl_select)
+  
+  df_sel_ann <- df_p_sp_sel %>%
+    select(Cluster, Type)
+  
+  df_m <- df_p_sp_sel %>%
+    select(-feature, -Cluster, -Type) %>%
+    as.matrix()
+  rownames(df_m) <- df_p_sp_sel$feature
+  
+  hm <- get_iheatmap(df_m, assay_name = "Selected assay data, rrscaled")%>%
+    add_col_labels() %>%
+    add_row_annotation(df_sel_ann,
+                       side = "left",
+                       size = 0.05,
+                       colors = list("Cluster" = cluster_cols)) %>%
+    add_row_clustering(method = "hclust")
+  return(hm)
+})
+  
+clusters[[1]]
+clusters[[2]]
+clusters[[3]]
+clusters[[4]]
+clusters[[5]]
+clusters[[6]]
+clusters[[7]]
+clusters[[8]]
+clusters[[9]]
+clusters[[10]]
+
+```
 
 ###
 
