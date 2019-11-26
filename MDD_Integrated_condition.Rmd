@@ -83,7 +83,11 @@ cluster_method <- "hclust"
 clusters <- lapply(1:clust_num, function(cl_select){
   df_p_sp_sel <- df_p_sp %>%
     filter(Cluster == cl_select)
-  
+  res <- df_p_sp_sel %>%
+    select(feature) %>%
+    mutate(feature = str_remove(feature, "_RNA|_ATAC|_RPPA|_motif|_TF")) %>%
+    filter(!str_detect(feature,"Intensity|SIGNALING|factors|_IF|[ ]")) %>%
+    write_csv(paste0("cluster_",cl_select,"_genes.csv"),col_names = FALSE)
   df_sel_ann <- df_p_sp_sel %>%
     select(Cluster, Type)
   
