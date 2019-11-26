@@ -1,3 +1,5 @@
+suppressMessages(library(ComplexHeatmap))
+
 #process all data from all assays
 preprocess_level3 <- function(df, type){
   df_pp <- df %>%
@@ -240,4 +242,50 @@ plot_gap = function(x) {
                       ymin = gap - SE.sim), width=0.1) +
     geom_point(size = 3, col=  "red") +
     labs(title = paste("Gap analysis to determine cluster number,",cluster_method))
+}
+
+
+plot_correlation <- function(df, md, assay_name, EGF_normed = TRUE,
+                             ligand_cols = c( "PBS" = "#8dd3c7",
+                                              "HGF" = "#80b1d3",
+                                              "OSM" = "#fdb462",
+                                              "EGF" = "#fb8072",
+                                              "BMP2" = "#b3de69",
+                                              "IFNG" = "#bebada",
+                                              "TGFB" = "#ffd92f"),
+                             ligand_2_cols = c("EGF" = "#ff0000",
+                                               "None" = "#00000000")){
+  #calculate correlations across the conditions and show in a heatmap
+  
+  #convert specimenID column names to specimanName, reorder delete EGF samples
+  df <- prep_data(df, md) 
+  
+  title_suffix <- ""
+  if(EGF_normed){
+    title_suffix <- ", EGF Normalized"
+    df <- df %>%
+      dplyr::select(-matches("EGF"))
+  }
+  #Create annotation values
+  #df_ann <-prep_annotations(df, md)
+  
+  haRow <- create_row_annotations(df, md)
+  
+  #Create the heatmap
+  Heatmap(matrix = dplyr::select(df, -feature) %>%
+            as.matrix() %>%
+            t %>%
+            scale(scale = FALSE) %>%
+            t %>%
+            cor(use = "complete.obs",method = "spearman"),
+          name = "correlation",
+          column_title = paste0("Correlation of ",assay_name, title_suffix),
+          top_annotation = create_top_annotations(df, md),
+          left_annotation = haRow,
+          show_row_names = FALSE,
+          show_column_names = FALSE,
+          cluster_rows = FALSE,
+          cluster_columns = FALSE,
+          col = circlize::colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+          na_col = "grey")
 }
