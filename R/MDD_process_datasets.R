@@ -1,5 +1,6 @@
 #create datasets from public MDD data files
-
+library(tidyverse)
+library(rrscale)
 source("R/MDD_functions.R")
 md <- read_csv("metadata/MDD_sample_annotations.csv")
 
@@ -222,8 +223,8 @@ save(assay_pk_data,
 
 #Create selected dataset
 ATACseq_variance_probs_thresh <- 0
-GCP_variance_probs_thresh <- 0
-RPPA_variance_probs_thresh <- 0
+GCP_variance_probs_thresh <- 0.25
+RPPA_variance_probs_thresh <- 0.25
 
 ATACseq_selected <- ATACseq_values
 
@@ -234,7 +235,7 @@ RPPA_selected <- select_features(RPPA_values, RPPA_variance_probs_thresh)
 GCP_selected <- select_features(GCP_values, GCP_variance_probs_thresh)
 
 #use RNAseq genes filterd on variance within each condition
-RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList_50.csv") %>%
+RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList100_866genes.csv") %>%
   mutate(feature= paste0(hgnc_symbol, "_RNA")) %>%
   dplyr::select(-hgnc_symbol)
 
