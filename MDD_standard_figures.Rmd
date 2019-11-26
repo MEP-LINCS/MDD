@@ -263,8 +263,7 @@ plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name,
   windsorize_probs <- get_win_probs(df, .01, .99)
   
   #convert specimenID column names to specimanName and reorder
-  df <- prep_data(df, md) %>%
-    dplyr::select(-matches("EGF"))
+  df <- prep_data(df, md)
   
     if(select_timepoint){
     df <- df %>%
@@ -435,9 +434,9 @@ var_thresh_percentile <- 0
 
 plot_heatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, mark_rows = c("Caspase-7-cleaved", "c-Myc",  "Connexin-43", "DUSP4", "EGFR", "EMA", "HER2", "IRF-1", "PD-L1", "Stat3_pY705"))
 
-# pdf("MDD_RPPA_heatmap.pdf")
-# plot_heatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, mark_rows = c("Caspase-7-cleaved", "c-Myc",  "Connexin-43", "DUSP4", "EGFR", "EMA", "HER2", "IRF-1", "PD-L1", "Stat3_pY705"))
-# dev.off()
+pdf("MDD_RPPA_heatmap.pdf")
+plot_heatmap(RPPA_l1, md, assay_name = "RPPA", EGF_normed = FALSE, var_thresh_percentile = var_thresh_percentile, mark_rows = c("Caspase-7-cleaved", "c-Myc",  "Connexin-43", "DUSP4", "EGFR", "EMA", "HER2", "IRF-1", "PD-L1", "Stat3_pY705"))
+dev.off()
 ```
 
 #### Line graphs
@@ -456,9 +455,9 @@ plot_line_graphs(df = RPPA_l1, md, ligand_cols = ligand_cols, EGF_normed = FALSE
 ```{r}
 
 plot_umap(RPPA_l1, md, ligand_cols = ligand_cols, assay_name = "RPPA")
-# pdf("MDD_RPPA_UMAP.pdf")
-# plot_umap(RPPA_l1, md, ligand_cols = ligand_cols, assay_name = "RPPA")
-# dev.off()
+pdf("MDD_RPPA_UMAP.pdf")
+plot_umap(RPPA_l1, md, ligand_cols = ligand_cols, assay_name = "RPPA")
+dev.off()
 
 ```
 
