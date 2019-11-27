@@ -39,7 +39,7 @@ df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "condition") %>%
 ann_df <- prep_hm_annotations(df_p, columns = "condition")
 
   colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")] <- str_replace(colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")], "_","_EGF_")
-clust_num <- 10
+clust_num <- 8
 cluster_method = "kmeans"
 #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
@@ -114,8 +114,6 @@ clusters[[5]]
 clusters[[6]]
 clusters[[7]]
 clusters[[8]]
-clusters[[9]]
-clusters[[10]]
 
 ```
 

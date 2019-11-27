@@ -174,7 +174,7 @@ rrscale_assay <- function(df_long, zscore_cutoff = Inf){
     spread(feature, value)
   if("experimentalCondition" %in% colnames(df_sp)) {
     rr_objects <- df_sp %>%
-      select(-Type, -experimentalCondition) %>%
+      dplyr::select(-Type, -experimentalCondition) %>%
       as.matrix() %>%
       rrscale(zeros = 0.01,z = zscore_cutoff)
     
@@ -182,12 +182,12 @@ rrscale_assay <- function(df_long, zscore_cutoff = Inf){
       as_tibble()
     
     df_rr <- df_sp %>%
-      select(experimentalCondition, Type) %>%
+      dplyr::select(experimentalCondition, Type) %>%
       bind_cols(rr_mat) %>%
       gather("feature", "value", -Type, -experimentalCondition)
   } else {
     rr_objects <- df_sp %>%
-      select(-Type, -ligand, -experimentalTimePoint) %>%
+      dplyr::select(-Type, -ligand, -experimentalTimePoint) %>%
       as.matrix() %>%
       rrscale(zeros = 0.01,z = zscore_cutoff)
     
@@ -195,7 +195,7 @@ rrscale_assay <- function(df_long, zscore_cutoff = Inf){
       as_tibble()
     
     df_rr <- df_sp %>%
-      select(ligand, experimentalTimePoint, Type) %>%
+      dplyr::select(ligand, experimentalTimePoint, Type) %>%
       bind_cols(rr_mat) %>%
       gather("feature", "value", -Type, -ligand, -experimentalTimePoint)
   }

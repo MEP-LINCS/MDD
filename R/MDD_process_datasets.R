@@ -6,7 +6,7 @@ md <- read_csv("metadata/MDD_sample_annotations.csv")
 
 #Read and and process ATACseq metadata
 ATACseq_metadata <- read_csv("ATACseq/Metadata/MDD_ATACseq_peakMetadata.csv") %>%
-  select(peak, hgnc_symbol, annotation) %>%
+  dplyr::select(peak, hgnc_symbol, annotation) %>%
   drop_na() %>%
   #filter(str_detect(annotation, "Promoter|3' UTR|5' UTR|1st Exon")) %>%
   dplyr::select(-annotation)
@@ -89,7 +89,7 @@ cycIF_values <- read_csv("cycIF/Data/MDD_cycIF_Level3.csv") %>%
          vimentin_3_af555cy3_int_mean_cell = (vimentin_3_af555cy3_int_mean_nuc + vimentin_3_af555cy3_int_mean_cytoplasm)/2,
          cytokeratin7human_4_af555cy3_int_mean_cell = (cytokeratin7human_4_af555cy3_int_mean_nuc + cytokeratin7human_4_af555cy3_int_mean_cytoplasm)/2,
          cytokeratin18_7_af488fitc_int_mean_cell = (cytokeratin18_7_af488fitc_int_mean_nuc + cytokeratin18_7_af488fitc_int_mean_cytoplasm)/2) %>%
-  select(-egfr_2_af488fitc_int_mean_nuc,
+  dplyr::select(-egfr_2_af488fitc_int_mean_nuc,
          -egfr_2_af488fitc_int_mean_cytoplasm,
          -met_6_af488fitc_int_mean_nuc,
          -met_6_af488fitc_int_mean_cytoplasm,
@@ -135,12 +135,12 @@ hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
   mutate(experimentalTimePoint = str_remove(condition, ".*_"),
          experimentalTimePoint = as.integer(experimentalTimePoint),
          ligand = str_remove(condition, "_.*")) %>%
-  select(-condition) %>%
+  dplyr::select(-condition) %>%
   preprocess_level3(type =  "Hallmark")
 
 #Read in and process IF values
 IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
-  select(-ImageNumber, -barcode, -WellIndex, -collection, -ligand) %>%
+  dplyr::select(-ImageNumber, -barcode, -WellIndex, -collection, -ligand) %>%
   gather(feature, value, -specimenName, -time, -replicate) %>%
   mutate(experimentalTimePoint = time,
          experimentalCondition = str_remove(specimenName, "_C[12]_."),
@@ -182,7 +182,7 @@ RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
   mutate(experimentalTimePoint = str_remove(condition, ".*_"),
          experimentalTimePoint = as.integer(experimentalTimePoint),
          ligand = str_remove(condition, "_.*")) %>%
-  select(-condition) %>%
+  dplyr::select(-condition) %>%
   preprocess_level3(type =  "RPPApathway")
 
 TFs <- get_TFs(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
@@ -204,10 +204,9 @@ TFs_values <- TFs_input %>%
   mutate(experimentalTimePoint = str_remove(condition, ".*_"),
          experimentalTimePoint = as.integer(experimentalTimePoint),
          ligand = str_remove(condition, "_.*")) %>%
-  select(-condition)
+  dplyr::select(-condition)
 
-assay_pk_data <- bind_rows(ATACseq_values,
-                           ATACseq_motif_values,
+assay_pk_data <- bind_rows(ATACseq_motif_values,
                            cycIF_values,
                            GCP_values,
                            hallmark_pathways,
@@ -235,7 +234,7 @@ RPPA_selected <- select_features(RPPA_values, RPPA_variance_probs_thresh)
 GCP_selected <- select_features(GCP_values, GCP_variance_probs_thresh)
 
 #use RNAseq genes filterd on variance within each condition
-RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList100_866genes.csv") %>%
+RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList_lfc15.csv") %>%
   mutate(feature= paste0(hgnc_symbol, "_RNA")) %>%
   dplyr::select(-hgnc_symbol)
 
@@ -264,7 +263,7 @@ TFs_selected <- TFs_values %>%
   mutate(Type = "ChEA3TF") %>%
   drop_na()
 
-selected_assay_pk_data <- bind_rows(ATACseq_selected, ATACseq_motif_values, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected,  RPPA_selected, RPPA_pathways, TFs_selected)
+selected_assay_pk_data <- bind_rows(ATACseq_motif_values, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected,  RPPA_selected, RPPA_pathways, TFs_selected)
 
 save(selected_assay_pk_data,
      ATACseq_selected,
@@ -294,8 +293,7 @@ zscore_cutoff <- Inf
   RNAseq_selected_rr <- rrscale_assay(RNAseq_selected, zscore_cutoff = zscore_cutoff)
   TFs_selected_rr <- rrscale_assay(TFs_selected, zscore_cutoff = zscore_cutoff)
   
-  selected_assay_pk_data_rr <-  bind_rows(ATACseq_selected_rr,
-                                          ATACseq_motifs_rr,
+  selected_assay_pk_data_rr <-  bind_rows(ATACseq_motifs_rr,
                                           cycIF_values_rr,
                                           GCP_selected_rr,
                                           hallmark_pathways_rr,
