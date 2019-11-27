@@ -36,7 +36,7 @@ df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "ligand") %>%
 ann_df <- prep_hm_annotations(df_p, columns = "ligand")
 
 colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")] <- paste0(colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")], "_EGF")
-clust_num <- 9
+clust_num <- 8
 cluster_method = "kmeans"
 #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
