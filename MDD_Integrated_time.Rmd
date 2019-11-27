@@ -54,7 +54,7 @@ df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "time") %>%
   t
 ann_df <- prep_hm_annotations(df_p, columns = "time")
 
-clust_num <- 5
+clust_num <- 6
 cluster_method = "kmeans"
 #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
