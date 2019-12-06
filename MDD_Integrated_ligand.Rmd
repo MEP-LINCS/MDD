@@ -10,6 +10,7 @@ suppressMessages(library(tidyverse))
 library(iheatmapr)
 library(umap)
 library(cluster)
+library(plotly)
 
 source("R/MDD_functions.R")
 ```
@@ -70,6 +71,74 @@ write_csv(df_p_sp, "MDD_ligand.csv")
 
 
 
+### Cluster heatmaps
+
+```{r}
+
+clusters <- lapply(1:clust_num, function(cl_select){
+  df_p_sp_sel <- df_p_sp %>%
+    filter(Cluster == cl_select)
+  res <- df_p_sp_sel %>%
+    select(feature) %>%
+    mutate(feature = str_remove(feature, "_RNA|_ATAC|_RPPA|_motif|_TF")) %>%
+    filter(!str_detect(feature,"Intensity|SIGNALING|factors|_IF|[ ]")) %>%
+    write_csv(paste0("MDD_ligand_cluster_",cl_select,"_genes.csv"),col_names = FALSE)
+  df_sel_ann <- df_p_sp_sel %>%
+    select(Cluster, Type)
+  
+  df_m <- df_p_sp_sel %>%
+    select(-feature, -Cluster, -Type) %>%
+    as.matrix()
+  rownames(df_m) <- df_p_sp_sel$feature
+  
+  hm <- get_iheatmap(df_m, assay_name = "Selected assay data, rrscaled")%>%
+    add_col_labels() %>%
+    add_row_annotation(df_sel_ann,
+                       side = "left",
+                       size = 0.05,
+                       colors = list("Cluster" = cluster_cols)) %>%
+    add_row_clustering(method = "hclust")
+  return(hm)
+})
+  
+clusters[[1]]
+clusters[[2]]
+clusters[[3]]
+clusters[[4]]
+clusters[[5]]
+clusters[[6]]
+clusters[[7]]
+clusters[[8]]
+
+```
+
+###
+
+
+```{r}
+df_a <- df_p_sp %>%
+  arrange(Cluster, feature)
+
+df <- df_a %>%
+  select(-Cluster, -Type)
+
+df_cl <- df_a %>%
+  select(feature, Cluster)
+
+dfm <- df %>%
+  select(-feature) %>%
+  t
+colnames(dfm) <- df$feature
+  
+df_cor <- dfm %>%
+  cor %>%
+  signif(2) %>%
+  as_tibble(rownames = "feature") %>%
+  left_join(df_cl, by = "feature") %>%
+  select(feature, Cluster, everything())
+write_csv(df_cor, "MDD_Ligand_correlations.csv")
+
+```
 ###
 
 
@@ -77,7 +146,7 @@ write_csv(df_p_sp, "MDD_ligand.csv")
 
 ```{r PCAAnalysis}
 
-pca_obj <- prcomp(df_p_as_matrix)
+pca_obj <- prcomp(df_p_as_matrix,scale. = FALSE)
 plot(pca_obj)
 
 pca_df <- as_tibble(pca_obj$x) %>%
@@ -93,6 +162,17 @@ pca_df <- as_tibble(pca_obj$x) %>%
 pca_diagnostics_df <- as_tibble(pca_obj$rotation) %>%
   mutate(ligand = rownames(pca_obj$rotation)) %>%
   select(-PC7)
+
+#make a heatmap of the rotated data
+pca_matrix <- pca_obj$x %>%
+  as.matrix()
+pca_hm <- get_iheatmap(pca_matrix, assay_name = "PCA rotated values") %>%
+  format_hm(k = clust_num,
+            cluster_method = cluster_method,
+            colors = cluster_cols,
+            type_colors = assay_cols,
+            groups = cluster_groups)
+pca_hm
 
 ```
 
@@ -144,6 +224,7 @@ p
 
 ```
 
+
 ###
 
 
@@ -155,10 +236,11 @@ p
 
 #Create annotation values
 hm_data_matrix <- df_p_sp %>%
-  select(-feature, -Cluster, -Type) %>%
+  dplyr::select(-feature, -Cluster, -Type) %>%
   as.matrix()
 rownames(hm_data_matrix) <- df_p_sp$feature
 
+set.seed(42)
 df_UMAP <- umap(hm_data_matrix, na.rm = TRUE)$layout %>%
   data.frame(feature = rownames(hm_data_matrix)) %>%
   rename(UMAP_1 = X1,
@@ -167,7 +249,8 @@ df_UMAP <- umap(hm_data_matrix, na.rm = TRUE)$layout %>%
 
 p <- ggplot(df_UMAP, aes(x = UMAP_1,
                          y = UMAP_2,
-                         colour = factor(Cluster))) +
+                         colour = factor(Cluster),
+                         label = feature)) +
   geom_point(size = .8, alpha = .8) +
   scale_color_manual(values = cluster_cols) +
   labs(title = paste("UMAP embedding colored by cluster"),
@@ -175,7 +258,7 @@ p <- ggplot(df_UMAP, aes(x = UMAP_1,
     guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
   theme_bw() +
   theme(axis.title = element_blank())
-p
+ggplotly(p)
 ```
 
 
