@@ -21,6 +21,7 @@ data_path <- "Data/selected_assay_pk_data_rr.rda"
 if(!file.exists(data_path)) stop("cannot load ",data_path)
 load(data_path)
 
+feature_gene <- read_csv("MDD_Integrated_feature_gene.csv")
 ```
 
 ## {.tabset .tabset-fade}
@@ -42,7 +43,7 @@ cluster_method = "kmeans"
 #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
 centers <- df_p_as_matrix[sample(1:nrow(df_p_as_matrix), size = clust_num, replace = FALSE),]
-cluster_groups <- kmeans(df_p_as_matrix, clust_num, centers = centers)$cluster
+cluster_groups <- kmeans(x = df_p_as_matrix, iter.max = 20, centers = centers)$cluster
 #setup for common cluster colors used in heatmap and ggplot
 cluster_cols <- RColorBrewer::brewer.pal(clust_num, "Paired")
 assay_cols <- RColorBrewer::brewer.pal(length(unique(df_p$Type)), "Paired")
@@ -58,13 +59,15 @@ hm
 
 hm_data <- tibble(feature = names(hm@plots@listData$Cluster@data),
                   Cluster = hm@plots@listData$Cluster@data,
-                  Type = hm@plots@listData$Type@text)
+                  Type = hm@plots@listData$Type@text) %>%
+  mutate(feature_sub = str_remove(feature,"_{1}[[:digit:]]*$")) %>%
+  left_join(feature_gene, by = c("feature_sub" = "feature")) %>%
+  dplyr::select(-feature_sub)
 
 df_p_sp <- df_p_as_matrix %>%
   data.frame() %>%
   rownames_to_column("feature") %>%
   left_join(hm_data, by = "feature")
-
 
 write_csv(df_p_sp, "MDD_ligand.csv")
 ```
@@ -79,24 +82,27 @@ clusters <- lapply(1:clust_num, function(cl_select){
   df_p_sp_sel <- df_p_sp %>%
     filter(Cluster == cl_select)
   res <- df_p_sp_sel %>%
-    select(feature) %>%
-    mutate(feature = str_remove(feature, "_RNA|_ATAC|_RPPA|_motif|_TF")) %>%
-    filter(!str_detect(feature,"Intensity|SIGNALING|factors|_IF|[ ]")) %>%
-    write_csv(paste0("MDD_ligand_cluster_",cl_select,"_genes.csv"),col_names = FALSE)
+    # select(feature) %>%
+    # mutate(feature = str_remove(feature, "_RNA|_ATAC|_RPPA|_motif|_TF")) %>%
+    # filter(!str_detect(feature,"Intensity|SIGNALING|factors|_IF|[ ]")) %>%
+    write_csv(paste0("MDD_ligand_cluster_",cl_select,"_features.csv"),col_names = FALSE)
   df_sel_ann <- df_p_sp_sel %>%
     select(Cluster, Type)
   
   df_m <- df_p_sp_sel %>%
-    select(-feature, -Cluster, -Type) %>%
+    select(-feature, -Cluster, -Type, -symbol) %>%
     as.matrix()
   rownames(df_m) <- df_p_sp_sel$feature
   
-  hm <- get_iheatmap(df_m, assay_name = "Selected assay data, rrscaled")%>%
+  hm <- get_iheatmap(df_m,
+                     assay_name = "Selected assay data, rrscaled",
+                      type_colors = assay_cols,)%>%
     add_col_labels() %>%
     add_row_annotation(df_sel_ann,
                        side = "left",
                        size = 0.05,
-                       colors = list("Cluster" = cluster_cols)) %>%
+                       colors = list("Cluster" = cluster_cols,
+                                     "Type" = assay_cols)) %>%
     add_row_clustering(method = "hclust")
   return(hm)
 })
@@ -120,7 +126,7 @@ df_a <- df_p_sp %>%
   arrange(Cluster, feature)
 
 df <- df_a %>%
-  select(-Cluster, -Type)
+  select(-Cluster, -Type, -symbol)
 
 df_cl <- df_a %>%
   select(feature, Cluster)
@@ -236,7 +242,7 @@ p
 
 #Create annotation values
 hm_data_matrix <- df_p_sp %>%
-  dplyr::select(-feature, -Cluster, -Type) %>%
+  dplyr::select(-feature, -Cluster, -Type, -symbol) %>%
   as.matrix()
 rownames(hm_data_matrix) <- df_p_sp$feature
 
@@ -372,6 +378,7 @@ df <- df_p %>%
   distinct()
 p <- ggplot(df, aes(x = Type, fill = Type)) +
   geom_bar() +
+  scale_y_log10() +
   labs(title = paste("Type distribution of the",length(unique(paste0(df$feature, df$experimentalTimePoint))), "features in the MDD integrated dataset"),
        x ="Feature type") +
   theme(axis.text = element_text(angle = 90))
