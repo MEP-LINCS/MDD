@@ -1,0 +1,103 @@
+---
+title: "MDD integrated data analysis by ligand"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(plotly)
+
+```
+
+
+```{r read_data_and_metadata}
+data_path <- "ligand_UMAP.rda"
+if(!file.exists(data_path)) stop("cannot load ",data_path)
+load(data_path)
+
+phenotypes <- c("Mean_Cells_per_Cluster_IF",
+                "Normalized_First_Neighbor_Dist_IF",
+                "Normalized_Fourth_Neighbor_Dist_IF",
+                "Normalized_Second_Neighbor_Dist_IF",
+                "Normalized_Third_Neighbor_Dist_IF",
+                "Number_Neighbors_IF",
+                "Proportion_in_large_cluster_IF",
+                "Well_Cell_Count_IF")
+```
+
+
+```{r highlightGeneSet, fig.width=6.5, fig.height=4.5}
+
+#pdf("geneset_on_UMAP.pdf",width = 2.5, height = 2.5)
+for(gene_set in c("Hallmark_E2F_Targets", "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION")){
+  df_gene_set <- read_tsv(paste0(gene_set,"_geneset.txt"),skip=2, col_names = FALSE,
+                          col_types = cols(X1 = col_character())) %>%
+    rename(symbol = X1) %>%
+    mutate(gene_set = gene_set) %>%
+    right_join(df_UMAP, by = "symbol",fill = "") %>%
+    drop_na()
+  
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2)) +
+    geom_point(size = .1, colour = "gray", alpha = .6) +
+    annotate("text",x = -3, y = 6, label = gene_set, size = 3) +
+    #scale_color_manual(values=c("grey", "slateblue1"))+
+    #scale_size_area(limits = c(0, 30)) +
+    labs()+
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme_bw()+
+    theme(axis.title = element_blank())
+  p <- p + geom_point(data = df_gene_set, size = 1, colour = "black", alpha = .4)
+
+  
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2,
+                           colour = factor(Cluster))) +
+    geom_point(size = .1, alpha = .6) +
+    annotate("text",x = -3, y = 6, label = gene_set, size = 4, color = "red") +
+    #scale_color_manual(values=c("grey", "slateblue1"))+
+    #scale_size_area(limits = c(0, 30)) +
+    labs()+
+    #scale_colour_manual(values = cluster_cols) +
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme(axis.title = element_blank())
+  p <- p + geom_point(data = df_gene_set, size = 1, colour = "black", alpha = .6)+
+        theme_bw()
+  print(p)
+}
+
+```
+
+```{r, fig.width=6.5, fig.height=4.5}
+  phenotype_regex <- str_flatten(phenotypes, collapse = "|")
+  df_phenotype <- df_UMAP %>%
+    filter(str_detect(feature, phenotype_regex))
+  
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2,
+                           colour = factor(Cluster),
+                           text = feature)) +
+    geom_point(size = .1, alpha = .6) +
+    annotate("text",x = -3, y = 6, label = "IF phenotypes", size = 4, color = "red") +
+    #scale_color_manual(values=c("grey", "slateblue1"))+
+    #scale_size_area(limits = c(0, 30)) +
+    labs()+
+    #scale_colour_manual(values = cluster_cols) +
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme(axis.title = element_blank())
+ p <- p + geom_point(data = df_phenotype, size = 1, colour = "black", alpha = .4) +
+        theme_bw()
+ ggplotly(p)
+
+#dev.off()
+
+```
+
+
+###
+

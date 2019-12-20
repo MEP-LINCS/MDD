@@ -122,7 +122,7 @@ l1 <- mdd %>%
   ungroup()
 
 #for (j in colnames(l1)) data.table::set(cell, j = j, value = shorten(l1[[j]]))
-write_csv(l1, "../IF/Data/MDD_IF_Level1.csv")
+#write_csv(l1, "../IF/Data/MDD_IF_Level1.csv")
 
 #Summarize to the field level
 parameterNames <- grep("Intensity|Elongation|Perimeter|Area|Proportion|Count|Thresh",colnames(l1),value = TRUE)
@@ -156,7 +156,7 @@ well <- field %>%
   gather(key = "feature", value = "value", -specimenID) %>%
   spread(key = specimenID, value = value)
 
-write_csv(well, "../IF/Data/MDD_IF_Level3.csv")
+#write_csv(well, "../IF/Data/MDD_IF_Level3.csv")
 
 #Median summarize to create level 4 dataset
 mddMetadata <- read_csv("../Metadata/MDD_sample_annotations.csv")
@@ -171,4 +171,4 @@ l4 <- well %>%
   select(experimentalCondition_collection, value, feature) %>%
   spread(experimentalCondition_collection, value = value)
 
-write_csv(l4, "../IF/Data/MDD_IF_Level4.csv")
+#write_csv(l4, "../IF/Data/MDD_IF_Level4.csv")
