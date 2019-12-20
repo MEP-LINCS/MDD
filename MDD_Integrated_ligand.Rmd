@@ -22,6 +22,15 @@ if(!file.exists(data_path)) stop("cannot load ",data_path)
 load(data_path)
 
 feature_gene <- read_csv("MDD_Integrated_feature_gene.csv")
+
+phenotypes <- c("Mean_Cells_per_Cluster_IF",
+                "Normalized_First_Neighbor_Dist_IF",
+                "Normalized_Fourth_Neighbor_Dist_IF",
+                "Normalized_Second_Neighbor_Dist_IF",
+                "Normalized_Third_Neighbor_Dist_IF",
+                "Number_Neighbors_IF",
+                "Proportion_in_large_cluster_IF",
+                "Well_Cell_Count_IF")
 ```
 
 ## {.tabset .tabset-fade}
@@ -38,7 +47,7 @@ df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "ligand") %>%
 ann_df <- prep_hm_annotations(df_p, columns = "ligand")
 
 colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")] <- paste0(colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")], "_EGF")
-clust_num <- 8
+clust_num <- 16
 cluster_method = "kmeans"
 #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
@@ -69,7 +78,7 @@ df_p_sp <- df_p_as_matrix %>%
   rownames_to_column("feature") %>%
   left_join(hm_data, by = "feature")
 
-write_csv(df_p_sp, "MDD_ligand.csv")
+write_csv(df_p_sp, paste0("MDD_ligand_",clust_num,".csv"))
 ```
 
 
@@ -85,7 +94,7 @@ clusters <- lapply(1:clust_num, function(cl_select){
     # select(feature) %>%
     # mutate(feature = str_remove(feature, "_RNA|_ATAC|_RPPA|_motif|_TF")) %>%
     # filter(!str_detect(feature,"Intensity|SIGNALING|factors|_IF|[ ]")) %>%
-    write_csv(paste0("MDD_ligand_cluster_",cl_select,"_features.csv"),col_names = FALSE)
+    write_csv(paste0("MDD_ligand_cluster_",cl_select,"_features",clust_num,".csv"),col_names = FALSE)
   df_sel_ann <- df_p_sp_sel %>%
     select(Cluster, Type)
   
@@ -142,7 +151,7 @@ df_cor <- dfm %>%
   as_tibble(rownames = "feature") %>%
   left_join(df_cl, by = "feature") %>%
   select(feature, Cluster, everything())
-write_csv(df_cor, "MDD_Ligand_correlations.csv")
+write_csv(df_cor, paste0("MDD_Ligand_correlations_",clust_num,".csv"))
 
 ```
 ###
@@ -258,7 +267,7 @@ p <- ggplot(df_UMAP, aes(x = UMAP_1,
                          colour = factor(Cluster),
                          label = feature)) +
   geom_point(size = .8, alpha = .8) +
-  scale_color_manual(values = cluster_cols) +
+  #scale_color_manual(values = cluster_cols) +
   labs(title = paste("UMAP embedding colored by cluster"),
        colour = "Cluster") +
     guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
@@ -309,6 +318,75 @@ for(assay in unique(df_p$Type)){
           axis.title = element_blank())
   print(p)
 }
+
+```
+
+
+```{r highlightGeneSet, fig.width=2.5, fig.height=2.5}
+#pdf("geneset_on_UMAP.pdf",width = 2.5, height = 2.5)
+for(gene_set in c("Hallmark_E2F_Targets", "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION")){
+  df_gene_set <- read_tsv(paste0(gene_set,"_geneset.txt"),skip=2, col_names = FALSE,
+                          col_types = cols(X1 = col_character())) %>%
+    rename(symbol = X1) %>%
+    mutate(gene_set = gene_set) %>%
+    right_join(df_UMAP, by = "symbol",fill = "") %>%
+    drop_na()
+  
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2)) +
+    geom_point(size = .1, colour = "gray", alpha = .6) +
+    annotate("text",x = -1, y = -6, label = gene_set, size = 1) +
+    #scale_color_manual(values=c("grey", "slateblue1"))+
+    #scale_size_area(limits = c(0, 30)) +
+    labs()+
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme_bw()+
+    theme(axis.title = element_blank())
+  p <- p + geom_point(data = df_gene_set, size = 1, colour = "black", alpha = .4)
+
+  
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2,
+                           colour = factor(Cluster))) +
+    geom_point(size = .1, alpha = .6) +
+    annotate("text",x = -1, y = -6, label = gene_set, size = 1.5, color = "red") +
+    #scale_color_manual(values=c("grey", "slateblue1"))+
+    #scale_size_area(limits = c(0, 30)) +
+    labs()+
+    #scale_colour_manual(values = cluster_cols) +
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme(axis.title = element_blank())
+  p <- p + geom_point(data = df_gene_set, size = 1, colour = "black", alpha = .6)+
+        theme_bw()
+  print(p)
+}
+```
+
+```{r, fig.width=6.5, fig.height=4.5}
+  phenotype_regex <- str_flatten(phenotypes, collapse = "|")
+  df_phenotype <- df_UMAP %>%
+    filter(str_detect(feature, phenotype_regex))
+  
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2,
+                           colour = factor(Cluster),
+                           text = feature)) +
+    geom_point(size = .1, alpha = .6) +
+    annotate("text",x = -1, y = -6, label = "IF phenotypes", size = 1.5, color = "red") +
+    #scale_color_manual(values=c("grey", "slateblue1"))+
+    #scale_size_area(limits = c(0, 30)) +
+    labs()+
+    #scale_colour_manual(values = cluster_cols) +
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme(axis.title = element_blank())
+ p <- p + geom_point(data = df_phenotype, size = 1, colour = "black", alpha = .4) +
+        theme_bw()
+ ggplotly(p)
+
+#dev.off()
 
 ```
 

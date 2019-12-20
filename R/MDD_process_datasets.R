@@ -134,26 +134,29 @@ hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
   rename(feature = variable) %>%
   mutate(experimentalTimePoint = str_remove(condition, ".*_"),
          experimentalTimePoint = as.integer(experimentalTimePoint),
-         ligand = str_remove(condition, "_.*")) %>%
+         ligand = str_remove(condition, "_.*"),
+         feature = paste0(feature, "_Hallmark")) %>%
   dplyr::select(-condition) %>%
   preprocess_level3(type =  "Hallmark")
 
 #Read in and process IF values
-IF_values <- read_csv("IF/Data/MCF10A_IF_Ilastik_Image_File.csv") %>%
-  dplyr::select(-ImageNumber, -barcode, -WellIndex, -collection, -ligand) %>%
-  gather(feature, value, -specimenName, -time, -replicate) %>%
-  mutate(experimentalTimePoint = time,
-         experimentalCondition = str_remove(specimenName, "_C[12]_."),
-         ligand = str_remove(specimenName, "_.*"),
+IF_values <- read_csv("IF/Data/MDD_IF_Level4.csv") %>%
+  rename(feature = X1) %>%
+  gather(key = "condition_collection", value = "value", -feature) %>%
+  mutate(collection = str_remove(condition_collection, ".*_"),
+         ligand = str_remove(condition_collection, "_.*"),
+         experimentalTimePoint = str_extract(condition_collection, "_.*_"),
+         experimentalTimePoint = str_remove_all(experimentalTimePoint,"_"),
+         experimentalTimePoint = as.numeric(experimentalTimePoint),
+         value = as.numeric(value),
+         Type = "IF",
          feature = paste0(feature, "_IF")) %>%
-  filter(!feature =="AreaShape_EulerNumber_IF",
-         !str_detect(feature,"CellMask")) %>%
-  preprocess_level3(type = "IF") %>%
-  replace( is.na(.), 1) %>%
-  group_by(ligand, experimentalTimePoint, feature, Type) %>%
+  filter(!feature %in% c("collection_IF", "conditionName_IF","experimentalTimePoint_IF", "ligand_IF")) %>%
+  dplyr::select(-condition_collection) %>%
+  group_by(feature, ligand, experimentalTimePoint, Type) %>%
   summarise(value = median(value, na.rm = TRUE)) %>%
   ungroup()
-
+  
 #Read in RNAseq values
 RNA_values <- read_csv("RNAseq/Data/MDD_RNAseq_med.csv") %>%
   drop_na() %>%
@@ -181,7 +184,8 @@ RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
   rename(condition = experimentalCondition) %>%
   mutate(experimentalTimePoint = str_remove(condition, ".*_"),
          experimentalTimePoint = as.integer(experimentalTimePoint),
-         ligand = str_remove(condition, "_.*")) %>%
+         ligand = str_remove(condition, "_.*"),
+         feature = paste0(feature, "_RPPApathway")) %>%
   dplyr::select(-condition) %>%
   preprocess_level3(type =  "RPPApathway")
 
@@ -284,9 +288,10 @@ zscore_cutoff <- Inf
   cycIF_values_rr <- rrscale_assay(cycIF_values, zscore_cutoff = zscore_cutoff)
   GCP_selected_rr <- rrscale_assay(GCP_selected, zscore_cutoff = zscore_cutoff)
   hallmark_pathways_rr <- rrscale_assay(hallmark_pathways, zscore_cutoff = zscore_cutoff)
-  IF_intensity_values_selected_rr <- IF_values %>%
-    filter(str_detect(feature, "Intensity"),
-           !str_detect(feature, "Std")) %>%
+  IF_values_rr <- IF_values %>%
+    group_by(feature) %>%
+    mutate(value = scale(value)) %>%
+    ungroup() %>%
     rrscale_assay(zscore_cutoff = zscore_cutoff)
   RPPA_selected_rr <- rrscale_assay(RPPA_selected, zscore_cutoff = zscore_cutoff)
   RPPA_pathways_rr <- rrscale_assay(RPPA_pathways, zscore_cutoff = zscore_cutoff)
@@ -297,7 +302,7 @@ zscore_cutoff <- Inf
                                           cycIF_values_rr,
                                           GCP_selected_rr,
                                           hallmark_pathways_rr,
-                                          IF_intensity_values_selected_rr,
+                                          IF_values_rr,
                                           RNAseq_selected_rr, 
                                           RPPA_selected_rr,
                                           RPPA_pathways_rr,
@@ -311,7 +316,7 @@ zscore_cutoff <- Inf
        cycIF_values_rr,
        GCP_selected_rr,
        hallmark_pathways_rr,
-       IF_intensity_values_selected_rr,
+       IF_values_rr,
        RNAseq_selected_rr, 
        RPPA_selected_rr,
        RPPA_pathways_rr,

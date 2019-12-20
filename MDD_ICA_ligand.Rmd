@@ -1,0 +1,76 @@
+---
+title: "MDD Independent Component Analysis by ligand"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(iheatmapr)
+library(umap)
+library(cluster)
+library(plotly)
+library(fastICA)
+
+source("R/MDD_functions.R")
+```
+
+
+```{r read_data_and_metadata}
+data_path <- "Data/selected_assay_pk_data_rr.rda"
+if(!file.exists(data_path)) stop("cannot load ",data_path)
+load(data_path)
+
+feature_gene <- read_csv("MDD_Integrated_feature_gene.csv")
+```
+
+```{r calcICA}
+df_p <- selected_assay_pk_data_rr
+
+df_p_as_matrix <-  prep_hm_matrix(df_p, columns = "ligand") %>%
+  t %>%
+  scale() %>%
+  t
+
+library(fastICA)
+res <- fastICA(df_p_as_matrix, 100)
+res_A <- res$A
+res_S <- res$S
+colnames(res_S) <- paste0("IC",1:7)
+
+plot(1:10000, res$S[1:10000,1], type = "l", xlab = "S'1", ylab = "")
+#plot(1:7, res$S[,2], type = "l", xlab = "S'2", ylab = "")
+
+```
+
+
+## {.tabset .tabset-fade}
+
+### heatmap
+
+```{r interactiveHeatmaps, fig.height = 8}
+
+colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")] <- paste0(colnames(df_p_as_matrix)[str_detect(colnames(df_p_as_matrix), "BMP2|IFNG|TGFB")], "_EGF")
+clust_num <- 10
+cluster_method = "kmeans"
+#seed the kmeans clustering with a fixed, random set of points
+set.seed(42)
+centers <- res_S[sample(1:nrow(res_S), size = clust_num, replace = FALSE),]
+cluster_groups <- kmeans(x = res_S, iter.max = 20, centers = centers)$cluster
+#setup for common cluster colors used in heatmap and ggplot
+cluster_cols <- RColorBrewer::brewer.pal(clust_num, "Paired")
+#assay_cols <- RColorBrewer::brewer.pal(length(unique(df_p$Type)), "Paired")
+#names(assay_cols) <- unique(df_p$Type)
+
+hm <- get_iheatmap(res_S, name = "Selected assay data, rrscaled") %>%
+  add_row_clustering(name = "Cluster",
+                         k = clust_num,
+                         method = cluster_method)
+hm
+  
+
+```
+
+
+
