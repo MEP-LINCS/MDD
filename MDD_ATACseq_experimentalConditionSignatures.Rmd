@@ -20,6 +20,7 @@ dobFile  <- "ATACseq/MCF10A_ATACseq_diffBindOjbect.Rdata"
 annoFile <- "ATACseq/Metadata/MDD_ATACseq_sampleMetadata.csv"
 
 outDir <- "ATACseq/Data/signatures/ctrl_0/fdr_05"
+
 ###############################################################################
 
 theme_set(theme_cowplot())
