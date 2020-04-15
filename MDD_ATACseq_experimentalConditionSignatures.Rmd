@@ -1,0 +1,286 @@
+---
+title: "MCF10A ATACseq Differential Accessibility Signatures\n(reference:ctrl_0)"
+author: "Daniel Derrick"
+date: "7/13/2019"
+output: html_document
+---
+
+```{r analysisSetup, include=FALSE}
+library(DiffBind)
+library(tidyverse)
+library(ChIPseeker)
+library(biomaRt)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(kableExtra)
+library(DT)
+library(knitr)
+library(cowplot)
+
+dobFile  <- "ATACseq/MCF10A_ATACseq_diffBindOjbect.Rdata"
+annoFile <- "ATACseq/Metadata/MDD_ATACseq_sampleMetadata.csv"
+
+outDir <- "ATACseq/Data/signatures/ctrl_0/fdr_05"
+###############################################################################
+
+theme_set(theme_cowplot())
+
+makeMasks <- function(x, colname, sA) {
+  colname <- enquo(colname)
+  sA_t <- sA %>% 
+    mutate(temp = (!!colname == x)) %>% 
+    pull(temp)
+  return(sA_t)
+}
+
+makeContrasts <- function(dob, x, ref) {
+  x <- grep(ref, x, invert = TRUE, value = TRUE)
+  for (i in x) {
+    dob <- dba.contrast(dob, dob$masks[[i]], dob$masks[[ref]],
+                        i, ref)
+  }
+  return(dob)
+}
+
+###############################################################################
+
+txdb  <- TxDb.Hsapiens.UCSC.hg38.knownGene
+
+mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
+                dataset = "hsapiens_gene_ensembl")
+
+tx2g <- getBM(attributes = c("ensembl_gene_id",
+                             "hgnc_symbol"), 
+              mart = mart)
+
+sampleAnno    <- read.csv(annoFile, stringsAsFactors = FALSE)
+load(dobFile)
+```
+
+## Introduction
+
+Differential accessibility signatures are computed from the MCF10A ATAC-seq
+data. Two sets of signatures are computed: one comparing all treatments to
+the EGF timecourse, and the other comparing all treatments to the ctrl_0
+condition. This document describes the signatures generated with ctrl_0 as
+the reference condition.
+
+### Sample summary
+
+Below is a summary of the ATACseq samples passing QC, grouped by ligand 
+treatment and time point. Conditions with only one replicate are highlighted
+in red.
+
+```{r show_sample_summary, echo = FALSE}
+read.csv(annoFile, stringsAsFactors = FALSE) %>% 
+  dplyr::filter(ATACseq_QCpass) %>% 
+  dplyr::select(1:6, FRiP) %>% 
+  mutate(experimentalTimePoint = fct_inorder(as.factor(experimentalTimePoint))) %>% 
+  group_by(experimentalCondition) %>% 
+  summarize(n = n(),
+            `Mean FRiP` = round(mean(FRiP), 3)) %>% 
+  kable(format = "html", caption = "ATAC-seq Samples") %>%
+  kable_styling(full_width = F, position = "left") %>%
+  row_spec(c(11, 14, 15), bold = T, color = "red")
+
+sampleAnno <- 
+  read.csv(annoFile, stringsAsFactors = FALSE) %>% 
+  filter(ATACseq_QCpass)
+
+eCs <- 
+  sampleAnno %>% 
+  pull(experimentalCondition) %>% 
+  unique()
+```
+
+## Computing differential accessibility signatures
+
+Differential accessibility signatures were computed using DiffBind to compare
+each ligand to the ctrl condition.
+
+```{r add_contrasts_and_analyze}
+# Generating signatures with ctrl_0 as reference
+dob.TMM$masks <- sapply(eCs, makeMasks,
+                        colname = experimentalCondition, sA = sampleAnno,
+                        simplify = FALSE)
+
+dob.TMM <- makeContrasts(dob.TMM, eCs, "ctrl_0")
+dob.TMM <- dba.analyze(dob.TMM, method = DBA_EDGER)
+```
+
+### Annotating signatures
+
+Signatures are annotated using R package ChIPSeeker.
+
+```{r getSignatures, results='hide'}
+# Getting differentially accessible regions as GRanges objects
+signatures <- GRangesList()
+
+for (i in 1:length(dob.TMM$contrasts)) {
+  signatures[[i]] <- dba.report(dob.TMM, contrast = i, method = DBA_EDGER)
+}
+
+names(signatures) <- sapply(dob.TMM$contrasts, function(x) x[[1]])
+```
+
+```{r writeSignatures, include = FALSE}
+if (!dir.exists(outDir)) {
+  dir.create(outDir, recursive = TRUE)
+}
+
+mapply(function(sig, name) {
+  sig <- data.frame(sig)
+  filt <- apply(sig, 2, anyNA)
+  sig <- sig[, !filt]
+  
+  write.csv(sig,
+            row.names = FALSE,
+            file = sprintf("%s/MDD_ATACseq_%s_ctrl0_Signature.csv", outDir, name))
+  },
+  sig = signatures, name = names(signatures))
+```
+
+```{r annoSignatures, results='hide'}
+signaturesAnno <- lapply(signatures,
+                         annotatePeak,
+                         TxDb=txdb,
+                         level = "gene")
+```
+
+```{r writeSignaturesAnno, include = FALSE}
+if (!dir.exists(sprintf("%s/Anno", outDir))) {
+  dir.create(sprintf("%s/Anno", outDir), recursive = TRUE)
+}
+
+mapply(function(sig, name) {
+  sig <- data.frame(sig)
+  
+  write.csv(sig,
+            row.names = FALSE,
+            file = sprintf("%s/Anno/MDD_ATACseq_%s_SignatureAnno.csv", outDir, name))
+  }, 
+  sig = signaturesAnno, name = names(signaturesAnno))
+```
+
+### Summary of differentially accessible regions
+
+The bar plot summarizes the differential genomic regions for each ligand
+
+```{r barplot, include = FALSE}
+signatureSummaries <- mapply(function(x, nm) {
+  x <- 
+    x@annoStat %>% 
+    mutate(totalPeaks = x@peakNum,
+           experimentalCondition  = nm)
+  x
+  },
+  x = signaturesAnno, nm = names(signaturesAnno), SIMPLIFY = FALSE)
+
+summariesToPlot <- Reduce(rbind, signatureSummaries) %>% 
+  mutate(featurePeaks = totalPeaks*(Frequency/100))
+```
+
+```{r plotBarPlotSummary, echo = FALSE}
+ggplot(summariesToPlot, 
+       aes(x = experimentalCondition, y = featurePeaks, fill = Feature)) + 
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+### Distances to nearest TSS
+
+This plot shows the proportions of differentially accessible sites
+at various distances to the nearest transcriptional start site.
+
+```{r plot.plotDistToTSS, echo = FALSE, message = FALSE, warning=FALSE}
+plotDistToTSS(signaturesAnno)
+```
+
+### Volcano plots {.tabset}
+
+The differential accesibility results are shown below as volcano plots for each ligand. Pink dots
+represent peaks that are have a significant change (FDR <= 0.05) in peak accessibility between the
+compared ligands.
+
+#### PBS_24
+
+```{r volcano.PBS_24, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 1, method = DBA_EDGER)
+```
+
+#### PBS_48
+
+```{r volcano.PBS_48, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 2, method = DBA_EDGER)
+```
+
+#### BMP2_24
+
+```{r volcano.BMP2_24, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 3, method = DBA_EDGER)
+```
+
+#### BMP2_48
+
+```{r volcano.BMP2_48, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 4, method = DBA_EDGER)
+```
+
+#### IFNG_24
+
+```{r volcano.IFNG_24, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 5, method = DBA_EDGER)
+```
+
+#### IFNG_48
+
+```{r volcano.IFNG_48, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 6, method = DBA_EDGER)
+```
+
+#### TGFB_24
+
+```{r volcano.TGFB_24, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 7, method = DBA_EDGER)
+```
+
+#### TGFB_48
+
+```{r volcano.TGFB_48, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 8, method = DBA_EDGER)
+```
+
+#### HGF_24
+
+```{r volcano.HGF_24, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 9, method = DBA_EDGER)
+```
+
+#### HGF_48
+
+```{r volcano.HGF_48, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 10, method = DBA_EDGER)
+```
+
+#### OSM_24
+
+```{r volcano.OSM_24, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 11, method = DBA_EDGER)
+```
+
+#### OSM_48
+
+```{r volcano.OSM_48, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 12, method = DBA_EDGER)
+```
+
+#### EGF_24
+
+```{r volcano.EGF_24, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 13, method = DBA_EDGER)
+```
+
+#### EGF_48
+
+```{r volcano.EGF_48, echo = FALSE}
+dba.plotVolcano(dob.TMM, contrast = 14, method = DBA_EDGER)
+```
