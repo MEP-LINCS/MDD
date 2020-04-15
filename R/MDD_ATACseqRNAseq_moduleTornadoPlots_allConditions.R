@@ -16,7 +16,6 @@ theme_set(theme_cowplot())
 
 moduleDir <- "../misc/Ligand_tables"
 
-hFScript  <- "MDD_RNAseq_heatmapFunctions.R"
 RNAscript <- "MDD_import_RNAseq_ensembl.R"
 
 transcriptsFile  <- "../misc/MDD_RNAseq_mostAbundantTranscripts.txt"
@@ -27,6 +26,20 @@ promoterOutFile <- "~/Desktop/rsync_folder/allModule_promoterList.Rdata"
 outDir <- "../plots/ATACseq_tornadoPlots/allModules"
 
 ###############################################################################
+
+# Functions for RNA-seq data plotting
+HeatmapL3C <- function(mat, ca = ha.RNA.L3, featureName = "Z-score", showRow = FALSE, clust = FALSE, ...) {
+  Heatmap(mat, 
+          top_annotation = ca,
+          cluster_columns = clust,
+          show_row_names = showRow,
+          cluster_row_slices = FALSE,
+          row_names_gp = gpar(fontsize = 7),
+          show_column_names = FALSE,
+          name = featureName,
+          col = colorRamp2(c(-3, 0, 3), c("blue", "white", "red")),
+          ...)
+}
 
 # Functions for ATAC-seq data
 getProm <- function(txdb, annoTable, buffer = 1500, genesOnly = FALSE) {
@@ -87,7 +100,6 @@ if(!grepl("R$", getwd())) {
   setwd("R")
 }
 
-source(hFScript)
 source(RNAscript)
 
 ###############################################################################
@@ -285,7 +297,7 @@ if (!dir.exists(outDir)) {
   dir.create(outDir, recursive = TRUE)
 }
 
-temp <- 
+combinationList <- 
   sampleAnno %>% 
   filter(ATACseq_QCpass) %>% 
   mutate(index = seq(1,35,1)) %>% 
@@ -293,17 +305,13 @@ temp <-
   dplyr::select(experimentalCondition, specimenName, index) %>% 
   group_split(experimentalCondition)
 
-temp2 <- lapply(temp, function(x) {
-  x <- x$index
-  x
-  }
-  )
+combinationList <- lapply(combinationList, function(x) {x <- x$index; x})
 
-names(temp2) <- unique(sampleAnno$experimentalCondition)
+names(combinationList) <- unique(sampleAnno$experimentalCondition)
 
 geneMatsCombined <- lapply(geneMatsNamed,
                            combineMat, 
-                           combine = temp2)
+                           combine = combinationList)
 
 mapply(function(x, x_names) {
   png(sprintf("%s/%s/MDD_%s_genes_ATACseq_tornadoPlot.png", outDir, x_names, x_names),
