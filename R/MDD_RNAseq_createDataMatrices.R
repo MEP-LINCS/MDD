@@ -41,6 +41,8 @@ collapseReps <- function(x, sA) {
 
 ###############################################################################
 
+if(!grepl("R$", getwd())) {setwd("R")}
+
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
                 dataset = "hsapiens_gene_ensembl",
                 host = 'apr2019.archive.ensembl.org')
@@ -78,6 +80,12 @@ counts <-
   data.frame() %>% 
   rownames_to_column(var = "ensembl_gene_id")
 
+# for GEO submission:
+# fpkm <- 
+#   fpkm(dds) %>% 
+#   data.frame() %>% 
+#   rownames_to_column(var = "ensembl_gene_id")
+
 log2fpkm <- 
   log2(fpkm(dds) + 1) %>% 
   data.frame() %>% 
@@ -97,6 +105,12 @@ if (!dir.exists(outDirData)) {
 # Saving expression data to csv file
 write_csv(counts,
           path = paste(outDirData, "MDD_RNAseq_Level1.csv", sep = "/"))
+
+# for GEO submission:
+# write_csv(counts,
+#           path = paste(outDirData, "MDD_MCF10A_RNAseq_countsEnsembl.csv", sep = "/"))
+# write_csv(fpkm,
+#           path = paste(outDirData, "MDD_MCF10A_RNAseq_fpkmEnsembl.csv", sep = "/"))
 
 write_csv(log2fpkm,
           path = paste(outDirData, "MDD_RNAseq_Level3.csv", sep = "/"))
