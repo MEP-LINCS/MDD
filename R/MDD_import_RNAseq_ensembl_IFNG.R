@@ -35,7 +35,7 @@ names(col$Ligand)[6:8] <- sprintf("%s+EGF", names(col$Ligand)[6:8])
 
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
                 dataset = "hsapiens_gene_ensembl",
-                host = "www.ensembl.org")
+                host = "uswest.ensembl.org")
 
 at.RNA <- getBM(attributes = c("ensembl_gene_id",
                                "hgnc_symbol"), 
