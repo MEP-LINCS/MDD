@@ -1,0 +1,361 @@
+---
+title: "MCF10A Expressed/Unexpressed Genes\nChromatin Accessibility"
+author: "Daniel Derrick"
+date: "4/6/2020"
+output: 
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_float: true
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+---
+
+```{r librariesPaths}
+library(genomation)
+library(biomaRt)
+library(tidyverse)
+library(cmapR)
+library(ComplexHeatmap)
+library(cowplot)
+library(circlize)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(GenomicFeatures)
+
+theme_set(theme_cowplot())
+
+RNAscript <- "R/MDD_import_RNAseq_ensembl.R"
+
+transcriptsFile <- "misc/MDD_RNAseq_mostAbundantTranscripts.txt"
+ATACseqSAFile   <- "ATACseq/Metadata/MDD_ATACseq_sampleMetadata.csv"
+
+promoterDir <- "ATACseq/Data/misc"
+plotDir <- "plots/ATACseq_tornadoPlots/exprUnexpr"
+
+# Functions for ATAC-seq data
+getProm <- function(txdb, annoTable, buffer = 1500, genesOnly = FALSE) {
+  txdb <- keepStandardChromosomes(txdb)
+  txdb <- dropSeqlevels(txdb, c("chrY", "chrM"))
+  
+  if (genesOnly) {
+    txdb <- genes(txdb)
+    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
+    prom$ensembl_gene_id <- annoTable[match(prom$gene_id, 
+                                            annoTable$entrezgene), 1]
+  } else {
+    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
+    prom$tx_name         <- str_remove(prom$tx_name, "[.][0-9]+")
+    prom$ensembl_gene_id <- annoTable[match(prom$tx_name, 
+                                            annoTable$ensembl_transcript_id), ]$ensembl_gene_id
+  }
+  
+  filt <- is.na(prom$ensembl_gene_id)
+  prom <- prom[!filt]
+  
+  return(prom)
+}
+
+combineMat <- function(geneMat, combine) {
+  dumSum <- function(x, y) {
+    z <- x + y
+    return(z)
+  }
+  
+  geneMatAvg <-
+    lapply(combine, function(x) {
+      print(x)
+      x_sum <-
+        Reduce(dumSum, geneMat[x])
+      x_avg <- (x_sum/length(x))
+      return(x_avg)
+    })
+  
+  names(geneMatAvg) <- names(combine)
+  geneMatAvg <- as(geneMatAvg, "ScoreMatrixList")
+  return(geneMatAvg)
+}
+
+###############################################################################
+
+source(RNAscript)
+
+sa.ATAC <- 
+  read.csv(ATACseqSAFile, stringsAsFactors = FALSE) %>% 
+  mutate(Peaks = paste0("../", Peaks)) %>% 
+  mutate(bamReads = paste0("../", bamReads)) %>% 
+  mutate(experimentalCondition = fct_relevel(as.factor(experimentalCondition),
+                                             c("ctrl_0", "EGF_24", "EGF_48", "IFNG_24", "IFNG_48"))
+         )
+```
+
+## Introduction
+
+In this document, a filter is applied to MCF10A RNAseq data to classify genes as 
+expressed or unexpressed. The ATAC-seq accessibility is calculated in windows surrounding
+the TSS's of both sets of genes. The distribution of accessibility around unexpressed 
+transcript TSS is plotted, and a threshold to separate accessible and inaccessible chromatin
+is chosen. The characteristics of the unexpressed genes in both sets (accessible and inaccessible)
+are examined.
+
+## Calculating ATAC-seq accessibility of expressed/unexpressed genes 
+
+### Identifying expressed/unexpressed RNAseq genes
+
+RNAseqL3 data is used to identify genes as "expressed" or "unexpressed". Expressed genes are
+those that have a minimum of 0.5 log2(fpkm + 1) in a minimum of 3 samples.
+
+```{r}
+exprFilt$SumCtrl <- apply(RNAseqL3[, 1:4], 1, sum)
+
+exprFilt %>% 
+  group_by(expressedInRNA) %>% 
+  summarize(n = n())
+
+Heatmap(RNAseqL3[exprFilt %>% filter(expressedInRNA) %>% arrange(desc(SumCtrl)) %>% pull(ensembl_gene_id), 1:4], 
+        show_row_names = FALSE,
+        cluster_rows = FALSE,
+        col = colorRamp2(c(0, 2, 10), c("white","blue", "red")),
+        name = "log2(fpkm + 1)",
+        column_title = "Expressed MCF10A genes in Ctrl",
+        cluster_columns = FALSE)
+
+Heatmap(RNAseqL3[exprFilt %>% filter(!expressedInRNA) %>% arrange(desc(SumCtrl)) %>% pull(ensembl_gene_id), 1:4], 
+        show_row_names = FALSE,
+        cluster_rows = FALSE,
+        col = colorRamp2(c(0, 2, 10), c("white","blue", "red")),
+        name = "log2(fpkm + 1)",
+        column_title = "Unexpressed MCF10A genes in Ctrl",
+        cluster_columns = FALSE)
+```
+
+### Getting genomic loci of all promoter regions
+
+To calculate the accessibility of the promoters of expressed and unexpressed
+genes, I need to map each gene to the genomic locus of its promoter region.
+Genes may have multiple transcriptional start sites. To select a single TSS
+for each gene, the ensembl_transcript_id for the most-expressed
+isoform in the MCF10A RNA-seq data (calculated elsewhere) is 
+selected.
+
+```{r getPromoters}
+txFiltTable <- read.table(transcriptsFile,
+                          header = TRUE,
+                          stringsAsFactors = FALSE)
+
+prom <- getProm(TxDb.Hsapiens.UCSC.hg38.knownGene, txFiltTable)
+```
+
+### Filtering promoters to those corresponding to expressed and unexpressed gene lists
+
+Creating a list of promoter GRanges objects. Filtering 
+
+```{r}
+promList <- rep(list(prom), 2)
+
+glTemp <- list("Unexpressed" = 
+                   exprFilt %>% 
+                   filter(!expressedInRNA) %>% 
+                   dplyr::select(ensembl_gene_id) %>% 
+                   left_join(at.RNA) %>% 
+                   distinct(ensembl_gene_id, .keep_all = TRUE) %>%     
+                   mutate(transcriptInRNA = ensembl_gene_id %in% rownames(RNAseqL3),
+                          promoterInATAC  = ensembl_gene_id %in% prom$ensembl_gene_id),
+                 "Expressed" = 
+                   exprFilt %>% 
+                   filter(expressedInRNA) %>% 
+                   dplyr::select(ensembl_gene_id) %>% 
+                   left_join(at.RNA) %>% 
+                   distinct(ensembl_gene_id, .keep_all = TRUE) %>%     
+                   mutate(transcriptInRNA = ensembl_gene_id %in% rownames(RNAseqL3),
+                          promoterInATAC  = ensembl_gene_id %in% prom$ensembl_gene_id)
+                 )
+names(promList) <- names(glTemp)
+
+promList <- mapply(function(promoters, genesToFilter) {
+  promoters <- promoters[promoters$ensembl_gene_id %in% genesToFilter]
+  promoters
+  }, 
+  prom = promList, 
+  genesToFilter = lapply(glTemp, pull, ensembl_gene_id))
+
+
+HLALoci <- lapply(promList, function(promoters) {
+  x <- 
+    findOverlaps(GRanges("chr6:28510120-33480577"), promoters) %>% 
+    data.frame %>% 
+    .$subjectHits
+  
+  x
+})
+
+geneList <-
+  mapply(function(geneDF, promoters, HLA_ind) {
+    geneDF$promoterInHLA <- FALSE
+    
+    geneDF$promoterInHLA[match(promoters$ensembl_gene_id[HLA_ind], geneDF$ensembl_gene_id)] <- TRUE
+    geneDF <- geneDF[match(promoters$ensembl_gene_id, geneDF$ensembl_gene_id), ]
+    
+    geneDF <- 
+      geneDF %>% 
+      filter(promoterInATAC,
+             !promoterInHLA)
+    return(geneDF)
+  }, 
+  geneDF = glTemp, promoters = promList, HLA_ind = HLALoci, 
+  SIMPLIFY = FALSE)
+
+promNoHLA <- mapply(function(promoters, geneDF) {
+  promoters <- promoters[match(geneDF %>% 
+                                 pull(ensembl_gene_id),
+                               promoters$ensembl_gene_id)]
+  promoters
+  }, 
+  promoters = promList,
+  geneDF = geneList)
+```
+
+### Uploading to exacloud and quantifying coverage for ctrl condition
+
+The list of promoter loci for expressed and unexpressed genes is uploaded
+to exacloud, where the ScoreMatrixList function of Genomation is used to 
+calculate coverage in 300 bins that span the promoter windows from the
+ATAC-seq bam files.
+
+The quantified promoter windows are saved and are transferred back to the PC.
+
+```{r}
+# library(tidyverse)
+# library(genomation)
+# 
+# promoterDir <- "ATACseq/Data/misc"
+# load(sprintf("../%s/exprUnexpr_promoterList.Rdata", promoterDir))
+# 
+# geneMats <- lapply(promNoHLA, function(x) {
+#   x <- ScoreMatrixList(target = sa.ATAC %>%
+#                          filter(ATACseq_QCpass) %>%
+#                          filter(ligand == c("ctrl")) %>% 
+#                          arrange(ligand) %>%
+#                          pull(bamReads),
+#                        windows = x, bin.num = 300,
+#                        rpm = TRUE, type = "bam", 
+#                        strand.aware = TRUE)
+#   x
+#   }
+#   )
+# 
+# geneMatsNamed <- lapply(geneMats, function(x) {
+#   names(x) <-
+#     sa.ATAC %>%
+#     filter(ATACseq_QCpass) %>%
+#     filter(ligand == c("ctrl")) %>%
+#     arrange(ligand) %>%
+#     pull(specimenName)
+#   x
+# })
+# 
+# save(geneMatsNamed, file = sprintf("../%s/exprUnexpr_promoterMat.Rdata", promoterDir))
+```
+
+### Combining samples
+
+The 4 ctrl samples are averaged to produce a single tornado plot for the control condition.
+
+```{r combineSamples}
+load(sprintf("%s/exprUnexpr_promoterMat.Rdata", promoterDir))
+
+geneMatsCombined <- lapply(geneMatsNamed,
+                           combineMat, 
+                           combine = list("CTRL" = 1:4)
+                           )
+
+
+
+```
+
+### Tornado Plots
+
+#### Tornado Plot:TSS of Expressed Genes in Ctrl condition
+
+```{r makeTornadoPlotExpr, fig.height=12, fig.width = 8}
+heatMatrix(geneMatsCombined$Expressed$CTRL,
+           order = TRUE,
+           winsorize = c(0, 97))
+```
+
+
+#### Tornado Plot:TSS of Unexpressed Genes in Ctrl condition
+
+```{r makeTornadoPlotUnexpr, fig.height=12, fig.width = 8}
+heatMatrix(geneMatsCombined$Unexpressed$CTRL, 
+           order = TRUE,
+           winsorize = c(0, 97))
+```
+
+### finding mean accessibility of each TSS
+
+Calculating the mean accessibility for each TSS and annotating gene 
+lists with calculated values.
+
+```{r}
+addSumToGeneDF <- function(gmat, geneDF) {
+  gmat <- lapply(gmat, as, "matrix")
+  gmat <- Reduce(cbind, gmat)
+  
+  sum_acc <- apply(gmat, 1, sum)
+  rank_acc <- rank(sum_acc)
+  
+  orderedGenes   <- data.frame(ensembl_gene_id = geneDF$ensembl_gene_id,
+                               accSum = sum_acc,
+                               accRank = rank_acc,
+                               stringsAsFactors = FALSE) %>% 
+    left_join(at.RNA) %>% 
+    arrange(desc(accRank))
+  orderedGenes
+}
+
+geneListSums <- mapply(addSumToGeneDF, 
+                       gmat = geneMatsCombined,
+                       geneDF = promNoHLA,
+                       SIMPLIFY = FALSE)
+
+geneListSums$Unexpressed %>% 
+  filter(gene_biotype == "protein_coding") %>% 
+  View
+  
+```
+
+
+### finding mean accessibility of each TSS
+
+
+
+geneMatAsMats <- lapply(geneMatsNamed$NoExpr, as, "matrix")
+
+geneMatrixBig <- Reduce(cbind, geneMatAsMats)
+rownames(geneMatrixBig) <- promNoHLA$NoExpr$ensembl_gene_id
+
+geneAccSum  <- apply(geneMatrixBig, 1, sum)
+at.RNA <-
+  at.RNA %>% 
+  distinct(ensembl_gene_id, .keep_all = TRUE)
+
+geneAcc <- data.frame(ensembl_gene_id = names(geneAccSum),
+                      accessibility = geneAccSum) %>% 
+  mutate(accessible = accessibility > 500) %>% 
+  inner_join(at.RNA)
+
+ggplot(geneAcc, aes(accessibility)) +
+  geom_density() +
+  scale_x_log10()
+
+
+heatMatrix(geneMatsCombined$NoExpr$CTRL[geneAcc$accessible],
+           order = TRUE)
+heatMatrix(geneMatsCombined$NoExpr$CTRL[!geneAcc$accessible],
+                order = TRUE)
+
+```
+
