@@ -30,15 +30,14 @@ col <-
   })
 names(col$Ligand)[1] <- "CTRL"
 names(col$Ligand)[6:8] <- sprintf("%s+EGF", names(col$Ligand)[6:8])
-col$Ligand <- col$Ligand[unique(as.character(sa.RNA.L3$Ligand))]
-
 
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
                 dataset = "hsapiens_gene_ensembl",
                 host = "www.ensembl.org")
 
 at.RNA <- getBM(attributes = c("ensembl_gene_id",
-                               "hgnc_symbol"), 
+                               "hgnc_symbol",
+                               "gene_biotype"), 
                 mart = mart)
 
 ##############################################################################
@@ -65,6 +64,7 @@ sa.RNA.L3 <-
                              "IFNG+EGF" = "IFNG",
                              "TGFB+EGF" = "TGFB")) %>% 
   mutate(Ligand = fct_inorder(Ligand))
+col$Ligand <- col$Ligand[unique(as.character(sa.RNA.L3$Ligand))]
 
 # Importing Level 3 data
 RNAseqL3 <- 
