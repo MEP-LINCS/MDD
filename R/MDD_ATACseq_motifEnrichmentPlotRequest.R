@@ -6,14 +6,14 @@ library(cowplot)
 
 theme_set(theme_cowplot())
 
-source("R/MDD_importColors_default.R")
-
 TFs <- c("FOXM1", "MYT1", "YBX1", "MYC", "POU5F1", "FOXO3", "STAT1", "SMAD3")
 
-motifEnrichments <- read.csv("../mcf10a_common_project/mcf10a_atacseq/Data/motif/MDD_ATACseq_MotifScores.csv")
-meAnno <- read.csv("../mcf10a_common_project/mcf10a_atacseq/Data/motif/MDD_ATACseq_MotifAnno.csv")
-sampleAnno <- read.csv("../mcf10a_common_project/mcf10a_atacseq/Metadata/MDD_ATACseq_sampleMetadata.csv")
+motifEnrichments <- read.csv("../../mcf10a_common_project/mcf10a_atacseq/Data/motif/MDD_ATACseq_MotifScores.csv")
+meAnno <- read.csv("../../mcf10a_common_project/mcf10a_atacseq/Data/motif/MDD_ATACseq_MotifAnno.csv")
+sampleAnno <- read.csv("../../mcf10a_common_project/mcf10a_atacseq/Metadata/MDD_ATACseq_sampleMetadata.csv")
 outDir <- "../plots/ATACseq_motifPlots_lauraEmail"
+
+source("MDD_importColors_default.R")
 
 if (!dir.exists(outDir)) {dir.create(outDir)}
 
@@ -45,8 +45,11 @@ motifEnrichments %>%
   dplyr::select(contains("sid"), hgnc_symbol) %>% 
   pivot_longer(-hgnc_symbol, names_to = "specimenID", values_to = "motifEnrichment") %>% 
   left_join(dplyr::select(sampleAnno,
-                          specimenName, specimenID)) %>% 
-  dplyr::select(-specimenID) %>% 
-  mutate(motifEnrichment = round(motifEnrichment, digits = 5)) %>% 
-  pivot_wider(names_from = specimenName, values_from = motifEnrichment) %>% 
-  write_csv(path = sprintf("%s/MDD_MotifEnrichment_FOXO3_MYC_OCT4.csv", outDir))
+                          experimentalCondition, specimenID)) %>% 
+  mutate(experimentalCondition = fct_inorder(as.factor(experimentalCondition))) %>% 
+  dplyr::select(-specimenID) %>%
+  group_by(hgnc_symbol, experimentalCondition) %>% 
+  summarize(medianEnrichment = median(motifEnrichment)) %>% 
+  mutate(medianEnrichment = round(medianEnrichment, digits = 5)) %>% 
+  pivot_wider(names_from = experimentalCondition, values_from = medianEnrichment) %>% 
+  write_csv(path = sprintf("%s/MDD_MotifEnrichmentSummarized_FOXO3_MYC_OCT4.csv", outDir))
