@@ -1,0 +1,620 @@
+---
+title: "Chromatin Accessibility in Expressed/Unexpressed Genes"
+author: "Daniel Derrick"
+date: "4/6/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r librariesPaths, include = FALSE}
+library(genomation)
+library(biomaRt)
+library(tidyverse)
+library(cmapR)
+library(ComplexHeatmap)
+library(cowplot)
+library(circlize)
+library(goseq)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(GenomicFeatures)
+library(DT)
+library(xlsx)
+
+theme_set(theme_cowplot())
+
+RNAscript <- "R/MDD_import_RNAseq_ensembl.R"
+
+transcriptsFile <- "misc/MDD_RNAseq_mostAbundantTranscripts.txt"
+ATACseqSAFile   <- "ATACseq/Metadata/MDD_ATACseq_sampleMetadata.csv"
+
+promoterDir <- "ATACseq/Data/misc"
+plotDir <- "plots/ATACseq_tornadoPlots/exprUnexpr"
+outDir <- "ATACseq/Data/misc"
+
+# Functions for ATAC-seq data
+getProm <- function(txdb, annoTable, buffer = 1500, genesOnly = FALSE) {
+  txdb <- keepStandardChromosomes(txdb)
+  txdb <- dropSeqlevels(txdb, c("chrY", "chrM"))
+  
+  if (genesOnly) {
+    txdb <- genes(txdb)
+    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
+    prom$ensembl_gene_id <- annoTable[match(prom$gene_id, 
+                                            annoTable$entrezgene), 1]
+  } else {
+    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
+    prom$tx_name         <- str_remove(prom$tx_name, "[.][0-9]+")
+    prom$ensembl_gene_id <- annoTable[match(prom$tx_name, 
+                                            annoTable$ensembl_transcript_id), ]$ensembl_gene_id
+  }
+  
+  filt <- is.na(prom$ensembl_gene_id)
+  prom <- prom[!filt]
+  
+  return(prom)
+}
+
+combineMat <- function(geneMat, combine) {
+  dumSum <- function(x, y) {
+    z <- x + y
+    return(z)
+  }
+  
+  geneMatAvg <-
+    lapply(combine, function(x) {
+      # print(x)
+      x_sum <-
+        Reduce(dumSum, geneMat[x])
+      x_avg <- (x_sum/length(x))
+      return(x_avg)
+    })
+  
+  names(geneMatAvg) <- names(combine)
+  geneMatAvg <- as(geneMatAvg, "ScoreMatrixList")
+  return(geneMatAvg)
+}
+
+###############################################################################
+
+source(RNAscript)
+```
+
+```{r importATACseqAnnotations}
+sa.ATAC <- 
+  read.csv(ATACseqSAFile, stringsAsFactors = FALSE) %>% 
+  mutate(Peaks = paste0("../", Peaks)) %>% 
+  mutate(bamReads = paste0("../", bamReads)) %>% 
+  mutate(experimentalCondition = fct_relevel(as.factor(experimentalCondition),
+                                             c("ctrl_0", "EGF_24", "EGF_48", "IFNG_24", "IFNG_48"))
+         )
+```
+
+
+## Introduction
+
+In this document, a filter is applied to MCF10A RNAseq data to classify genes as 
+expressed or unexpressed. The ATAC-seq accessibility is calculated in windows surrounding
+the TSS's of both sets of genes. The distribution of accessibility around unexpressed 
+transcript TSS is plotted, and a threshold to separate accessible and inaccessible chromatin
+is chosen. The characteristics of the unexpressed genes in both sets (accessible and inaccessible)
+are examined.
+
+## Calculating ATAC-seq accessibility of expressed/unexpressed genes 
+
+### Identifying expressed/unexpressed RNAseq genes
+
+* RNAseqL3 data is used to classify genes as "expressed" or "unexpressed". 
+
+* Expressed genes are those that have a minimum of 0.5 log2(fpkm + 1) in a minimum of 3 CTRL samples.
+
+```{r expressedUnexpressed}
+exprFilt <- apply(RNAseqL3[, 1:4], 1, function(x) {x <- sum(x >= 0.5) >= 3}) %>% 
+  data.frame(ensembl_gene_id = names(.),
+             expressedInRNA = .,
+             stringsAsFactors = FALSE)
+exprFilt$SumCtrl <- apply(RNAseqL3[, 1:4], 1, sum)
+
+exprFilt %>% 
+  group_by(expressedInRNA) %>% 
+  summarize(n = n())
+```
+
+### Heatmaps
+
+#### Expressed genes
+
+```{r heatmapsExpr, fig.height=8}
+Heatmap(RNAseqL3[exprFilt %>% filter(expressedInRNA) %>% arrange(desc(SumCtrl)) %>% pull(ensembl_gene_id), 1:4], 
+        show_row_names = FALSE,
+        cluster_rows = FALSE,
+        col = colorRamp2(c(0, 2, 10), c("white","blue", "red")),
+        name = "log2(fpkm + 1)",
+        cluster_columns = FALSE)
+```
+
+#### Unexpressed genes
+
+```{r heatmapsUnexpr, fig.height=8}
+Heatmap(RNAseqL3[exprFilt %>% filter(!expressedInRNA) %>% arrange(desc(SumCtrl)) %>% pull(ensembl_gene_id), 1:4], 
+        show_row_names = FALSE,
+        cluster_rows = FALSE,
+        col = colorRamp2(c(0, 2, 10), c("white","blue", "red")),
+        name = "log2(fpkm + 1)",
+        cluster_columns = FALSE)
+```
+
+### Getting genomic loci of all promoter regions
+
+* To calculate the accessibility of the promoters of expressed and unexpressed
+genes, each gene needs to be associated with the genomic locus of a transcriptional
+start site/promoter region. Promoter loci from the `TxDb.Hsapiens.UCSC.hg38.knownGene`
+hg38 annotation package are used.
+
+* A single gene may have multiple transcriptional start sites. 
+
+* To select a single TSS for each gene, the ensembl_transcript_id for the most-expressed
+isoform in the MCF10A RNA-seq data (calculated elsewhere) is 
+selected.
+
+* The gene expression filter is annotated to indicate if the ensembl_gene_id is
+found in the promoter metadata.
+
+* A list is created, containing promoter regions from `TxDb.Hsapiens.UCSC.hg38.knownGene`
+filtered to expressed and unexpressed genes.
+
+* Promoters of genes in the MHC/HLA region are removed.
+
+* The list of promoter regions is saved to a file and transferred to exacloud.
+
+```{r getPromoters}
+txFiltTable <- read.table(transcriptsFile,
+                          header = TRUE,
+                          stringsAsFactors = FALSE)
+prom <- getProm(TxDb.Hsapiens.UCSC.hg38.knownGene, txFiltTable)
+
+exprFilt <- 
+  exprFilt %>% 
+  mutate(promoterInATAC  = ensembl_gene_id %in% prom$ensembl_gene_id)
+         
+
+promList <- rep(list(prom), 2)
+
+glTemp <- list("Unexpressed" = 
+                   exprFilt %>% 
+                   filter(!expressedInRNA) %>% 
+                   left_join(at.RNA, by = "ensembl_gene_id") %>% 
+                   distinct(ensembl_gene_id, .keep_all = TRUE),
+                 "Expressed" = 
+                   exprFilt %>% 
+                   filter(expressedInRNA) %>% 
+                   left_join(at.RNA, by = "ensembl_gene_id") %>% 
+                   distinct(ensembl_gene_id, .keep_all = TRUE)
+                 )
+names(promList) <- names(glTemp)
+
+promList <- mapply(function(promoters, genesToFilter) {
+  promoters <- promoters[promoters$ensembl_gene_id %in% genesToFilter]
+  promoters
+  }, 
+  prom = promList, 
+  genesToFilter = lapply(glTemp, pull, ensembl_gene_id))
+
+
+HLALoci <- lapply(promList, function(promoters) {
+  x <- 
+    findOverlaps(GRanges("chr6:28510120-33480577"), promoters) %>% 
+    data.frame %>% 
+    .$subjectHits
+  
+  x
+})
+
+geneList <-
+  mapply(function(geneDF, promoters, HLA_ind) {
+    geneDF$promoterInHLA <- FALSE
+    
+    geneDF$promoterInHLA[match(promoters$ensembl_gene_id[HLA_ind], geneDF$ensembl_gene_id)] <- TRUE
+    geneDF <- geneDF[match(promoters$ensembl_gene_id, geneDF$ensembl_gene_id), ]
+    
+    geneDF <- 
+      geneDF %>% 
+      filter(promoterInATAC,
+             !promoterInHLA)
+    return(geneDF)
+  }, 
+  geneDF = glTemp, promoters = promList, HLA_ind = HLALoci, 
+  SIMPLIFY = FALSE)
+
+promNoHLA <- mapply(function(promoters, geneDF) {
+  promoters <- promoters[match(geneDF %>% 
+                                 filter(!promoterInHLA) %>% 
+                                 pull(ensembl_gene_id),
+                               promoters$ensembl_gene_id)]
+  promoters
+  }, 
+  promoters = promList,
+  geneDF = geneList)
+
+promNoHLA$Unexpressed %>% 
+  data.frame %>% head
+
+promNoHLA$Expressed %>% 
+  data.frame %>% head
+
+save(promNoHLA, sa.ATAC,
+     file = sprintf("%s/exprUnexpr_promoterList.Rdata", promoterDir))
+```
+
+### Uploading to exacloud and quantifying coverage for ctrl condition
+
+* The list of promoter loci for expressed and unexpressed genes is uploaded
+to exacloud
+* Coverage for promoter windows is calculated from the ATAC-seq bam files. Each
+promoter is divided into 300 bins.
+* The quantified promoter windows are saved and are transferred back to the PC.
+* The coverage across the 4 ctrl samples is averaged to produce a single quantified window per promoter.
+
+```{r, suppressMessages = TRUE}
+# library(tidyverse)
+# library(genomation)
+# 
+# promoterDir <- "ATACseq/Data/misc"
+# load(sprintf("../%s/exprUnexpr_promoterList.Rdata", promoterDir))
+# 
+# geneMats <- lapply(promNoHLA, function(x) {
+#   x <- ScoreMatrixList(target = sa.ATAC %>%
+#                          filter(ATACseq_QCpass) %>%
+#                          filter(ligand == c("ctrl")) %>%
+#                          arrange(ligand) %>%
+#                          pull(bamReads),
+#                        windows = x, bin.num = 300,
+#                        rpm = TRUE, type = "bam",
+#                        strand.aware = TRUE)
+#   x
+#   }
+#   )
+# 
+# geneMatsNamed <- lapply(geneMats, function(x) {
+#   names(x) <-
+#     sa.ATAC %>%
+#     filter(ATACseq_QCpass) %>%
+#     filter(ligand == c("ctrl")) %>%
+#     arrange(ligand) %>%
+#     pull(specimenName)
+#   x
+# })
+# 
+# save(geneMatsNamed, file = sprintf("../%s/exprUnexpr_promoterMat.Rdata", promoterDir))
+
+###############################################################################
+# on PC
+
+load(sprintf("%s/exprUnexpr_promoterMat.Rdata", promoterDir))
+geneMatsCombined <- lapply(geneMatsNamed,
+                           combineMat, 
+                           combine = list("CTRL" = 1:4)
+                           )
+```
+
+### Tornado Plots
+
+#### TSS of Expressed Genes in Ctrl condition
+
+```{r makeTornadoPlotExpr, fig.height=12, fig.width = 8}
+heatMatrix(geneMatsCombined$Expressed$CTRL,
+           order = TRUE,
+           winsorize = c(0, 97))
+```
+
+#### TSS of Unxpressed Genes in Ctrl condition
+
+```{r makeTornadoPlotUnexpr, fig.height=12, fig.width = 8}
+heatMatrix(geneMatsCombined$Unexpressed$CTRL, 
+           order = TRUE,
+           winsorize = c(0, 97))
+```
+
+### Annotating with sum accessibility of each TSS
+
+Calculating the sum of each TSS window and annotating gene 
+lists with the log-transformed total accessibility.
+
+```{r}
+addSumToGeneDF <- function(gmat, geneDF) {
+  gmat <- lapply(gmat, as, "matrix")
+  gmat <- Reduce(cbind, gmat)
+  
+  sum_acc <- apply(gmat, 1, sum)
+  rank_acc <- rank(sum_acc)
+  
+  orderedGenes   <- data.frame(ensembl_gene_id = geneDF$ensembl_gene_id,
+                               accSum = sum_acc,
+                               accRank = rank_acc,
+                               stringsAsFactors = FALSE) %>% 
+    left_join(at.RNA, by = "ensembl_gene_id") %>% 
+    arrange(desc(accRank))
+  orderedGenes
+}
+
+geneListSums <- mapply(addSumToGeneDF, 
+                       gmat = geneMatsCombined,
+                       geneDF = promNoHLA,
+                       SIMPLIFY = FALSE)
+gSumsLong <-
+  bind_rows(mutate(geneListSums$Unexpressed, expressed = FALSE),
+            mutate(geneListSums$Expressed, expressed = TRUE)) %>% 
+  mutate(logCoverage = log2(accSum + .1)) %>% 
+  dplyr::select(ensembl_gene_id, hgnc_symbol, gene_biotype, expressed, logCoverage)
+
+gSumsSummary <-
+  gSumsLong %>% 
+  group_by(expressed) %>% 
+  summarize(mean_acc = mean(logCoverage),
+            stdev_acc = var(logCoverage)^(1/2))
+```
+
+## Classifying promoter accessibility
+
+### Promoter accessibility distributions
+
+The distribution of promoter accessibility in expressed
+genes will be used to chose a threshold to separate
+accessible and inaccessible promoters.
+
+```{r plotAccessibilityDistributions}
+gSumsSummary %>% 
+  dplyr::rename(mean_logCoverage = mean_acc,
+                standard_deviation = stdev_acc)
+
+ggplot(gSumsLong) +
+  geom_density(aes(logCoverage, fill = expressed), alpha = .75) +
+  xlab("sum promoter accessibility (rpm)") +
+  ggtitle("Promoter accessibility distributions") +
+  scale_fill_brewer(type = "qual", palette = 1)
+```
+
+The log-accessibility of expressed genes has a long left tail; the log-accessibility of unexpressed genes has a long right tail.
+
+### Choosing a threshold for accessible promoters
+
+* A minimum accessibility threshold of 5 rpm looks reasonable to separate
+accessible and inaccessible promoters.
+
+* Promoters are annotated with TRUE/FALSE
+
+```{r}
+gSumsLong <- 
+  gSumsLong %>% 
+  mutate(accessible = logCoverage > 5,
+         gene_biotype = as.factor(gene_biotype)) %>% 
+  mutate(geneType = fct_collapse(gene_biotype,
+                                 pseudogene = grep("pseudogene", levels(gene_biotype), 
+                                                   value = TRUE),
+                                 other = grep("_gene", levels(gene_biotype), 
+                                              value = TRUE))) %>% 
+    dplyr::select(ensembl_gene_id, hgnc_symbol, geneType, expressed, logCoverage, accessible, gene_biotype)
+
+ggplot(gSumsLong) +
+  geom_density(aes(logCoverage, fill = expressed), alpha = .75) +
+  xlab("sum promoter accessibility (rpm)") +
+  geom_vline(xintercept = 5) +
+  ggtitle("Promoter accessibility distributions") +
+  scale_fill_brewer(type = "qual", palette = 1)
+
+gSumsLong %>% 
+  group_by(expressed, accessible) %>% 
+  summarize(n = n()) %>% 
+  arrange(desc(expressed)) %>% 
+  datatable(caption = "Summary of Promoter Accessibility and Gene Expression")
+```
+
+## Plots / Tables
+
+<!-- #### Gene types by expression status -->
+
+<!-- The expression status is summarized for genes in each of the `gene_biotype` gene -->
+<!-- categories, from biomaRt ENSEMBL. -->
+
+<!-- ```{r} -->
+<!--   gSumsLong %>%  -->
+<!--   ggplot + -->
+<!--   geom_bar(aes(geneType, fill = expressed), position = "dodge", col = "gray20") +  -->
+<!--   scale_fill_brewer(type = "qual", palette = 1) + -->
+<!--   theme(axis.text.x = element_text(angle = 90, hjust = 1))  -->
+<!-- ``` -->
+
+<!-- #### Gene types by promoter accessibility -->
+
+<!-- The promoter accessibility is summarized for genes in each of the `gene_biotype` gene -->
+<!-- categories, from biomaRt ENSEMBL. -->
+
+<!-- ```{r} -->
+<!-- gSumsLong %>%  -->
+<!--   ggplot + -->
+<!--   geom_bar(aes(geneType, fill = accessible), position = "dodge", col = "gray20") +  -->
+<!--   scale_fill_brewer(type = "qual", palette = 1) + -->
+<!--   theme(axis.text.x = element_text(angle = 90, hjust = 1))  -->
+<!-- ``` -->
+
+
+#### Table: Unexpressed Protein-Coding Genes Ranked by Accessibility
+
+The table below shows the most accessible protein-coding genes that are not
+expressed.
+
+```{r}
+gSumsLong %>% 
+  filter(!expressed) %>% 
+  filter(accessible) %>% 
+  filter(geneType == "protein_coding") %>% 
+  datatable()
+```
+
+#### Gene types by promoter accessibility, separated by expression status
+
+The promoter accessibility is summarized for genes in each of the `gene_biotype` gene
+categories, from biomaRt ENSEMBL, and genes plotted separately based on expression
+status.
+
+```{r, fig.height = 10, fig.width = 7}
+gSumsLong %>% 
+  ggplot() +
+  geom_bar(aes(geneType, fill = accessible), position = "dodge", col = "gray20") + 
+  scale_fill_brewer(type = "qual", palette = 1) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~expressed, ncol = 1) +
+  ggtitle("Promoter accessibility\nseparated by gene expression status",
+          subtitle = "expressed")
+```
+
+### Heatmaps
+
+The heatmaps below show the gene expression of all samples 
+for genes that are unexpressed in the ctrl condition, separated
+by promoter accessibility. Rows are ordered by decreasing 
+total gene expression.
+
+#### Unexpressed Genes with Accessible Promoters
+
+```{r, fig.height = 10, fig.width = 7}
+RNAseqL3C <- t(scale(t(RNAseqL3), scale = FALSE))
+gSumsLong$SumExpr <- apply(RNAseqL3[gSumsLong$ensembl_gene_id, ], 1, sum)
+
+# write.xlsx(gSumsLong %>%
+#              filter(!expressed) %>%
+#              filter(accessible),
+#            file = sprintf("%s/MDD_unexpressedGene_promoterAccessibility.xlsx", outDir),
+#            sheetName = "Accessible_Promoters",
+#            row.names = FALSE)
+# write.xlsx(gSumsLong %>%
+#              filter(!expressed) %>%
+#              filter(!accessible),
+#            file = sprintf("%s/MDD_unexpressedGene_promoterAccessibility.xlsx", outDir),
+#            sheetName = "Inaccessible_Promoters",
+#            append = TRUE,
+#            row.names = FALSE)
+# 
+
+Heatmap(RNAseqL3C[gSumsLong %>% 
+                    filter(!expressed) %>% 
+                    arrange(desc(SumExpr)) %>% 
+                    filter(accessible) %>% 
+                    pull(ensembl_gene_id), ],
+        col = colorRamp2(c(-1.5, 0, 1.5), c("blue", "white", "red")),
+        name = "mean-centered log2(fpkm + 1)",
+        show_row_names = FALSE,
+        cluster_columns = FALSE,
+        cluster_rows = FALSE,
+        show_column_names = FALSE,
+        top_annotation = ha.RNA.L3)
+```
+
+#### Unexpressed Genes with Inaccessible Promoters
+
+```{r, fig.height = 10, fig.width = 7}
+Heatmap(RNAseqL3C[gSumsLong %>% 
+                    filter(!expressed) %>% 
+                    filter(!accessible) %>%
+                    arrange(desc(SumExpr)) %>% 
+                    pull(ensembl_gene_id), ],
+        cluster_columns = FALSE,
+        name = "mean-centered log2(fpkm + 1)",
+        cluster_rows = FALSE,
+        col = colorRamp2(c(-1.5, 0, 1.5), c("blue", "white", "red")),
+        show_row_names = FALSE,
+        show_column_names = FALSE,
+        top_annotation = ha.RNA.L3)
+```
+
+<!-- ## Gene Ontology enrichment of accessible unexpressed genes -->
+
+<!-- The R package `goseq` is used to test for enrichment of gene -->
+<!-- ontology terms in gene lists using a hypergeometric test. -->
+
+<!-- ```{r, include=FALSE} -->
+<!-- cRNAFeatures <- list(accessible =  -->
+<!--                     gSumsLong %>%  -->
+<!--                     filter(!expressed) %>%  -->
+<!--                     filter(accessible) %>%  -->
+<!--                     filter(geneType == "protein_coding") %>%  -->
+<!--                     pull(hgnc_symbol) %>%  -->
+<!--                     unique, -->
+<!--                   inaccessible =  -->
+<!--                     gSumsLong %>%  -->
+<!--                     filter(!expressed) %>%  -->
+<!--                     filter(!accessible) %>%  -->
+<!--                     filter(geneType == "protein_coding") %>%  -->
+<!--                     pull(hgnc_symbol) %>%  -->
+<!--                     unique() -->
+<!--                   ) -->
+
+<!-- clusterDEVectors <- lapply(cRNAFeatures, function(x) { -->
+<!--   x <- as.integer(gSumsLong %>%  -->
+<!--                     filter(!expressed) %>%  -->
+<!--                     filter(geneType == "protein_coding") %>%  -->
+<!--                     pull(hgnc_symbol) %>%  -->
+<!--                     unique %in% x) -->
+<!--   names(x) <- gSumsLong %>%  -->
+<!--                     filter(!expressed) %>%  -->
+<!--                     filter(geneType == "protein_coding") %>%  -->
+<!--                     pull(hgnc_symbol) %>% unique -->
+<!--   x -->
+<!-- }) -->
+
+<!-- pwfList <- lapply(clusterDEVectors, nullp, "hg19", "geneSymbol") -->
+
+<!-- enrichments <- lapply(pwfList, goseq, "hg19", "geneSymbol",  -->
+<!--                        use_genes_without_cat = TRUE) -->
+<!-- ``` -->
+
+<!-- ### Results: GO Categories enriched in accessible unexpressed genes -->
+
+<!-- ```{r} -->
+<!-- enrichments$accessible %>%  -->
+<!--   dplyr::select(category, ontology, term, over_represented_pvalue, numDEInCat, numInCat) %>%  -->
+<!--   filter(over_represented_pvalue < 0.01) %>%  -->
+<!--   mutate(term = str_trunc(term, 35)) -->
+<!-- ``` -->
+
+
+## Enrichr
+
+Below are links to Enrichr searches for genes that are unexpressed and accessible, and for
+genes that are unexressed and inaccessible.
+
+### Accessible unexpressed genes
+
+```{r writeEnrichrAccUnexpressed}
+# gSumsLong %>% 
+#   filter(accessible, !expressed,
+#          geneType == "protein_coding")  %>% 
+#   pull(hgnc_symbol) %>% 
+#   unique %>% 
+#   writeLines("~/Desktop/accessible_unexpressed.txt")
+
+```
+
+https://amp.pharm.mssm.edu/Enrichr/enrich?dataset=5f573b6009bb334596fa1cbab76c2553
+
+### Inaccessible unexpressed genes
+
+```{r writeEnrichrInaccUnexpressed}
+# gSumsLong %>% 
+#   filter(!accessible, !expressed,
+#          geneType == "protein_coding")  %>% 
+#   pull(hgnc_symbol) %>% 
+#   unique %>% 
+#   writeLines("~/Desktop/inaccessible_unexpressed.txt")
+
+```
+
+https://amp.pharm.mssm.edu/Enrichr/enrich?dataset=03a7c7d7a2065320e36f426adc9107e8
+

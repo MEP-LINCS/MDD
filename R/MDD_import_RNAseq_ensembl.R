@@ -50,6 +50,7 @@ sa.RNA.L3 <-
                              "IFNG+EGF" = "IFNG",
                              "TGFB+EGF" = "TGFB")) %>% 
   mutate(Ligand = fct_inorder(Ligand))
+col$Ligand <- col$Ligand[unique(as.character(sa.RNA.L3$Ligand))]
 
 # Importing Level 3 data
 RNAseqL3 <- 

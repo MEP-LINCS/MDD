@@ -1,0 +1,165 @@
+---
+title: "MDD Integrated Module Hallmark Enrichment"
+author: "Daniel Derrick"
+date: "4/6/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+This script generates enrichment scores for the BROAD
+MSigDB Hallmark collection of gene sets in the MCF10A MDD Integrated Modules,
+using the R package goseq.
+
+```{r setup_libraries_and_filenames, echo = FALSE, message = FALSE, warning = FALSE}
+library(biomaRt)
+library(goseq)
+library(tidyverse)
+library(cmapR)
+library(cowplot)
+
+theme_set(theme_cowplot())
+clusterFeaturesDir <- "misc/Ligand_tables"
+RNAseqL3File       <- "RNAseq/Data/MDD_RNAseq_Level3.csv"
+hallmarkFile       <- "misc/h.all.v6.2.symbols.gmt"
+```
+
+## Preparation
+
+goseq is an R package for bag-of-genes-style testing of gene set enrichment.
+As input, goseq needs:
+
+* list of all expressed genes in MCF10a (background)
+* lists of RNAseq features in each cluster
+* hallmark gene sets
+
+### Getting character vector of all expressed genes in MCF10A MDD RNA-seq
+
+Level 3 RNAseq data is filtered for expressed genes, renamed with HGCN symbols.
+
+```{r}
+## Reading in RNAseq data
+RNAseqL3 <- read.csv(RNAseqL3File, stringsAsFactors = FALSE, row.names = 1)
+
+## Getting annotations 
+mart      <- useMart("ensembl", dataset = "hsapiens_gene_ensembl", host = "uswest.ensembl.org")
+annoTable <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol"),
+                   mart = mart)
+
+## Creating filter to identify expressed RNAseq genes, adding gene symbols
+exprGenes <- apply(RNAseqL3, 1, function(x) {
+  x <- sum(x >= 0.5) >= 3
+  return(x)
+  }) %>% 
+  data.frame(ensembl_gene_id = names(.),
+             expressed = .,
+             stringsAsFactors = FALSE) %>% 
+  left_join(annoTable) %>% 
+  filter(expressed) %>% 
+  distinct(hgnc_symbol) %>% 
+  filter(hgnc_symbol != "") %>% 
+  pull(hgnc_symbol)
+
+```
+
+### Getting RNAseq features in each module
+
+The RNAseq features in each module are extracted from the feature tables. For each
+module, a named binary vector is created. The vector is named with all RNAseq features.
+For a given cluster, a 0 indicates that the named RNAseq feature is not part of the 
+cluster, and a 1 indicates that the RNAseq feature is a member.
+
+A probability weighting function is then calculated for each vector, using the
+"nullp" function of goseq.
+
+```{r getVectorsAndPWF, include=FALSE}
+# Creating vector of cluster 12 genes
+## Reading cluster feature files 
+cFeatureFiles        <- list.files(clusterFeaturesDir, full.names = TRUE)
+names(cFeatureFiles) <- str_extract(cFeatureFiles, "cluster_[0-9]+")
+fTables <- lapply(cFeatureFiles, read.csv, stringsAsFactors = FALSE)
+
+# Getting vectors of RNAseq features
+cRNAseqFeatures <- lapply(fTables, function(x) {
+  x <- 
+    x %>% 
+    filter(Type == "RNA") %>%
+    distinct(symbol) %>% 
+    pull(symbol)
+})
+
+
+clusterDEVectors <- lapply(cRNAseqFeatures, function(x) {
+  x <- as.integer(exprGenes %in% x)
+  names(x) <- exprGenes
+  x
+})
+
+pwfList <- lapply(clusterDEVectors, nullp, "hg19", "geneSymbol")
+```
+
+### Getting and formatting hallmark features
+
+```{r, message=FALSE, warning = FALSE}
+hmark <- parse.gmt(hallmarkFile)
+
+hallmarkDEVectors <- sapply(hmark, function(x) {
+  x <- x$entry
+  x
+})
+
+hallmarkDF <-
+  data.frame(geneSymbol = unlist(hallmarkDEVectors),
+             Category = rep(names(hallmarkDEVectors), as.numeric(lapply(hallmarkDEVectors, length))),
+             stringsAsFactors = FALSE)
+
+enrichments <- lapply(pwfList, goseq, "hg19", "geneSymbol", 
+                      gene2cat = hallmarkDF, use_genes_without_cat = FALSE)
+
+enrichments <- lapply(enrichments, function(x) {
+  x <- x %>% 
+    mutate(FDR = p.adjust(over_represented_pvalue, method = "fdr"))
+  x
+})  
+
+enrichmentsLong <- 
+  Reduce(bind_rows, enrichments) %>% 
+  mutate(Module = rep(names(enrichments), as.numeric(lapply(enrichments, nrow)))) %>% 
+  # mutate(category = str_remove(category, "HALLMARK_")) %>% 
+  dplyr::select(Module, category, FDR, numDEInCat, numInCat) %>% 
+  dplyr::rename(gene_set = category,
+               intersect_size = numDEInCat,
+               set_size = numInCat)
+
+write_csv(enrichmentsLong, path = "misc/MDD_Module_HallmarkEnrichments.csv")
+```
+
+### Results - FDR < 0.05
+
+The number of hallmark gene sets with FDR < 0.05 in each module is summarized below.
+Module 11 has no hallmark sets that reach significance.
+
+```{r}
+eSummary <-
+  enrichmentsLong %>% 
+  mutate(moduleNumber = as.numeric(str_extract(Module, "[0-9]+"))) %>% 
+  arrange(moduleNumber) %>% 
+  mutate(Module = fct_inorder(as.factor(Module))) %>% 
+  filter(FDR <= 0.05) %>%
+  group_by(Module, .drop = FALSE) %>% 
+  arrange(FDR) %>% 
+  summarize(n = n(),
+            Pathways = paste(gene_set, sep = ", ", collapse = ", "))
+
+eSummary
+```
+
+
+
