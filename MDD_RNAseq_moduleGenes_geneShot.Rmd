@@ -1,0 +1,519 @@
+---
+title: "MDD Integrated Module GeneShot Annotation"
+author: "Daniel Derrick"
+date: "4/24/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+This script creates volcano plots from MDD integrated module genes,
+annotated with enrichment scores from geneShot literature searches
+for terms related to the modules.
+
+```{r setupAndPaths, include=FALSE}
+library(DESeq2)
+library(biomaRt)
+library(tidyverse)
+library(plotly)
+library(cowplot)
+
+if(!grepl("R$", getwd())) {setwd("R")}
+
+gSDir     <- "misc/geneShot"
+moduleDir <- "misc/Ligand_tables"
+resFile   <- "RNAseq/MCF10A_RNAseq_DESeq2Results48.Rdata"
+
+outDir <- "../plots/allModule_geneShot"
+outPathWidget <- "/Users/derrickd/workspace/MDD/plots/allModule_geneShot/MDD_RNAseq_geneshot_scatterplot.html"
+```
+
+### Geneshot searches 
+
+Reading in geneshot files for cell cycle, EMT, migration, and interferon gamma-related
+literature seraches.
+
+|GeneShot Search|Search terms|Module|Ligand|
+|---|---|---|---|
+|cell cycle|cell cycle, proliferation| Module 3 | PBS |
+|EMT|epithelial-to-mesenchymal transition, EMT| Modules 7,8 | TGFB |
+|migration|motility, migration | Module 10 | OSM |
+|IFNG|Interferon gamma, immune, immunity| Module 12 | IFNG |
+
+
+```{r}
+gsFiles <- grep("README", 
+                list.files(gSDir, full.names = TRUE),
+                invert = TRUE, value = TRUE)
+
+gsList <- mapply(function(x, x_nm) {
+  x <- read.table(x, 
+                  sep = "\t", stringsAsFactor = FALSE, header = TRUE)
+  colnames(x)[-2] <- sprintf("%s_%s", colnames(x)[-2], x_nm)
+  x
+  }, 
+  x = gsFiles, 
+  x_nm = str_remove(str_remove(str_extract(gsFiles, "_[:alnum:]+.tsv"), ".tsv"), "_"),
+  SIMPLIFY = FALSE)
+
+names(gsList) <-
+  str_remove(str_remove(str_extract(gsFiles, "_[:alnum:]+.tsv"), ".tsv"), "_")
+
+gsLong <-
+  Reduce(full_join, gsList) %>% 
+  dplyr::rename(hgnc_symbol = Gene)
+```
+
+### Reading in module features, selecting RNAseq features
+
+```{r}
+mFiles        <- list.files(moduleDir, full.names = TRUE, pattern = "*.csv")
+names(mFiles) <- str_replace(str_extract(mFiles, "cluster_[0-9]+"), 
+                              "cluster", "module")
+
+fT <- lapply(mFiles, read.csv, header = FALSE, stringsAsFactors = FALSE)
+
+fT <-
+  lapply(fT, function(x) {
+    colnames(x) <- c("feature", sprintf("V%s", seq(2, 10, 1)), "type", "symbol")
+    x 
+    })
+
+moduleRNAseqFeatures <- lapply(fT, function(x) {
+  x <- x %>%
+    filter(type == "RNA") %>%
+    distinct(symbol) %>%
+    pull(symbol)
+  })
+moduleRNAseqFeatures <- moduleRNAseqFeatures[c(1, 5:12, 2:4)]
+```
+
+### Reading in RNAseq differential expression results
+
+```{r}
+load(resFile)
+```
+
+
+### Replacing adjusted p-values of 0
+
+Some genes in the DESeq2 results tables have adjusted p-values
+of 0, which causes issues when the data are log-transformed.
+Adjusted p-values of 0 will be replaced by the minimum
+adjusted p-value for the evaluated condition.
+
+```{r}
+RNAseqRT <-
+  mapply(function(x, x_nm) {
+    if(min(x$padj, na.rm = TRUE) == 0) {
+      xmin <- min(sort(unique(x$padj))[-1], na.rm = TRUE)
+      x$padj[x$padj == 0] <- xmin
+    } else {
+      x <- x
+    }
+    temp <- sprintf("%s_%s", colnames(x[-c(1, 7)]), x_nm)
+    colnames(x)[-c(1,2,7)] <- sprintf("%s_%s", colnames(x)[-c(1,2, 7)], x_nm)
+    x
+  }, 
+  x = RNAseq_resultsTables, x_nm = names(RNAseq_resultsTables), SIMPLIFY = FALSE)
+
+RNAseqLong <- Reduce(left_join, RNAseqRT)
+```
+
+### Joining modules to RNAseq results
+
+
+```{r}
+GS_RNA <- 
+  RNAseqLong %>%
+  left_join(gsLong)
+
+combined <- GS_RNA %>% 
+  mutate(module1 = hgnc_symbol %in% moduleRNAseqFeatures$module_1,
+         module2 = hgnc_symbol %in% moduleRNAseqFeatures$module_2,
+         module3 = hgnc_symbol %in% moduleRNAseqFeatures$module_3,
+         module4 = hgnc_symbol %in% moduleRNAseqFeatures$module_4,
+         module5 = hgnc_symbol %in% moduleRNAseqFeatures$module_5,
+         module6 = hgnc_symbol %in% moduleRNAseqFeatures$module_6,
+         module7 = hgnc_symbol %in% moduleRNAseqFeatures$module_7,
+         module8 = hgnc_symbol %in% moduleRNAseqFeatures$module_8,
+         module9 = hgnc_symbol %in% moduleRNAseqFeatures$module_9,
+         module10 = hgnc_symbol %in% moduleRNAseqFeatures$module_10,
+         module11 = hgnc_symbol %in% moduleRNAseqFeatures$module_11,
+         module12 = hgnc_symbol %in% moduleRNAseqFeatures$module_12)
+```
+
+## Plots
+
+### GeneShot: "Cell Cycle"; RNAseq changes: PBS_48
+
+The volcano plots below show RNA-seq changes in PBS_48 annotated with a 
+GeneShot search for "cell cycle" and "proliferation", in modules 3, 7, 8, 10, and 12.
+
+#### Module: Module 3 (PBS Module)
+
+```{r}
+combined %>% 
+  filter(module3) %>% 
+  ggplot(aes(x = log2FoldChange_PBS_48,
+             y = -log10(padj_PBS_48),
+             col = Rank_cellCycle,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("PBS_48 log2FC") +
+  ylab("PBS_48 -log10(padj)")+
+  ggtitle("Module 3 Genes",
+          "geneshot: 'cell cycle', 'proliferation'")
+```
+
+#### Module: Module 7 (TGFB Module)
+
+```{r}
+combined %>% 
+  filter(module7) %>% 
+  ggplot(aes(x = log2FoldChange_PBS_48,
+             y = -log10(padj_PBS_48),
+             col = Rank_cellCycle,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("PBS_48 log2FC") +
+  ylab("PBS_48 -log10(padj)")+
+  ggtitle("Module 7 Genes",
+          "geneshot: 'cell cycle', 'proliferation'")
+```
+
+#### Module: Module 8 (TGFB Module)
+
+```{r}
+combined %>% 
+  filter(module8) %>% 
+  ggplot(aes(x = log2FoldChange_PBS_48,
+             y = -log10(padj_PBS_48),
+             col = Rank_cellCycle,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("PBS_48 log2FC") +
+  ylab("PBS_48 -log10(padj)")+
+  ggtitle("Module 8 Genes",
+          "geneshot: 'cell cycle', 'proliferation'")
+```
+
+#### Module: Module 10 (OSM Module)
+
+```{r}
+combined %>% 
+  filter(module10) %>% 
+  ggplot(aes(x = log2FoldChange_PBS_48,
+             y = -log10(padj_PBS_48),
+             col = Rank_cellCycle,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("PBS_48 log2FC") +
+  ylab("PBS_48 -log10(padj)")+
+  ggtitle("Module 10 Genes",
+          "geneshot: 'cell cycle', 'proliferation'")
+```
+
+#### Module: Module 12 (IFNG Module)
+
+```{r}
+combined %>% 
+  filter(module12) %>% 
+  ggplot(aes(x = log2FoldChange_PBS_48,
+             y = -log10(padj_PBS_48),
+             col = Rank_cellCycle,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("PBS_48 log2FC") +
+  ylab("PBS_48 -log10(padj)")+
+  ggtitle("Module 12 Genes",
+          "geneshot: 'cell cycle', 'proliferation'")
+```
+
+### GeneShot: "EMT" + RNAseq changes: TGFB_48
+
+The volcano plots below show RNA-seq changes in TGFB_48 annotated with a 
+GeneShot search for "epithelial-to-mesenchymal transition" and "EMT", in modules 3, 7, 8, 10, and 12.
+
+#### Module: Module 3 (PBS Module)
+
+```{r}
+combined %>% 
+  filter(module3) %>% 
+  ggplot(aes(x = log2FoldChange_TGFB_48,
+             y = -log10(padj_TGFB_48),
+             col = Rank_EMT,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("TGFB_48 log2FC") +
+  ylab("TGFB_48 -log10(padj)")+
+  ggtitle("Module 3 Genes",
+          "geneshot: 'epithelial-to-mesenchymal transition', 'EMT'")
+```
+
+#### Module: Module 7 (TGFB Module)
+
+```{r}
+combined %>% 
+  filter(module7) %>% 
+  ggplot(aes(x = log2FoldChange_TGFB_48,
+             y = -log10(padj_TGFB_48),
+             col = Rank_EMT,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("TGFB_48 log2FC") +
+  ylab("TGFB_48 -log10(padj)")+
+  ggtitle("Module 7 Genes",
+          "geneshot: 'epithelial-to-mesenchymal transition', 'EMT'")
+```
+
+#### Module: Module 8 (TGFB Module)
+
+```{r}
+combined %>% 
+  filter(module8) %>% 
+  ggplot(aes(x = log2FoldChange_TGFB_48,
+             y = -log10(padj_TGFB_48),
+             col = Rank_EMT,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("TGFB_48 log2FC") +
+  ylab("TGFB_48 -log10(padj)")+
+  ggtitle("Module 8 Genes",
+          "geneshot: 'epithelial-to-mesenchymal transition', 'EMT'")
+```
+
+#### Module: Module 10 (OSM Module)
+
+```{r}
+combined %>% 
+  filter(module10) %>% 
+  ggplot(aes(x = log2FoldChange_TGFB_48,
+             y = -log10(padj_TGFB_48),
+             col = Rank_EMT,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("TGFB_48 log2FC") +
+  ylab("TGFB_48 -log10(padj)")+
+  ggtitle("Module 10 Genes",
+          "geneshot: 'epithelial-to-mesenchymal transition', 'EMT'")
+```
+
+#### Module: Module 12 (IFNG Module)
+
+```{r}
+combined %>% 
+  filter(module12) %>% 
+  ggplot(aes(x = log2FoldChange_TGFB_48,
+             y = -log10(padj_TGFB_48),
+             col = Rank_EMT,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("TGFB_48 log2FC") +
+  ylab("TGFB_48 -log10(padj)")+
+  ggtitle("Module 12 Genes",
+          "geneshot: 'epithelial-to-mesenchymal transition', 'EMT'")
+```
+
+### GeneShot: "Migration" + RNAseq changes: OSM_48
+
+The volcano plots below show RNA-seq changes in OSM_48 annotated with a 
+GeneShot search for "migration" and "motility", in modules 3, 7, 8, 10, and 12.
+
+#### Module: Module 3 (PBS Module)
+
+```{r}
+combined %>% 
+  filter(module3) %>% 
+  ggplot(aes(x = log2FoldChange_OSM_48,
+             y = -log10(padj_OSM_48),
+             col = Rank_migration,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("OSM_48 log2FC") +
+  ylab("OSM_48 -log10(padj)")+
+  ggtitle("Module 3 Genes",
+          "geneshot: 'migration', 'motility'")
+```
+
+#### Module: Module 7 (TGFB Module)
+
+```{r}
+combined %>% 
+  filter(module7) %>% 
+  ggplot(aes(x = log2FoldChange_OSM_48,
+             y = -log10(padj_OSM_48),
+             col = Rank_migration,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("OSM_48 log2FC") +
+  ylab("OSM_48 -log10(padj)")+
+  ggtitle("Module 7 Genes",
+          "geneshot: 'migration', 'motility'")
+```
+
+#### Module: Module 8 (TGFB Module)
+
+```{r}
+combined %>% 
+  filter(module8) %>% 
+  ggplot(aes(x = log2FoldChange_OSM_48,
+             y = -log10(padj_OSM_48),
+             col = Rank_migration,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("OSM_48 log2FC") +
+  ylab("OSM_48 -log10(padj)")+
+  ggtitle("Module 8 Genes",
+          "geneshot: 'migration', 'motility'")
+```
+
+#### Module: Module 10 (OSM Module)
+
+```{r}
+combined %>% 
+  filter(module10) %>% 
+  ggplot(aes(x = log2FoldChange_OSM_48,
+             y = -log10(padj_OSM_48),
+             col = Rank_migration,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("OSM_48 log2FC") +
+  ylab("OSM_48 -log10(padj)")+
+  ggtitle("Module 10 Genes",
+          "geneshot: 'migration', 'motility'")
+```
+
+#### Module: Module 12 (IFNG Module)
+
+```{r}
+combined %>% 
+  filter(module12) %>% 
+  ggplot(aes(x = log2FoldChange_OSM_48,
+             y = -log10(padj_OSM_48),
+             col = Rank_migration,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("OSM_48 log2FC") +
+  ylab("OSM_48 -log10(padj)")+
+  ggtitle("Module 12 Genes",
+          "geneshot: 'migration', 'motility'")
+```
+
+
+
+### GeneShot: "immune" + RNAseq changes: IFNG_48
+
+The volcano plots below show RNA-seq changes in IFNG_48 annotated with a 
+GeneShot search for "immune", "immunity" and "interferon gamma", in
+modules 3, 7, 8, 10, and 12.
+
+#### Module: Module 3 (PBS Module)
+
+```{r}
+combined %>% 
+  filter(module3) %>% 
+  ggplot(aes(x = log2FoldChange_IFNG_48,
+             y = -log10(padj_IFNG_48),
+             col = Rank_IFNG,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("IFNG_48 log2FC") +
+  ylab("IFNG_48 -log10(padj)")+
+  ggtitle("Module 3 Genes",
+          "geneshot: 'immune', 'immunity', 'interferon gamma'")
+```
+
+#### Module: Module 7 (TGFB Module)
+
+```{r}
+combined %>% 
+  filter(module7) %>% 
+  ggplot(aes(x = log2FoldChange_IFNG_48,
+             y = -log10(padj_IFNG_48),
+             col = Rank_IFNG,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("IFNG_48 log2FC") +
+  ylab("IFNG_48 -log10(padj)")+
+  ggtitle("Module 7 Genes",
+          "geneshot: 'immune', 'immunity', 'interferon gamma'")
+```
+
+#### Module: Module 8 (TGFB Module)
+
+```{r}
+combined %>% 
+  filter(module8) %>% 
+  ggplot(aes(x = log2FoldChange_IFNG_48,
+             y = -log10(padj_IFNG_48),
+             col = Rank_IFNG,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("IFNG_48 log2FC") +
+  ylab("IFNG_48 -log10(padj)")+
+  ggtitle("Module 8 Genes",
+          "geneshot: 'immune', 'immunity', 'interferon gamma'")
+```
+
+#### Module: Module 10 (OSM Module)
+
+```{r}
+combined %>% 
+  filter(module10) %>% 
+  ggplot(aes(x = log2FoldChange_IFNG_48,
+             y = -log10(padj_IFNG_48),
+             col = Rank_IFNG,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("IFNG_48 log2FC") +
+  ylab("IFNG_48 -log10(padj)")+
+  ggtitle("Module 10 Genes",
+          "geneshot: 'immune', 'immunity', 'interferon gamma'")
+```
+
+#### Module: Module 12 (IFNG Module)
+
+```{r}
+combined %>% 
+  filter(module12) %>% 
+  ggplot(aes(x = log2FoldChange_IFNG_48,
+             y = -log10(padj_IFNG_48),
+             col = Rank_IFNG,
+             text = hgnc_symbol)) +
+  geom_point(size = 1.5, alpha = .75) +
+  scale_color_gradient(low = "pink", high = "red") +
+  xlab("IFNG_48 log2FC") +
+  ylab("IFNG_48 -log10(padj)")+
+  ggtitle("Module 12 Genes",
+          "geneshot: 'immune', 'immunity', 'interferon gamma'")
+```
+
+

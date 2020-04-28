@@ -5,7 +5,7 @@ library(tidyverse)
 library(ComplexHeatmap)
 library(biomaRt)
 
-colScript          <- "MDD_importColors_pretty.R"
+colFile            <- "../misc/MDD_color_codes.csv"
 RNAseqMetadataFile <- "../RNAseq/Metadata/MDD_RNAseq_sampleMetadata.csv"
 RNAseqL3DataFile   <- "../RNAseq/Data/MDD_RNAseq_Level3.csv"
 
@@ -15,15 +15,30 @@ if(!grepl("R$", getwd())) {
   setwd("R")
 }
 
-source(colScript)
+col <- read.csv(colFile)
+col <- list(
+  Ligand = dplyr::slice(col, 1:8),
+  Time = dplyr::slice(col, 10:15),
+  # secondLigand = dplyr::slice(col, 17:18),
+  # replicate = dplyr::slice(col, 19:24),
+  collection = dplyr::slice(col, 26:28)
+)
+
+col <-
+  lapply(col, function(x) {
+    x <- setNames(x[, 2], x[, 1])
+  })
+names(col$Ligand)[1] <- "CTRL"
+
+names(col$Ligand)[6:8] <- sprintf("%s+EGF", names(col$Ligand)[6:8])
+
 
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
                 dataset = "hsapiens_gene_ensembl",
                 host = "uswest.ensembl.org")
 
 at.RNA <- getBM(attributes = c("ensembl_gene_id",
-                               "hgnc_symbol",
-                               "gene_biotype"), 
+                               "hgnc_symbol"), 
                 mart = mart)
 
 ##############################################################################
@@ -32,25 +47,24 @@ sa.RNA.L3 <-
   read.csv(RNAseqMetadataFile, 
            stringsAsFactors = FALSE) %>% 
   mutate(ligand = fct_inorder(ligand),
-         experimentalTimePoint = fct_inorder(as.factor(experimentalTimePoint)),
-         experimentalCondition = fct_inorder(as.factor(experimentalCondition))) %>% 
+         experimentalTimePoint = fct_inorder(as.factor(experimentalTimePoint))) %>% 
   filter(RNAseq_QCpass) %>% 
   dplyr::select(-contains("RNA")) %>% 
   dplyr::select(-contains("sequencing")) %>% 
   dplyr::select(-contains("File")) %>% 
   dplyr::rename(Time = experimentalTimePoint,
                 Ligand = ligand) %>% 
-  # mutate(experimentalCondition = fct_relevel(as.factor(experimentalCondition),
-  #                                            c("ctrl_0", "EGF_48", "IFNG_48"))) %>% 
+  filter(Ligand %in% c("ctrl", "EGF", "IFNG"),
+         Time %in% c(0, 48)) %>% 
+  mutate(experimentalCondition = fct_relevel(as.factor(experimentalCondition),
+                                             c("ctrl_0", "EGF_48", "IFNG_48"))) %>% 
   arrange(experimentalCondition) %>% 
   mutate(experimentalCondition = as.character(experimentalCondition)) %>% 
   mutate(Ligand = fct_recode(Ligand, 
                              "CTRL" = "ctrl",
                              "BMP2+EGF" = "BMP2",
                              "IFNG+EGF" = "IFNG",
-                             "TGFB+EGF" = "TGFB")) %>% 
-  mutate(Ligand = fct_inorder(Ligand))
-col$Ligand <- col$Ligand[unique(as.character(sa.RNA.L3$Ligand))]
+                             "TGFB+EGF" = "TGFB"))
 
 # Importing Level 3 data
 RNAseqL3 <- 
@@ -80,3 +94,4 @@ RNAseqL3Z <-
 ha.RNA.L3 <- HeatmapAnnotation(df = dplyr::select(sa.RNA.L3, 
                                                   Ligand, 
                                                   Time), col = col)
+
