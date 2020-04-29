@@ -27,14 +27,14 @@ library(plotly)
 library(cowplot)
 theme_set(theme_cowplot())
 
-if(!grepl("R$", getwd())) {setwd("R")}
+# if(!grepl("R$", getwd())) {setwd("R")}
 
 gSDir     <- "misc/geneShot"
 moduleDir <- "misc/Ligand_tables"
 resFile   <- "RNAseq/MCF10A_RNAseq_DESeq2Results48.Rdata"
 
-outDir <- "../plots/allModule_geneShot"
-outPathWidget <- "/Users/derrickd/workspace/MDD/plots/allModule_geneShot/MDD_RNAseq_geneshot_scatterplot.html"
+outDir <- "plots/allModule_geneShot"
+# outPathWidget <- "/Users/derrickd/workspace/MDD/plots/allModule_geneShot/MDD_RNAseq_geneshot_scatterplot.html"
 ```
 
 ### Geneshot searches 
@@ -130,7 +130,6 @@ RNAseqLong <- Reduce(left_join, RNAseqRT)
 ```
 
 ### Joining modules to RNAseq results
-
 
 ```{r}
 GS_RNA <- 
@@ -424,8 +423,6 @@ combined %>%
           "geneshot: 'migration', 'motility'")
 ```
 
-
-
 ### GeneShot: "immune" + RNAseq changes: IFNG_48
 
 The volcano plots below show RNA-seq changes in IFNG_48 annotated with a 
@@ -517,3 +514,66 @@ combined %>%
           "geneshot: 'immune', 'immunity', 'interferon gamma'")
 ```
 
+## Writing summaries to excel files
+
+```{r}
+# Creating simpler data frame for associating modules with geneShot results
+gsSimple <- lapply(gsFiles, read.table, sep = "\t", 
+                   stringsAsFactor = FALSE, header = TRUE)
+names(gsSimple) <- str_remove(str_remove(str_extract(gsFiles, "_[:alnum:]+.tsv"), ".tsv"), "_")
+gsSimple <- mapply(function(x, x_nm) {
+  x <- x %>% 
+    mutate(geneShot = x_nm) %>% 
+    dplyr::rename(hgnc_symbol = Gene)
+  x
+  }, 
+  x = gsSimple, x_nm = names(gsSimple),
+  SIMPLIFY = FALSE) %>% 
+  Reduce(bind_rows, .)
+
+moduleSimple <- data.frame(hgnc_symbol = unlist(moduleRNAseqFeatures),
+                           module = rep(names(moduleRNAseqFeatures), lapply(moduleRNAseqFeatures, length)))
+moduleSizes <-
+  moduleSimple %>% 
+  group_by(module) %>% 
+  summarize(module_genes_total = n())
+
+mTW <- 
+  moduleSimple %>% 
+  left_join(gsSimple) %>% 
+  group_by(module, geneShot) %>% 
+  summarize(overlap = n()) %>% 
+  mutate(order = as.numeric(str_remove(str_extract(module, "_[0-9]+"), "_"))) %>% 
+  arrange(order) %>% 
+  dplyr::select(-order) %>% 
+  ungroup %>% 
+  mutate(module = fct_inorder(module)) %>% 
+  left_join(moduleSizes) %>% 
+  mutate(overlap_proportion = round((overlap/module_genes_total), 4)) %>% 
+  dplyr::select(module, geneShot, contains("overlap"), module_genes_total) %>% 
+  mutate(geneShot = replace_na(geneShot, "none"))
+
+mTWlist <- split(mTW, fct_inorder(mTW$module))
+
+if(!dir.exists(outDir)) {dir.create(outDir, recursive = TRUE)}
+write.xlsx(mTWlist$module_1, file = sprintf("%s/MDD_module_geneShot_overlap_summary_byModule.xlsx", outDir), sheetName = "module_1")
+
+mapply(function(x, x_nm) {
+  write.xlsx(x, file = sprintf("%s/MDD_module_geneShot_overlap_summary_byModule.xlsx", outDir), 
+             sheetName = x_nm, append = TRUE)
+  }, 
+  x = mTWlist[-1], x_nm = names(mTWlist[-1])
+)
+
+mTWlist2 <- split(mTW, fct_inorder(mTW$geneShot))
+
+if(!dir.exists(outDir)) {dir.create(outDir, recursive = TRUE)}
+write.xlsx(mTWlist2$cellCycle, file = sprintf("%s/MDD_module_geneShot_overlap_summary_byGeneShot.xlsx", outDir), sheetName = "cellCycle")
+
+mapply(function(x, x_nm) {
+  write.xlsx(x, file = sprintf("%s/MDD_module_geneShot_overlap_summary_byGeneShot.xlsx", outDir), 
+             sheetName = x_nm, append = TRUE)
+  }, 
+  x = mTWlist2[-1], x_nm = names(mTWlist2[-1])
+)
+```
