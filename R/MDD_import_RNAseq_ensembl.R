@@ -19,7 +19,7 @@ source(colScript)
 
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
                 dataset = "hsapiens_gene_ensembl",
-                host = "uswest.ensembl.org")
+                host = "www.ensembl.org")
 
 at.RNA <- getBM(attributes = c("ensembl_gene_id",
                                "hgnc_symbol",

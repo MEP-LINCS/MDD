@@ -1,0 +1,371 @@
+---
+title: "Chromatin Accessibility in Expressed/Unexpressed Genes"
+author: "Daniel Derrick"
+date: "4/6/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r librariesPaths, include = FALSE}
+library(genomation)
+library(biomaRt)
+library(tidyverse)
+library(cmapR)
+library(ComplexHeatmap)
+library(cowplot)
+library(circlize)
+library(goseq)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(GenomicFeatures)
+library(DT)
+library(xlsx)
+
+theme_set(theme_cowplot())
+
+RNAscript <- "R/MDD_import_RNAseq_ensembl.R"
+RNAseqResultsFile <- "RNAseq/MDD_RNAseq_shrunkenResults.Rdata"
+transcriptsFile <- "misc/MDD_RNAseq_mostAbundantTranscripts.txt"
+ATACseqSAFile   <- "ATACseq/Metadata/MDD_ATACseq_sampleMetadata.csv"
+ATACseqAccTable <- "ATACseq/Data/misc/promoter_accessibility_table.csv"
+
+promoterDir <- "ATACseq/Data/misc"
+plotDir <- "plots/ATACseq_tornadoPlots/exprUnexpr"
+outDir <- "ATACseq/Data/misc"
+
+# Functions for ATAC-seq data
+getProm <- function(txdb, annoTable, buffer = 1500, genesOnly = FALSE) {
+  txdb <- keepStandardChromosomes(txdb)
+  txdb <- dropSeqlevels(txdb, c("chrY", "chrM"))
+  
+  if (genesOnly) {
+    txdb <- genes(txdb)
+    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
+    prom$ensembl_gene_id <- annoTable[match(prom$gene_id, 
+                                            annoTable$entrezgene), 1]
+  } else {
+    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
+    prom$tx_name         <- str_remove(prom$tx_name, "[.][0-9]+")
+    prom$ensembl_gene_id <- annoTable[match(prom$tx_name, 
+                                            annoTable$ensembl_transcript_id), ]$ensembl_gene_id
+  }
+  
+  filt <- is.na(prom$ensembl_gene_id)
+  prom <- prom[!filt]
+  
+  return(prom)
+}
+
+combineMat <- function(geneMat, combine) {
+  dumSum <- function(x, y) {
+    z <- x + y
+    return(z)
+  }
+  
+  geneMatAvg <-
+    lapply(combine, function(x) {
+      # print(x)
+      x_sum <-
+        Reduce(dumSum, geneMat[x])
+      x_avg <- (x_sum/length(x))
+      return(x_avg)
+    })
+  
+  names(geneMatAvg) <- names(combine)
+  geneMatAvg <- as(geneMatAvg, "ScoreMatrixList")
+  return(geneMatAvg)
+}
+
+###############################################################################
+
+source(RNAscript)
+```
+
+# Introduction
+
+In this document, expressed/unexpressed gene lists are calculated for each
+`experimentalCondition`. 
+
+The expressed/unexpressed gene lists are then 
+joined to RNAseq DE gene results.
+
+This will then be joined to promoter accessibility in the ctrl condition.
+
+## Identifying expressed/unexpressed genes
+
+
+Note - I originally used an expression filter of log2(fpkm + 1) ≥ 0.5 in 2
+samples (2/3 replicates) to create lists of expressed/unexpressed genes
+in each condition. However, this filter was too
+conservative, so some differentially expressed (|l2FC| ≥ 0.5, 
+FDR =< 0.05) genes were still counted as "unexpressed" even in the
+induced condition, which does not really make sense.
+
+So, I am changing the minimum expression filter to be the minimum
+value that would result in all differentially expressed genes being considered
+expressed in either the ctrl or the treatment condition - as shown below.
+
+### Importing differentially expressed genes.
+
+Loading DESeq2 results table, annotating as "DE" if |log2FoldChange| ≥ 1 and 
+|padj| ≤ 0.05.
+
+```{r}
+load(RNAseqResultsFile)
+
+RNAseq_resLong <-
+  Reduce(bind_rows, res_RNA_df) %>% 
+  mutate(DE = abs(log2FoldChange) >= 1 &
+           padj <= 0.05,
+         Induced = log2FoldChange >= 1 &
+           padj <= 0.05,
+         Repressed = log2FoldChange <= -1 &
+           padj <= 0.05) %>% 
+    mutate(DE = replace_na(DE, FALSE),
+           Induced = replace_na(Induced, FALSE),
+           Repressed = replace_na(Repressed, FALSE))
+```
+
+### Identifying minimum expressiion filter.
+
+The minimum expression filter will be the minimum value needed for 
+all differentially expressed genes to be considered expressed in either
+the ctrl condition (for genes with expression reduced to 0), or in the
+experimental condition (for genes induced from 0).
+
+Below are distributions of the log2(fpkm + 1) values for 
+differentially expressed genes and for non-DE genes.
+
+```{r}
+RNAseqL3_minExpr <-
+  RNAseqL3 %>% 
+    data.frame %>% 
+  rownames_to_column("ensembl_gene_id") %>% 
+  pivot_longer(-ensembl_gene_id, 
+               names_to = "specimenID",
+               values_to = "log2_fpkm") %>% 
+  left_join(sa.RNA.L3) %>% 
+  group_by(ensembl_gene_id, experimentalCondition) %>% 
+  summarize(minExpr = sort(log2_fpkm)[2])
+
+RNAseq_resMinExpr <-
+  RNAseq_resLong %>% 
+  left_join(RNAseqL3_minExpr)
+  
+ggplot(RNAseq_resMinExpr,
+       aes(minExpr, fill = Induced)) +
+  geom_density(alpha = 0.5) + 
+  ggtitle("Distributions of log2(fpkm + 1) values") +
+  scale_fill_discrete("Differentially Expressed") +
+  xlab("log2(fpkm + 1)")
+
+ggplot(RNAseq_resMinExpr,
+       aes(minExpr)) +
+  geom_density() +
+  geom_rug(aes(alpha = Induced)) +
+  xlim(0, .05) +
+  ggtitle("Distributions of log2(fpkm + 1) values",
+          subtitle = "least-expressed genes") +
+  scale_alpha_manual("Differentially Expressed",
+                     values = c("TRUE" = 1, "FALSE" = 0)) +
+  # scale_fill_discrete("Differentially Expressed") +
+  xlab("log2(fpkm + 1)")
+```
+
+The least-expressed gene that is counted as differentially expressed has
+an expression value of 
+`r RNAseq_resMinExpr %>% filter(Induced) %>% arrange(minExpr) %>% pull(minExpr) %>% .[1]`. This
+will be used as the new minimum expression filter.
+
+Below is a plot of the disribution of log2(fpkm + 1) values for the least-expressed genes 
+(range: 0 - 1), showing the old threshold in comparison to the new threshold.
+
+```{r}
+ggplot(RNAseq_resMinExpr,
+       aes(minExpr)) +
+  geom_density() +
+  xlim(0, 1) +
+  ggtitle("Distributions of log2(fpkm + 1) values",
+          subtitle = "red: new cutoff\nblue: old cutoff") +
+  # scale_alpha_manual("Differentially Expressed",
+                     # values = c("TRUE" = 1, "FALSE" = 0)) +
+  # scale_fill_discrete("Differentially Expressed") +
+  xlab("log2(fpkm + 1)") +
+  geom_vline(color = "red", xintercept = .0061) +
+  geom_vline(color = "blue", xintercept = .5)
+
+exprFilt <-
+  RNAseqL3 %>% 
+  data.frame %>% 
+  rownames_to_column("ensembl_gene_id") %>% 
+  pivot_longer(-ensembl_gene_id, names_to = "specimenID", values_to = "log2fpkm") %>% 
+  left_join(sa.RNA.L3) %>% 
+  group_by(experimentalCondition, ensembl_gene_id) %>% 
+  summarize(expressed = sum(log2fpkm >= 0.0061) >= 2) %>% 
+  ungroup
+
+RNAseqL3 %>% 
+  data.frame %>% 
+  rownames_to_column("ensembl_gene_id") %>% 
+  pivot_longer(-ensembl_gene_id, names_to = "specimenID", values_to = "log2fpkm") %>% 
+  left_join(sa.RNA.L3) %>% 
+  group_by(experimentalCondition, ensembl_gene_id) %>% 
+  summarize(expressedNew = sum(log2fpkm >= 0.0061) >= 2,
+            expressedOld = sum(log2fpkm >= .5) >= 2) %>% 
+  ungroup %>% 
+  group_by(ensembl_gene_id) %>% 
+  summarize(expressedNew = any(expressedNew),
+            expressedOld = any(expressedOld)) %>% 
+  ungroup() %>% 
+  group_by(expressedNew, expressedOld) %>% 
+  summarize(n = n())
+
+combined <- 
+  RNAseq_resLong %>% 
+  left_join(exprFilt) %>% 
+  left_join(dplyr::filter(exprFilt, experimentalCondition == "ctrl_0") %>% 
+              dplyr::rename(expressedCtrl = expressed) %>% 
+              dplyr::select(-experimentalCondition))
+```
+
+Changing this threshold causes 15889 lowly-expressed genes to now be counted as "expressed".
+
+Old number of expressed genes: 18390
+New number of expressed genes: `r 18390 + 15889`
+
+### Joining to table of accessible promoters
+
+```{r}
+accTable <- 
+  read.csv(ATACseqAccTable, stringsAsFactors = FALSE) %>% 
+  dplyr::select(-expressed, -gene_biotype, -hgnc_symbol)
+
+combined <- 
+  combined %>% 
+  left_join(accTable)
+```
+
+## Text
+
+### Total # of DE Genes
+
+"Across the ligand treatments we found that XX genes had XX log fold change in at 
+least one of the treatment conditions."
+
+```{r}
+combined %>% 
+  group_by(DE) %>% 
+  summarize(n = n())
+
+combined %>% 
+  group_by(ensembl_gene_id) %>% 
+  summarize(anyDE = any(DE, na.rm = TRUE)) %>% 
+  ungroup %>% 
+  group_by(anyDE) %>% 
+  summarize(n = n())
+```
+
+**Across the ligand treatments we found that 7503 unique (20674 total / 7503 unique) 
+genes had at least ±1 log fold change in at least one of the treatment conditions.**
+
+### Total # of induced (from 0) / repressed (to 0) genes
+
+"XX of these genes had expression reduced to zero, and XX genes were newly expressed.""
+
+```{r}
+combined %>% 
+  filter((!expressedCtrl & Induced) |
+    (expressedCtrl & 
+       !expressed &
+       Repressed) 
+    ) %>% 
+  group_by(Induced, Repressed) %>% 
+  summarize(n = n())
+
+combined %>% 
+  filter((!expressedCtrl & Induced) |
+    (expressedCtrl & 
+       !expressed &
+       Repressed) 
+    ) %>% 
+  distinct(ensembl_gene_id, .keep_all = TRUE) %>% 
+  group_by(Induced, Repressed) %>% 
+  dplyr::rename(anyInduced = Induced,
+                anyRepressed = Repressed) %>% 
+  summarize(n = n())
+```
+
+**356 (4.7%) (462 total / 356 unique) of these genes had expression reduced to zero, and 210 (2.8%) (210 total/ 110 unique) genes were newly expressed.**
+
+### Accessibility of induced genes
+
+"Analysis of chromatin TSS showed that XX% of the newly expressed genes had closed chromatin in the CTRL condition"
+
+```{r}
+combined %>% 
+  filter((!expressedCtrl & Induced) |
+    (expressedCtrl & 
+       !expressed &
+       Repressed) 
+    ) %>% 
+  mutate(accessible = replace_na(accessible, FALSE)) %>% 
+  group_by(Induced, Repressed, accessible) %>% 
+  summarize(n = n())
+
+combined %>% 
+  filter((!expressedCtrl & Induced) |
+    (expressedCtrl & 
+       !expressed &
+       Repressed) 
+    ) %>% 
+  mutate(accessible = replace_na(accessible, FALSE)) %>% 
+  group_by(ensembl_gene_id) %>% 
+  summarize(anyInduced = any(Induced),
+            anyRepressed = any(Repressed),
+            anyDE = any(DE),
+            accessible = any(accessible)) %>% 
+  ungroup %>% 
+  group_by(anyInduced, anyRepressed, accessible) %>% 
+  summarize(n = n())
+```
+
+**Analysis of chromatin TSS showed that 91.8% (101/110) of the newly expressed genes had closed chromatin in the CTRL condition**
+
+<!-- ## Plots -->
+
+```{r}
+combined %>% 
+  filter((!expressedCtrl & Induced) |
+    (expressedCtrl &
+       !expressed &
+       Repressed)
+    ) %>%
+  mutate(accessible = replace_na(accessible, FALSE)) %>% 
+  group_by(ensembl_gene_id) %>% 
+  summarize(anyInduced = any(Induced),
+            anyRepressed = any(Repressed),
+            accessible = any(accessible)
+            ) %>% 
+  ungroup %>% 
+  pivot_longer(-c(ensembl_gene_id, accessible), names_to = "category") %>% 
+  filter(value) %>% 
+  ggplot(aes(category)) +
+  geom_bar(aes(fill = accessible)) +
+  scale_fill_brewer(type = "qual", palette = 2) +
+  ggtitle("Promoter Accessibility", 
+          subtitle = "Genes Induced/Repressed from CTRL")
+
+
+combined %>% 
+  filter((!expressedCtrl & Induced)) %>%
+  head
+
+```
+

@@ -402,6 +402,8 @@ gSumsLong <-
                                               value = TRUE))) %>% 
     dplyr::select(ensembl_gene_id, hgnc_symbol, geneType, expressed, logCoverage, accessible, gene_biotype)
 
+# write_csv(gSumsLong, "ATACseq/Data/misc/promoter_accessibility_table.csv")
+
 ggplot(gSumsLong) +
   geom_density(aes(logCoverage, fill = expressed), alpha = .75) +
   xlab("sum promoter accessibility (rpm)") +
