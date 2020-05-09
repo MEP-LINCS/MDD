@@ -9,9 +9,10 @@ library(DESeq2)
 
 MDD_DESeqDataSetFile <- "../RNAseq/Data/MDD_RNAseq_DESeqDataSet.Rdata"
 outDir <- "../RNAseq/Data"
-if( str_extract(getwd(), "[:alnum:]+$") != "R" ) {setwd("R")}
 
 ##############################################################################
+
+if( str_extract(getwd(), "[:alnum:]+$") != "R" ) {setwd("R")}
 
 load(MDD_DESeqDataSetFile)
 

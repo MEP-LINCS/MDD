@@ -56,12 +56,50 @@ eg <- "IDO2"
 pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
     height = 5, width = 5)
 geneToPlot(symbol = myGene, 
-           buffer = c(1000),
+           buffer = c(10000),
            basicDob = dob_temp,
            mart = mart, 
            sA = sampleAnno,
            extraGenes = eg)
 dev.off()
+
+myGene <- "HIF1A"
+eg <- c("HIF1A-AS1", "HIF1A-AS2", "HIF1A-AS3")
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno,
+           extraGenes = eg)
+dev.off()
+
+
+myGene <- "NDRG1"
+eg <- c("CCN4")
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno,
+           extraGenes = eg)
+dev.off()
+
+myGene <- "ACE2"
+eg <- c("BMX")
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno,
+           extraGenes = eg)
+dev.off()
+
 
 myGene <- "IRF1"
 eg <- "IRF1-AS1"
