@@ -4,32 +4,6 @@ library(rrscale)
 source("R/MDD_functions.R")
 md <- read_csv("metadata/MDD_sample_annotations.csv")
 
-#Read and and process ATACseq metadata
-ATACseq_metadata <- read_csv("ATACseq/Metadata/MDD_ATACseq_peakMetadata.csv") %>%
-  dplyr::select(peak, hgnc_symbol, annotation) %>%
-  drop_na() %>%
-  #filter(str_detect(annotation, "Promoter|3' UTR|5' UTR|1st Exon")) %>%
-  dplyr::select(-annotation)
-
-#read list of selected peaks to include in analysis
-ATACseq_selected_peaks <- read_csv("ATACseq/Data/MDD_peakList100.csv") %>%
-  rename(feature = peak)
-
-#Read in and process ATACseq values
-#only keep selected value in the dataset
-ATACseq_values <- read_csv("ATACseq/Data/MDD_ATACseq_Level3.csv") %>%
-  rename(feature = peak) %>%
-  gather(specimenID, value = value, -feature) %>%
-  left_join(md, by = "specimenID") %>%
-  inner_join(ATACseq_selected_peaks) %>%
-  inner_join(ATACseq_metadata, by = c("feature" = "peak")) %>%
-  mutate(feature = paste0(hgnc_symbol, "_ATAC")) %>%
-  preprocess_level3(type = "ATAC")
-# %>%
-#   group_by(ligand, experimentalTimePoint, feature, Type) %>%
-#   summarise(value = max(value)) %>%
-#   ungroup()
-
 #Read on the ATAC seq motif values
 ATACseq_motif_values <- read_csv("ATACseq/Data/MDD_ATACseq_MotifFamilyScores.csv") %>%
   gather(specimenID, value, -family) %>%
@@ -139,10 +113,19 @@ hallmark_pathways <- read_csv("RNAseq/Data/MDD_RNAseq_HallmarkNES.csv") %>%
   dplyr::select(-condition) %>%
   preprocess_level3(type =  "Hallmark")
 
+selected_IF_features_regex <-c("G2m_Proportion",
+		"Intensity_MeanIntensity_KRT5",
+		"Number_Neighbors",
+		"Normalized_Second_Neighbor_Dist",
+		"Well_Cell_Count",
+		"Mean_Cells_per_Cluster") %>%
+  paste(collapse= "|")
+
 #Read in and process IF values
 IF_values <- read_csv("IF/Data/MDD_IF_Level4.csv") %>%
   rename(feature = X1) %>%
   gather(key = "condition_collection", value = "value", -feature) %>%
+  filter(str_detect(feature, selected_IF_features_regex)) %>%
   mutate(collection = str_remove(condition_collection, ".*_"),
          ligand = str_remove(condition_collection, "_.*"),
          experimentalTimePoint = str_extract(condition_collection, "_.*_"),
@@ -176,39 +159,39 @@ RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
   preprocess_level3(type = "RPPA")
 
 #Read in RPPA pathways scores, mean summarise within condition
-RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
-  rename(specimenID = X1) %>%
-  gather(key = feature, value = value, -specimenID) %>%
-  inner_join(md, by = "specimenID") %>%
-  dplyr::select(experimentalCondition, feature, value) %>%
-  rename(condition = experimentalCondition) %>%
-  mutate(experimentalTimePoint = str_remove(condition, ".*_"),
-         experimentalTimePoint = as.integer(experimentalTimePoint),
-         ligand = str_remove(condition, "_.*"),
-         feature = paste0(feature, "_RPPApathway")) %>%
-  dplyr::select(-condition) %>%
-  preprocess_level3(type =  "RPPApathway")
+# RPPA_pathways <- read_csv("RPPA/Data/MDD_Pathways_Score.csv") %>%
+#   rename(specimenID = X1) %>%
+#   gather(key = feature, value = value, -specimenID) %>%
+#   inner_join(md, by = "specimenID") %>%
+#   dplyr::select(experimentalCondition, feature, value) %>%
+#   rename(condition = experimentalCondition) %>%
+#   mutate(experimentalTimePoint = str_remove(condition, ".*_"),
+#          experimentalTimePoint = as.integer(experimentalTimePoint),
+#          ligand = str_remove(condition, "_.*"),
+#          feature = paste0(feature, "_RPPApathway")) %>%
+#   dplyr::select(-condition) %>%
+#   preprocess_level3(type =  "RPPApathway")
 
-TFs <- get_TFs(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
-TFs_details <- map(2:7, get_TFs, dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
-  bind_rows()
-
-TFs_input <- TFs_details %>%
-  dplyr::select(Query.Name, TF, Odds.Ratio, FDR, Library_only) %>%
-  right_join(TFs, by = c("Query.Name", "TF", "Library_only"))
-
-TFs_values <- TFs_input %>%
-  dplyr::select(condition, Odds.Ratio, feature) %>%
-  rename(experimentalCondition = condition) %>%
-  mutate(feature = paste0(feature, "_TF")) %>%
-  rename(value = Odds.Ratio) %>%
-  mutate(value = as.numeric(value),
-         Type = "ChEA3 TF") %>%
-  rename(condition = experimentalCondition) %>%
-  mutate(experimentalTimePoint = str_remove(condition, ".*_"),
-         experimentalTimePoint = as.integer(experimentalTimePoint),
-         ligand = str_remove(condition, "_.*")) %>%
-  dplyr::select(-condition)
+# TFs <- get_TFs(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
+# TFs_details <- map(2:7, get_TFs, dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%
+#   bind_rows()
+# 
+# TFs_input <- TFs_details %>%
+#   dplyr::select(Query.Name, TF, Odds.Ratio, FDR, Library_only) %>%
+#   right_join(TFs, by = c("Query.Name", "TF", "Library_only"))
+# 
+# TFs_values <- TFs_input %>%
+#   dplyr::select(condition, Odds.Ratio, feature) %>%
+#   rename(experimentalCondition = condition) %>%
+#   mutate(feature = paste0(feature, "_TF")) %>%
+#   rename(value = Odds.Ratio) %>%
+#   mutate(value = as.numeric(value),
+#          Type = "ChEA3 TF") %>%
+#   rename(condition = experimentalCondition) %>%
+#   mutate(experimentalTimePoint = str_remove(condition, ".*_"),
+#          experimentalTimePoint = as.integer(experimentalTimePoint),
+#          ligand = str_remove(condition, "_.*")) %>%
+#   dplyr::select(-condition)
 
 assay_pk_data <- bind_rows(ATACseq_motif_values,
                            cycIF_values,
@@ -217,8 +200,8 @@ assay_pk_data <- bind_rows(ATACseq_motif_values,
                            IF_values,
                            RNA_values,
                            RPPA_values,
-                           RPPA_pathways,
-                           TFs_values)
+                           #RPPA_pathways
+                           )
 
 save(assay_pk_data,
      md,
@@ -228,8 +211,6 @@ save(assay_pk_data,
 ATACseq_variance_probs_thresh <- 0
 GCP_variance_probs_thresh <- 0.25
 RPPA_variance_probs_thresh <- 0.25
-
-ATACseq_selected <- ATACseq_values
 
 #filter RPPA features on variance
 RPPA_selected <- select_features(RPPA_values, RPPA_variance_probs_thresh)
@@ -245,81 +226,62 @@ RNAseq_variance_genes <- read_csv("RNAseq/Data/MDD_geneList_lfc15.csv") %>%
 RNAseq_selected <- RNA_values %>%
   inner_join(RNAseq_variance_genes)
 
-# #Select top TFs of each ligand
-TFs_selected_names <- TFs_values %>%
-  spread(key = feature, value = value) %>%
-  group_by(ligand) %>%
-  summarise_if(is.numeric, min) %>%
-  ungroup %>%
-  gather(key = TF, value = Odds.Ratio, -experimentalTimePoint, -ligand) %>%
-  group_by(ligand) %>%
-  #filter(Odds.Ratio >= odds_ratio_thresh)%>%
-  arrange(Odds.Ratio) %>%
-  top_n(25) %>%
-  ungroup() %>%
-  spread(key = TF, value = Odds.Ratio) %>%
-  dplyr::select(-experimentalTimePoint, -ligand)
-
-TFs_selected <- TFs_values %>%
-  spread(key = feature, value = value)  %>%
-  dplyr::select(ligand, experimentalTimePoint, colnames(TFs_selected_names)) %>%
-  gather(feature, value, -experimentalTimePoint, -ligand) %>%
-  mutate(Type = "ChEA3TF") %>%
-  drop_na()
-
-selected_assay_pk_data <- bind_rows(ATACseq_motif_values, cycIF_values, GCP_selected, hallmark_pathways, IF_values, RNAseq_selected,  RPPA_selected, RPPA_pathways, TFs_selected)
+selected_assay_pk_data <- bind_rows(ATACseq_motif_values,
+                                    cycIF_values,
+                                    GCP_selected,
+                                   # hallmark_pathways,
+                                    IF_values,
+                                    RNAseq_selected,
+                                    RPPA_selected,
+                                    #RPPA_pathways
+                                    )
 
 save(selected_assay_pk_data,
-     ATACseq_selected,
      ATACseq_motif_values,
      cycIF_values,
      GCP_selected, 
-     hallmark_pathways,
+     #hallmark_pathways,
      IF_values,
      RNAseq_selected,
      RPPA_selected,
-     RPPA_pathways,
-     TFs_selected,
+    # RPPA_pathways,
      file = "Data/selected_assay_pk_data.rda")
 
 zscore_cutoff <- Inf
-  ATACseq_selected_rr <- rrscale_assay(ATACseq_selected, zscore_cutoff = zscore_cutoff)
   ATACseq_motifs_rr <- rrscale_assay(ATACseq_motif_values, zscore_cutoff = zscore_cutoff)
   cycIF_values_rr <- rrscale_assay(cycIF_values, zscore_cutoff = zscore_cutoff)
   GCP_selected_rr <- rrscale_assay(GCP_selected, zscore_cutoff = zscore_cutoff)
-  hallmark_pathways_rr <- rrscale_assay(hallmark_pathways, zscore_cutoff = zscore_cutoff)
+  #hallmark_pathways_rr <- rrscale_assay(hallmark_pathways, zscore_cutoff = zscore_cutoff)
   IF_values_rr <- IF_values %>%
     group_by(feature) %>%
-    mutate(value = scale(value)) %>%
-    ungroup() %>%
-    rrscale_assay(zscore_cutoff = zscore_cutoff)
+    mutate(value = rrscaleValues(value, zeros = 0.01, zscore_cutoff = Inf)[["RR"]]) %>%
+    ungroup()
+
   RPPA_selected_rr <- rrscale_assay(RPPA_selected, zscore_cutoff = zscore_cutoff)
-  RPPA_pathways_rr <- rrscale_assay(RPPA_pathways, zscore_cutoff = zscore_cutoff)
+  #RPPA_pathways_rr <- rrscale_assay(RPPA_pathways, zscore_cutoff = zscore_cutoff)
   RNAseq_selected_rr <- rrscale_assay(RNAseq_selected, zscore_cutoff = zscore_cutoff)
-  TFs_selected_rr <- rrscale_assay(TFs_selected, zscore_cutoff = zscore_cutoff)
-  
+
   selected_assay_pk_data_rr <-  bind_rows(ATACseq_motifs_rr,
                                           cycIF_values_rr,
                                           GCP_selected_rr,
-                                          hallmark_pathways_rr,
+                                          #hallmark_pathways_rr,
                                           IF_values_rr,
                                           RNAseq_selected_rr, 
                                           RPPA_selected_rr,
-                                          RPPA_pathways_rr,
-                                          TFs_selected_rr)
+                                          #RPPA_pathways_rr
+                                          )
   save(zscore_cutoff,
-       ATACseq_variance_probs_thresh,
        GCP_variance_probs_thresh,
        RPPA_variance_probs_thresh,
-       ATACseq_selected_rr,
        ATACseq_motifs_rr,
        cycIF_values_rr,
        GCP_selected_rr,
-       hallmark_pathways_rr,
+       #hallmark_pathways_rr,
        IF_values_rr,
        RNAseq_selected_rr, 
        RPPA_selected_rr,
-       RPPA_pathways_rr,
-       TFs_selected_rr,
+       #RPPA_pathways_rr,
        selected_assay_pk_data_rr,
        file = "Data/selected_assay_pk_data_rr.rda")
+
+  
