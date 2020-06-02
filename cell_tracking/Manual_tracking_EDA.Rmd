@@ -1,0 +1,532 @@
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(RColorBrewer)
+library(DT)
+
+###debug to run standalone from calling script
+path <- "/Users/dane/Documents/CellTracking/MTrackJ/LI802303/Data/LI802303_A04_B8_2_Points.csv"
+#path <- "/Users/dane/Documents/CellTracking/MTrackJ/Data/LI802303_A02_2_Points.csv"
+out_filename <- str_replace(path,"Points","intensities")
+
+
+
+```
+
+```{r}
+
+df_input_raw <- read_csv(path, col_types = cols(
+  Nr = col_double(),
+  TID = col_double(),
+  PID = col_double(),
+  `x [pixel]` = col_double(),
+  `y [pixel]` = col_double(),
+  `t [min]` = col_double(),
+  `I [val]` = col_double(),
+  `Len [pixel]` = col_double(),
+  `D2S [pixel]` = col_double(),
+  `D2R [pixel]` = col_logical(),
+  `D2P [pixel]` = col_double(),
+  `v [pixel/min]` = col_double(),
+  `α [deg]` = col_double(),
+  `Δα [deg]` = col_double()
+)) 
+
+colnames(df_input_raw) <- str_replace_all(colnames(df_input_raw),"[ [:punct:][:blank:]]" ,"")
+
+#####QA fix for manula tracking error
+if(str_detect(path, "LI802303_A04_B8_2")){
+  TID_9 <- df_input_raw %>%
+    filter(TID == 9) %>%
+    arrange(tmin) %>%
+    mutate(PID = 1:n())
+  
+  df_input_raw <- df_input_raw %>%
+    filter(!TID == 9) %>%
+    bind_rows(TID_9)
+}
+
+
+####
+#calculate t min period from the data
+# Create getmode function.
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+tmin_period = getmode(diff(df_input_raw$tmin))
+
+#get metadata for the plate
+metadata <- str_extract(path, ".*/") %>%
+  dir(pattern = "metadata", full.names = TRUE) %>%
+  readxl::read_xlsx()
+
+#get well name and treatement for this data
+###DEBUG fix field name extraction for names without wells
+wellName <- str_extract(path, "[ABCD][0]?[:digit:]")
+fieldName <- str_extract(path, "_.*") %>%
+  str_remove_all("_[ABCD][0]?[:digit:]_|_Points.csv")
+
+treatment <- metadata %>%
+  filter(well == wellName) %>%
+  pull(treatment)
+
+#check if the first track is included in the data
+QA_trackIDs <- function(x){
+  res <- 1 %in% x
+  return(res)
+}
+
+fix_PID <- function(x) {
+  x_fixed <- x - min(x) + 1
+  return(x_fixed)
+}
+
+PID_QA <- df_input_raw %>%
+  group_by(TID) %>%
+  mutate(PID = fix_PID(PID)) %>%
+  summarize(QA_pass = QA_trackIDs(PID)) %>%
+  ungroup() %>%
+  filter(QA_pass) %>%
+  pull(TID)
+
+df_input <- df_input_raw %>%
+  filter(TID %in% PID_QA) %>%
+  mutate(well = wellName,
+         field = fieldName,
+         treatment = treatment)
+```
+
+Extract the intensity values into a full matrix with cell number as the column names and time as the row names. Write these values to a file named `r out_filename` with empty strings in place of the missing data.  
+
+```{r format_intensities}
+df_intensities <- tibble(tmin = rep(unique(df_input$tmin), each = length(unique(df_input$TID))),
+              cell = rep(unique(df_input$TID), times = length(unique(df_input$tmin)))) %>%
+  left_join(df_input, by = c("tmin" = "tmin", "cell" = "TID")) %>%
+  select(tmin, cell, Ival) %>%
+  spread(cell, Ival)
+
+```
+
+Plot cell migrations using a repeating, diverging pallette. Each dot is a cell. The first figure shows the absolute locations. The second figure shows the relative position from the cells initial position. The third figure shows the relative motion with fixed x and y axis limits.  
+
+
+```{r plot_migration, fig.width=4, fig.height=4}
+df <- df_input %>%
+  select(TID, tmin, Ival)
+
+cols <- RColorBrewer::brewer.pal(9, name = "Set1")[sample(1:9, length(unique(df$TID)), replace = TRUE)]
+
+p <- ggplot(df_input, aes(xpixel, ypixel, colour = factor(TID))) +
+  geom_point(size = .5, alpha = .8) +
+  geom_path(size = .5, alpha = .8) +
+  scale_colour_manual(values = cols) +
+  guides(colour = FALSE) +
+  labs(title = paste(treatment, "absolute tracks")) +
+  theme_bw()
+p
+
+T0_rel <- df_input %>%
+  filter(PID == 1) %>%
+  select(TID, xpixel, ypixel) %>%
+  rename(x_T0_rel = xpixel,
+         y_T0_rel = ypixel) %>%
+  right_join(df_input, by = "TID") %>%
+  mutate(x_rel = xpixel-x_T0_rel,
+         y_rel = ypixel-y_T0_rel) %>%
+  select(x_rel, y_rel, TID) %>%
+  drop_na()
+
+cols <- RColorBrewer::brewer.pal(9, name = "Set1")[sample(1:9, length(unique(T0_rel$TID)), replace = TRUE)]
+
+
+p <- ggplot(T0_rel, aes(x_rel, y_rel, colour = factor(TID))) +
+  geom_point(size = .5, alpha = .8) +
+  geom_path(size = .5, alpha = .8) +
+  scale_colour_manual(values = cols) +
+  guides(colour = FALSE) +
+    labs(title = paste(treatment, "relative tracks")) +
+  theme_bw()
+p
+
+p <- ggplot(T0_rel, aes(x_rel, y_rel, colour = factor(TID))) +
+  geom_point(size = .5, alpha = .8) +
+  geom_path(size = .5, alpha = .8) +
+  coord_cartesian(xlim = c(-600, 600), ylim = c(-600,600)) +
+  scale_colour_manual(values = cols) +
+  guides(colour = FALSE) +
+  labs(title = paste(treatment, "relative tracks, fixed axes limits")) +
+theme_bw()
+p
+```
+
+
+```{r identify_divisions, fig.width=6, fig.height=5}
+
+#### Mother/daugther relationships
+# 
+# Assumptions:
+# The TID of the mother cell stops.  
+# In the next time slot 2 new TIDs for daughter cells begin within close proximity of the last position of the mother cell.  
+# 
+
+#label 0 if there is no cell and 1 if there's a cell
+label_status <- function(x){
+  y <- rep(0, length(x))
+  y[!is.na(x)] <- 1
+  return(y)
+}
+
+# return a vector that identifies when a cell is born or dies
+#  x[t+1] - x[t] = 0 if no change
+#                = -1 if a cell dies 
+#                = 1 if a cell is born
+
+label_changes <- function(x){
+  x_t_plus_1 <- x
+  x_t <- c(x[1], x[1:(length(x)-1)])
+  y <- x_t_plus_1 - x_t
+  
+  return(y)
+}
+
+# return a vector that identifies the time before a cell dies
+#  x[t+1] - x[t] = 0 if no change
+#                = -1 if a cell will die 
+#                = 1 if a cell is born
+
+label_last_time <- function(x){
+  y <- c(x[2:length(x)], x[length(x)])
+  y[y==1] <- 0
+  return(y)
+}
+
+#Add status and changes of birth and death
+new_tracks <- df_intensities %>%
+  gather(cell, intensity, -tmin) %>%
+  group_by(cell) %>%
+  mutate(status = label_status(intensity),
+         changes = label_changes(status),
+         last_time_measured = label_last_time(changes)) %>%
+  ungroup() %>%
+  mutate( cell = as.numeric(cell))
+
+#Get position of new cells
+tracks_with_births <- new_tracks %>%
+  filter(changes == 1) %>%
+  rename(cellID = cell) %>%
+  select(tmin, cellID) %>%
+   left_join(df_input, by = c("cellID" = "TID", "tmin" = "tmin")) %>%
+  select(tmin, cellID, xpixel, ypixel)
+
+#Get last position of disappearing cells
+tracks_last_time <- new_tracks %>%
+  filter(last_time_measured == -1) %>%
+  rename(motherID = cell) %>%
+  select(tmin, motherID) %>%
+  left_join(df_input, by = c("motherID" = "TID", "tmin" = "tmin")) %>%
+  select(tmin, motherID, xpixel, ypixel)
+
+position_threshold <-905
+time_threshold <- 30
+
+#get mother IDs for tracks that start after time 0
+#find a cell that disapeared in this time slot and was nearby in the time slot before the birth
+##DEVELOP
+#create a set of births in every time slot
+#for any non-empty birth set, create a set of tracks that ended in the previous time slot
+# calculate the position difference between all ending 
+# tracks and all starting tracks
+#kmeans cluster with k = to the number of ending tracks
+#check that no cluster has more than two elements
+
+# pseudocode
+#start with birth events - daughters
+#group by birth time slots
+#get tracks that ended in the curent or prior time slot - mothers
+#if there is only one mother track return it as mother-daughter pairs
+#when there are more than one mother
+#kmeans cluster features of mothers and daughters
+#k = number of mothers
+#return 
+# 
+# select_kmeans <- function(tmin, cellID, xpixel, ypixel){
+#   browser()
+#   current_time_slot <- unique(tmin)
+#   prior_tmin_slot <- current_time_slot - tmin_period
+#   if(prior_tmin_slot < 0) stop("trying to process birth before 2nd time period")
+#   mothers <- tracks_last_time %>%
+#     filter(tmin == prior_tmin_slot)
+#   if(!nrow(mothers) == 2*length(cellID)) {
+#     df <- tibble(cellID = cellID,
+#                  mother = -1
+#                  )
+#     return(df)
+#   }
+#   if(nrow(mothers) == 1 & length(cellID) == 2) {
+#     
+#     df <- tibble(cellID = cellID,
+#                  mother = mothers$mother
+#                  )
+#     return(df)
+#   } else {
+#     # kmeans cluster the daughters using k = nnumber of motehrs
+#     k <- nrow(mothers)
+#     res <-kmeans(cbind(xpixel, ypixel), centers = k)
+#   }
+# }
+#  
+# bar <-  tracks_with_births %>%
+#   group_by(tmin) %>%
+#   summarise(across(c(cellID, xpixel, ypixel), select_kmeans, xpixel =  xpixel, ypixel =  ypixel, tmin = tmin))
+# ####Debug problem with time 1230 having 4 daughtehrs and only one mother in the prior time slot
+# 
+# bar <-  tracks_with_births %>%
+#   group_by(tmin) %>%
+#   summarise(across(c(cellID, xpixel, ypixel), ~select_kmeans(cur_data())))
+
+select_IDs <- function(x) {
+  IDs <- tracks_last_time %>%
+  mutate(tmin_diff = abs(tmin - x["tmin"]),
+         position_dif = sqrt((x["xpixel"]-xpixel)^2+(x["ypixel"]-ypixel)^2)) %>%
+  filter(tmin_diff <= time_threshold,
+         position_dif <= position_threshold) %>%
+    slice_min(order_by = position_dif) %>%
+    mutate(cellID = x["cellID"])
+
+  return(IDs)
+}
+
+#find all birth events based on proximity of track end to tracks beginning
+all_births <-  apply(tracks_with_births, 1, select_IDs) %>%
+  bind_rows()
+
+first_gen <- df_input %>%
+  filter(tmin == 0) %>%
+  select(TID) %>%
+  rename(cellID = TID) %>%
+  mutate(motherID = 0,
+         generation = 1,
+         lineage = cellID) %>%
+  select(motherID, cellID, generation, lineage)
+
+
+#find all births with mothers in the first generation
+second_gen <- all_births %>%
+  inner_join(first_gen, by = c("motherID" = "cellID")) %>%
+  select(motherID, cellID, lineage) %>%
+  mutate(generation = 2)%>%
+  filter(!(motherID == cellID))
+
+#find all births with mothers in the second generation
+third_gen <- all_births %>%
+  inner_join(second_gen, by = c("motherID" = "cellID")) %>%
+  select(motherID, cellID, lineage) %>%
+  mutate(generation = 3)%>%
+  filter(!(motherID == cellID))
+
+fourth_gen <- all_births %>%
+  inner_join(third_gen, by = c("motherID" = "cellID")) %>%
+  select(motherID, cellID, lineage) %>%
+  mutate(generation = 4)%>%
+  filter(!(motherID == cellID))
+
+fifth_gen <- all_births %>%
+  inner_join(fourth_gen, by = c("motherID" = "cellID")) %>%
+  select(motherID, cellID, lineage) %>%
+  mutate(generation = 5)%>%
+  filter(!(motherID == cellID))
+
+sixth_gen <- all_births %>%
+  inner_join(fifth_gen, by = c("motherID" = "cellID")) %>%
+  select(motherID, cellID, lineage) %>%
+  mutate(generation = 6) %>%
+  filter(!(motherID == cellID))
+
+lineages_generations <- bind_rows(first_gen,
+                                  second_gen,
+                                  third_gen,
+                                  fourth_gen,
+                                  fifth_gen,
+                                  sixth_gen)
+
+
+#Add the mother IDs to each daughter
+df_lineage_raw <- df_input %>%
+  left_join(lineages_generations, by = c("TID" = "cellID"))
+
+#average distance moved
+calc_distance <- function(x,y){
+  df <-data.frame(x,y)
+  mat <- dist(df) %>%
+    as.matrix()
+  res <- c(0, mat[col(mat)==row(mat)+1])
+  return(res)
+}
+
+df <- df_lineage_raw %>%
+  group_by(TID) %>%
+  mutate(distance = calc_distance(xpixel, ypixel)) %>%
+  summarise(distance_mean = mean(distance),
+            distance_total = sum(distance),
+            average_velocity = 60*distance_mean/tmin_period) %>%
+  ungroup() %>%
+  right_join(df_lineage_raw, by = "TID") %>%
+  group_by(TID) %>%
+  mutate(distance = calc_distance(xpixel, ypixel)) %>%
+  ungroup()
+
+#write out tracks that didn't get assoicated with a mother
+orphans <- df %>%
+  filter(is.na(motherID)) %>%
+  group_by(TID) %>%
+  slice_head(n = 1) %>%
+  ungroup() %>%
+  select(tmin, TID, xpixel, ypixel, PID, Ival) %>%
+  mutate(well = wellName,
+         field = fieldName)
+
+df_lineage <- df %>%
+  filter(!is.na(motherID))
+  
+res <- write_csv(df_lineage, str_replace(path, "Points","lineages"))
+res <- write_csv(orphans, str_replace(path, "Points","orphans"))
+
+p <- ggplot(df_lineage, aes(xpixel, ypixel, colour = factor(lineage))) +
+  geom_point(size = .5, alpha = .6) +
+  #geom_path(size = .5, alpha = .8) +
+  #scale_colour_manual(values = cols) +
+  guides(colour = FALSE) +
+  labs(title = "Colored by lineage") +
+  theme_bw()
+p
+
+p <- ggplot(df_lineage, aes(xpixel, ypixel, colour = factor(generation))) +
+  geom_point(size = .5, alpha = .8) +
+  #geom_path(size = .5, alpha = .8) +
+  #scale_colour_manual(values = cols) +
+  #guides(colour = FALSE) +
+  labs(title = "Colored by generation") +
+  theme_bw()
+p
+```
+
+```{r lineagedistributions, fig.width=4, fig.height=5}
+#count and didplay the number of cells in each lineage
+df <- df_lineage %>%
+  select(lineage, TID) %>%
+  distinct() %>%
+  group_by(lineage) %>%
+  summarise(count = n()) %>%
+  ungroup()
+p <- ggplot(df, aes(x = count)) +
+  geom_histogram(binwidth = 1)
+p
+
+p <- ggplot(df, aes(x = count,fill = "cornflower")) +
+  geom_density( alpha = .5) +
+  guides(fill = FALSE) +
+  labs(x = "Cells per lineage") +
+  coord_cartesian(xlim = c(1,25))
+p
+
+```
+
+```{r lineagePlots, fig.width=9, fig.height=8}
+#plot presence of cells vs time and grouped by lineage
+p <- ggplot(df_lineage, aes(x = tmin, y = TID, colour = factor(lineage))) +
+  geom_point() +
+  scale_color_ordinal() +
+  guides(color = FALSE)
+p
+
+p <- ggplot(df_lineage, aes(x = tmin, y = TID, color = generation)) +
+  geom_point(size = 1,  stroke = .01) +
+  facet_wrap(~lineage, scales = "free_y") +
+  theme(axis.text.x = element_text(angle = 90))
+p
+
+```
+
+```{r motility}
+
+#average speed summarized by lineage
+
+  
+#average distance moved
+calc_distance <- function(x,y){
+  df <-data.frame(x,y)
+  mat <- dist(df) %>%
+    as.matrix()
+  res <- c(0, mat[col(mat)==row(mat)+1])
+  return(res)
+}
+df <- df_lineage %>%
+  select(TID, distance_mean, distance_total, average_velocity, treatment,generation, lineage) %>%
+  distinct()
+  
+p <- ggplot(df, aes(x = TID, y = distance_mean,fill = factor(lineage))) +
+  geom_col() +
+  guides(fill = FALSE)
+p
+
+p <- ggplot(df, aes(x = TID, y = average_velocity,fill = factor(lineage))) +
+  geom_col() +
+  guides(fill = FALSE)
+p
+  
+p <- ggplot(df, aes(x = TID, y = distance_total, fill = factor(lineage))) +
+  geom_col() +
+  guides(fill = FALSE)
+p
+    
+
+##Density
+#distance to nearest neighbor
+
+#number of neighbors within a fixed range
+
+```
+
+#### MTrackJ file features
+
+    Nr: The measurement number. Runs from 1 to the total number of points.
+
+    CID: The ID number of the cluster to which the track point belongs. This quantity is not displayed if there is only one cluster and the user has deselected the displaying of cluster and assembly measurements.
+
+    TID: The ID number of the track to which the point belongs.
+
+    PID: The ID number of the point.
+
+    x [unit]: The calibrated x coordinate of the point. The pixel width and unit of length used here can be set as described above.
+
+    y [unit]: The calibrated y coordinate of the point. The pixel height and unit of length used here can be set as described above.
+
+    z [unit]: The calibrated z coordinate of the point. The voxel depth and unit of length used here can be set as described above. This quantity is not displayed in the case of 2D image sequences.
+
+    t [unit]: The calibrated t coordinate of the point. The frame interval and unit of time used here can be set as described above.
+
+    c [idx]: The channel index of the point. This quantity is not displayed if there is only one channel.
+
+    I [unit]: The calibrated image intensity value at the point. For 8-bit and 16-bit images, the intensity calibration function and value unit can be set (if necessary) as described above. For RGB-images, the intensity is computed as I = 0.3R + 0.6G + 0.1B. If the Edit > Options > Display > Interpolate Zoomed Images option of ImageJ is selected, the (calibrated) intensities are linearly interpolated where necessary (subpixel coordinate precision).
+
+    Len [unit]: The length of the track from the start (first) point of the track to the current point (inclusive). Thus the value of this quantity for the end (last) point of a track equals the total length of the track. The pixel calibration and unit of length used here can be set as described above.
+
+    D2S [unit]: The distance from the start (first) point of the track to the current point. Thus the value of this quantity is always less than (or at most equal to) the value of Len. The pixel calibration and unit of length used here can be set as described above.
+
+    D2R [unit]: The distance from the current point to the reference point (see the description of the Refer button for information on how to set the reference). The pixel calibration and unit of length used here can be set as described above.
+
+    D2P [unit]: The distance from the current to the previous point of the track. The pixel size and unit of length can be set as described above.
+
+    v [unit]: The speed, at the current point, of the object represented by the track. This quantity is computed as the magnitude of the most recent displacement vector (pointing from the previous point to the current point of the track), divided by the frame interval. The pixel calibration, unit of length, frame interval, and unit of time can be set as described above.
+
+    α [deg]: The angle of the in-plane component of the most recent displacement vector (pointing from the previous point to the current point of the track) with respect to the x-y coordinate system of the image (with the origin taken in the previous point). Angle values range from -180 to +180 degrees, where 0 degrees means the vector component runs parallel to the positive x axis (pointing to the right), +90 degrees (or -90 degrees) means it runs parallel to the positive (or negative) y axis (pointing downward, or upward, respectively), and +180 degrees (which is the same as -180 degrees) means it runs parallel to the negative x axis (pointing to the left). The pixel calibration can be set as described above.
+
+    Δα [deg]: The angular change between the in-plane components of the most recent displacement vector (pointing from the previous point to the current point of the track) and the preceding displacement vector. The pixel calibration can be set as described above.
+
+    θ [deg]: The angle of the most recent displacement vector (pointing from the previous point to the current point of the track) relative to the x-y plane of the image (with the origin taken in the previous point). The angle values range from -90 to +90 degrees, where 0 degrees means the axial vector component is zero (that is, the displacement vector is entirely in-plane), and +90 degrees (or -90 degrees) means it runs parallel to the positive (or negative) z axis (pointing away from, respectively toward, the observer). The pixel calibration can be set as described above. This quantity is not displayed in the case of 2D image sequences.
+
+    Δθ [deg]: The angular change between the most recent displacement vector (pointing from the previous point to the current point of the track) and the preceding displacement vector, relative to the x-y plane of the image. The pixel calibration can be set as described above. This quantity is not displayed in the case of 2D image sequences.
