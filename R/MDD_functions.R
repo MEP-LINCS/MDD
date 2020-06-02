@@ -23,9 +23,9 @@ select_features <- function(df, var_quantile = 0){
 }
 
 #' rrscale a numeric vector
-rrscaleValues <- function(x, zeros = .001, ncores = 4){
+rrscaleValues <- function(x, zeros = .001, ncores = 4, zscore_cutoff = Inf){
   x_rr <- as.matrix(x) %>%
-    rrscale(zeros = zeros, ncores = ncores)
+    rrscale(zeros = zeros,  z = zscore_cutoff, ncores = ncores)
   return(x_rr)
 }
 
@@ -45,6 +45,62 @@ getrrDetails <- function(x){
 
 #prepare a datamatrix from a dataframe of data and metadta
 prep_hm_matrix <- function(df, columns = "condition"){
+  if(columns == "condition"){
+    condition_order <-  c("ctrl_0",paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), rep(c(24, 48),  times = 14),   sep = "_") )
+    
+    condition_order <- condition_order[condition_order %in% df$experimentalCondition]
+    df_sp <- df %>%
+      dplyr::select(feature, value, experimentalCondition) %>%
+      spread(key = experimentalCondition, value = value, fill = median(df$value, na.rm = TRUE)) %>%
+      dplyr::select(feature, condition_order)
+    
+    df_as_matrix <- df_sp %>%
+      dplyr::select(-feature) %>%
+      as.matrix()
+    rownames(df_as_matrix) <- df_sp$feature
+    return(df_as_matrix)
+    
+  } else if(columns == "ligand") {
+    ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
+    
+    ligand_order <- ligand_order[ligand_order %in% df$ligand]
+    df_sp <- df %>%
+      filter(ligand %in% ligand_order) %>%
+      #    mutate(feature = paste0(feature,"_",experimentalTimePoint)) %>%
+      dplyr::select(feature, value, ligand) %>%
+      spread(key = ligand, value = value, fill = median(df$value, na.rm = TRUE)) %>%
+      dplyr::select(feature, ligand_order)
+    
+    df_as_matrix <- df_sp %>%
+      dplyr::select(-feature) %>%
+      as.matrix()
+    rownames(df_as_matrix) <- df_sp$feature
+    return(df_as_matrix)
+    
+  } else if(columns == "time") {
+    #feature_ligand x time code
+    time_order <-c(0,1,4,8,24,48)
+    time_order <- time_order[time_order %in% df$experimentalTimePoint] %>%
+      paste0("T",.)
+    
+    df_sp <- df %>%
+      mutate(Time = paste0("T",experimentalTimePoint)) %>%
+      filter(Time %in% time_order) %>%
+      mutate(feature = paste0(feature,"_",ligand)) %>%
+      dplyr::select(feature, value, Time) %>%
+      spread(key = Time, value = value) %>%
+      dplyr::select(feature, time_order)
+    #removing median fill on missing data
+    df_as_matrix <- df_sp %>%
+      dplyr::select(-feature) %>%
+      as.matrix()
+    rownames(df_as_matrix) <- df_sp$feature
+    return(df_as_matrix)
+    
+  } else stop("received columns value of ",columns, " which must be condition, ligand or time")
+}
+
+prep_hm_matrix_org <- function(df, columns = "condition"){
   if(columns == "condition"){
     condition_order <-  c("ctrl_0",paste(rep(c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 2), rep(c(24, 48),  times = 14),   sep = "_") )
     
@@ -141,10 +197,52 @@ prep_hm_annotations <- function(df, columns = "condition"){
   
 }
 
+prep_hm_annotations_org <- function(df, columns = "condition"){
+  if(columns == "condition"){
+    df_as_matrix <- prep_hm_matrix(df, columns = "condition")
+    #create top annotations
+    ann_nv_pairs <- df %>%
+      dplyr::select(feature, Type) %>%
+      distinct()
+    
+    ann_df <- tibble(feature = rownames(df_as_matrix)) %>%
+      left_join(ann_nv_pairs, by = "feature") %>%
+      dplyr::select(Type)
+    return(ann_df)
+  } else if(columns == "ligand") {
+    df_as_matrix <- prep_hm_matrix_org(df, columns = "ligand")
+    #create top annotations
+    ann_nv_pairs <- df %>%
+      dplyr::select(feature, Type, experimentalTimePoint) %>%
+      mutate(feature = paste0(feature, "_", experimentalTimePoint)) %>%
+      distinct()
+    
+    ann_df <- tibble(feature = rownames(df_as_matrix)) %>%
+      left_join(ann_nv_pairs, by = "feature") %>%
+      dplyr::select(Type, experimentalTimePoint) %>%
+      rename(Time = experimentalTimePoint)
+    return(ann_df)
+  } else if(columns == "time") {
+    df_as_matrix <- prep_hm_matrix(df, columns = "time")
+    #create top annotations
+    ann_nv_pairs <- df %>%
+      dplyr::select(feature, Type, ligand) %>%
+      mutate(feature = paste0(feature, "_", ligand)) %>%
+      distinct()
+    
+    ann_df <- tibble(feature = rownames(df_as_matrix)) %>%
+      left_join(ann_nv_pairs, by = "feature") %>%
+      dplyr::select(Type, ligand)
+    return(ann_df)
+  } else stop("received columns value of ",columns, " which must be condition, ligand or time")
+  
+}
+
+
 get_iheatmap <- function(df_as_matrix, ...) {
   #Create the heatmap
   hm <- main_heatmap(data = df_as_matrix,
-                     name = "score")
+                     name = "score") 
 }
 
 format_hm <- function(hm, k = 6, cluster_method = "hclust", type_colors = NULL, groups = NULL, ...){
