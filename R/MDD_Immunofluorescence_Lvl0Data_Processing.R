@@ -85,7 +85,7 @@ nearest_neighbor_dist<-function(nuc_data){
         if(nrow(search_data)<4){
           
           search_data<-coord_data
-    }}}
+        }}}
     
     #find distance to nearest neighbors
     d<-Euclidean(search_data,point1=point)
@@ -100,11 +100,11 @@ nearest_neighbor_dist<-function(nuc_data){
       top_distances[i,4]<-NA
       
     } else{
-    top<-sorted_d[1:4]
-    
-    #if no neighbor found, set to maximum distance
-    top[is.na(top)]<-1344
-    top_distances[i,1:4]<-top[1:4]
+      top<-sorted_d[1:4]
+      
+      #if no neighbor found, set to maximum distance
+      top[is.na(top)]<-1344
+      top_distances[i,1:4]<-top[1:4]
     }
   }
   
@@ -250,18 +250,18 @@ for(i in 1:length(nuc_name)){
   
   nucl_data<-read_csv(n_name, col_types = cols())
   cyto_data<-read_csv(c_name, col_types = cols())
-
+  
   nuclei_data<-nucl_data %>%
     select(-contains('Metadata_Channel'),-Metadata_FileLocation,  -Metadata_Frame, -Metadata_Series,
            -Children_Cytoplasm_Count, -Number_Object_Number,  -contains('_Z'), -AreaShape_Center_Z, 
            -Location_Center_X, -Location_Center_Y, -contains('Edge'), -contains('MAD'), -contains('MassDisp'))
-
+  
   cytoplasm_data<-cyto_data %>%
     select(-contains('Metadata_Channel'),-Metadata_FileLocation,  -Metadata_Frame, -Metadata_Series,
            -contains('Location'), -Number_Object_Number, -Parent_Nuclei)
   
   total_data<-full_join(nuclei_data,cytoplasm_data, by=c("ImageNumber", "ObjectNumber",
-                                                    "Metadata_Plate", "Metadata_Well", "Metadata_Run"))
+                                                         "Metadata_Plate", "Metadata_Well", "Metadata_Run"))
   
   #scale intensities properly by 65535
   total_data_int_rm<- total_data %>%
