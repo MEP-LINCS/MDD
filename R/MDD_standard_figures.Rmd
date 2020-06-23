@@ -343,7 +343,7 @@ plot_heatmap(RPPA,
              md,
              assay_name = "RPPA",
              var_thresh_percentile = var_thresh_percentile,
-             mark_rows = c("Rb_pS807_S811", "c-Myc"	,"Stat3_pY705", "IRF-1", "EGFR", "HER2_pY1248", "HSP27", "TSC1", "S6_pS235_S236", "PAI-1","P-Met_pY1234_Y1235"))
+             mark_rows = c("Rb_pS807_S811", "c-Myc"	, "Caspase-7-cleaved","Stat3_pY705", "IRF-1", "EGFR", "HER2_pY1248", "HSP27", "TSC1", "S6_pS235_S236", "PAI-1","P-Met_pY1234_Y1235"))
 
 ```
 
