@@ -7,7 +7,7 @@ library(tidyverse)
 library(eulerr)
 
 RPPA_limmaFile  <- "MDD_RPPA_limma.R"
-color_annoFile  <- "../misc/MDD_color_codes.csv"
+colScript  <- "MDD_importColors_pretty.R"
 RNA_resultsFile <- "../RNAseq/Data/MDD_RNAseq_shrunkenResults_df.Rdata"
 
 RNAseq_logFC_threshold <- 1.5
@@ -15,21 +15,22 @@ RNAseq_pval_threshold  <- 0.01
 
 ###############################################################################
 source(RPPA_limmaFile)
+source(colScript)
 ###############################################################################
 
-# Getting color codes for plots
-col <- read.csv(color_annoFile, stringsAsFactors = FALSE)
-col <- list(
-  ligand = dplyr::slice(col, 1:8),
-  experimentalTimePoint = dplyr::slice(col, 10:15),
-  secondLigand = dplyr::slice(col, 17:18),
-  collection = dplyr::slice(col, 26:28)
-)
-
-col <-
-  lapply(col, function(x) {
-    x <- setNames(x[, 2], x[, 1])
-  })
+# # Getting color codes for plots
+# col <- read.csv(color_annoFile, stringsAsFactors = FALSE)
+# col <- list(
+#   ligand = dplyr::slice(col, 1:8),
+#   experimentalTimePoint = dplyr::slice(col, 10:15),
+#   secondLigand = dplyr::slice(col, 17:18),
+#   collection = dplyr::slice(col, 26:28)
+# )
+# 
+# col <-
+#   lapply(col, function(x) {
+#     x <- setNames(x[, 2], x[, 1])
+#   })
 
 ###############################################################################
 # Filtering antibody annotation table to non-phospho, non-multi-protein abs
@@ -82,10 +83,11 @@ colnames(res) <- str_remove(colnames(res), "experimentalCondition")
 res <- data.frame(res) %>% 
   column_to_rownames("hgnc_symbol")
   
+hmapForRowOrder <- Heatmap(RNA_matched, cluster_columns = FALSE, 
+                           show_row_names = FALSE, column_title = "RNAseq",
+                           name = "RNAseq", show_column_names = FALSE) 
+RNA_matched <- RNA_matched[row_order(hmapForRowOrder), ]
 RPPA_matched <- res[rownames(RNA_matched), colnames(RNA_matched)]
-
-Heatmap(RPPA_matched, cluster_columns = FALSE, show_row_names = FALSE, column_title = "RPPA") + 
-  Heatmap(RNA_matched, cluster_columns = FALSE, show_row_names = FALSE, column_title = "RNAseq")
 
 dir <- "../plots/RPPA_RNAseq_concordanceHeatmaps/lfc15"
 
@@ -99,12 +101,32 @@ combined.meta.forHA <-
   dplyr::rename(Ligand = ligand,
                 Time = experimentalTimePoint) %>% 
   filter(Time %in% c(24, 48)) %>% 
-  distinct(experimentalCondition, .keep_all = TRUE)
+  distinct(experimentalCondition, .keep_all = TRUE) %>% 
+  mutate(experimentalCondition = as.character(experimentalCondition)) %>% 
+  mutate(Ligand = fct_recode(Ligand, 
+                             "CTRL" = "ctrl",
+                             "BMP2+EGF" = "BMP2",
+                             "IFNG+EGF" = "IFNG",
+                             "TGFB+EGF" = "TGFB"),
+         experimentalCondition = fct_recode(experimentalCondition,
+                                            "CTRL_0" = "ctrl_0")) %>% 
+  mutate(Ligand = fct_relevel(Ligand, "CTRL", "PBS",
+                              "HGF", "OSM", "EGF",
+                              "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")) %>% 
+  arrange(Ligand, Time) %>% 
+  mutate(experimentalCondition = fct_inorder(experimentalCondition))
+columnOrder <- 
+  combined.meta.forHA %>% 
+  pull(experimentalCondition) %>% 
+  as.character
 
 names(col)[c(1,2)] <- c("Ligand", "Time")
-
 ha <- HeatmapAnnotation(df = dplyr::select(combined.meta.forHA, -experimentalCondition),
                         col = col)
+
+ha1 <- HeatmapAnnotation(df = dplyr::select(combined.meta.forHA, -experimentalCondition),
+                         col = col, show_legend = FALSE)
+names(ha1) <- c("", " ")
 
 ind <- match(c("JAK2", "CD274", "EGFR", "MYC",
           "CCNB1", "DUSP4", "RB1", "RPS6", "IRS1"),
@@ -112,15 +134,55 @@ ind <- match(c("JAK2", "CD274", "EGFR", "MYC",
 
 ra <- rowAnnotation(hgnc_symbol = anno_mark(at = ind, labels = rownames(RNA_matched)[ind]))
 
-pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceHeatmap.pdf", dir), height = 9, width = 14)
-Heatmap(RNA_matched, cluster_columns = FALSE, 
+RNA_matched_factors <-
+  RNA_matched %>%
+  rownames_to_column("gene") %>% 
+  pivot_longer(-gene) %>% 
+  mutate(value = as.factor(value)) %>% 
+  mutate(value = fct_recode(value,
+                            "Upregulated" = "1",
+                            "Downregulated" = "-1",
+                            "No Change" = "0")) %>% 
+  pivot_wider() %>% 
+  column_to_rownames("gene")
+RNA_matched_factors <- RNA_matched_factors[, columnOrder]
+
+RPPA_matched_factors <-
+  RPPA_matched %>%
+  rownames_to_column("gene") %>% 
+  pivot_longer(-gene) %>% 
+  mutate(value = as.factor(value)) %>% 
+  mutate(value = fct_recode(value,
+                            "Upregulated" = "1",
+                            "Downregulated" = "-1",
+                            "No Change" = "0")) %>% 
+  pivot_wider() %>% 
+  column_to_rownames("gene")
+RPPA_matched_factors <- RPPA_matched_factors[, columnOrder]
+
+
+pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceHeatmap.pdf", dir), height = 9, width = 15)
+Heatmap(RNA_matched_factors, cluster_columns = FALSE, 
+        cluster_rows = FALSE,
         show_row_names = FALSE, column_title = "RNAseq", 
-        name = "RNAseq", bottom_annotation = ha,
+        name = "RNAseq", bottom_annotation = ha1,
+        col = c("Upregulated" = "Red",
+                "No Change" = "gray95",
+                "Downregulated" = "Blue"),
+        heatmap_legend_param = c(labels = fct_inorder(as.factor(unique(levels(RNA_matched_factors$PBS_48)))),
+                                 title = "RNAseq",
+                                 legend_gp = gpar(fill = c("blue", "white", "red"))),
         show_column_names = FALSE) + 
-Heatmap(RPPA_matched, cluster_columns = FALSE, 
-          show_row_names = FALSE, column_title = "RPPA", 
-          name = "RPPA",  bottom_annotation = ha, right_annotation = ra,
-          show_column_names = FALSE)
+Heatmap(RPPA_matched_factors, cluster_columns = FALSE, 
+        show_row_names = FALSE, column_title = "RPPA", 
+        name = "RPPA",  bottom_annotation = ha, right_annotation = ra,
+        col = c("Upregulated" = "Red",
+                "No Change" = "gray95",
+                "Downregulated" = "Blue"),
+        heatmap_legend_param = c(labels = unique(levels(RNA_matched_factors$PBS_48)),
+                                 title = "RPPA",
+                                 legend_gp = gpar(fill = c("blue", "white", "red"))),
+        show_column_names = FALSE)
 dev.off()
 
 

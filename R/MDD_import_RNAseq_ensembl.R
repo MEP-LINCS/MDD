@@ -19,7 +19,7 @@ source(colScript)
 
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
                 dataset = "hsapiens_gene_ensembl",
-                host = "www.ensembl.org")
+                host = "uswest.ensembl.org")
 
 at.RNA <- getBM(attributes = c("ensembl_gene_id",
                                "hgnc_symbol",
@@ -48,8 +48,14 @@ sa.RNA.L3 <-
                              "CTRL" = "ctrl",
                              "BMP2+EGF" = "BMP2",
                              "IFNG+EGF" = "IFNG",
-                             "TGFB+EGF" = "TGFB")) %>% 
-  mutate(Ligand = fct_inorder(Ligand))
+                             "TGFB+EGF" = "TGFB"),
+         experimentalCondition = fct_recode(experimentalCondition,
+                                            "CTRL_0" = "ctrl_0")) %>% 
+  mutate(Ligand = fct_relevel(Ligand, "CTRL", "PBS",
+                              "HGF", "OSM", "EGF",
+                              "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")) %>% 
+  arrange(Ligand, Time) %>% 
+  mutate(experimentalCondition = fct_inorder(experimentalCondition))
 col$Ligand <- col$Ligand[unique(as.character(sa.RNA.L3$Ligand))]
 
 # Importing Level 3 data
@@ -80,3 +86,4 @@ RNAseqL3Z <-
 ha.RNA.L3 <- HeatmapAnnotation(df = dplyr::select(sa.RNA.L3, 
                                                   Ligand, 
                                                   Time), col = col)
+

@@ -26,5 +26,5 @@ col <-
 names(col$Ligand)[1] <- "CTRL"
 names(col$Ligand)[6:8] <- sprintf("%s+EGF", names(col$Ligand)[6:8])
 
-order <- c("CTRL", "PBS", "BMP2+EGF", "IFNG+EGF", "TGFB+EGF", "HGF", "OSM", "EGF")
+order <- c("CTRL", "PBS", "HGF", "OSM", "EGF", "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
 col$Ligand <- col$Ligand[order]
