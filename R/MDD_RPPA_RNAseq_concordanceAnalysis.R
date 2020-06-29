@@ -5,6 +5,7 @@
 
 library(tidyverse)
 library(eulerr)
+library(ComplexHeatmap)
 
 RPPA_limmaFile  <- "MDD_RPPA_limma.R"
 colScript  <- "MDD_importColors_pretty.R"
@@ -14,6 +15,10 @@ RNAseq_logFC_threshold <- 1.5
 RNAseq_pval_threshold  <- 0.01
 
 ###############################################################################
+if(!grepl("R$", getwd())) {
+  setwd("R")
+}
+
 source(RPPA_limmaFile)
 source(colScript)
 ###############################################################################
@@ -235,3 +240,17 @@ euler(DEFeatureList[!grepl("NoChange", names(DEFeatureList))]) %>%
        fills = c("steelblue4", "firebrick4", "steelblue1", "firebrick2"))
 dev.off()
  
+DEFeatureList[!grepl("NoChange", names(DEFeatureList))]
+
+c(DEFeatureList$RNAseq_NoChange,
+          DEFeatureList$RPPA_NoChange) %>% 
+  unique %>% 
+  length
+  
+
+length(DEFeatureList$RNAseq_NoChange)
+length(DEFeatureList$RPPA_NoChange)
+
+intersect(DEFeatureList$RNAseq_Down,
+          DEFeatureList$RPPA_Down) %>% 
+  length
