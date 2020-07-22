@@ -16,7 +16,8 @@ source(plottingFunFile)
 txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene 
 
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
-                dataset = "hsapiens_gene_ensembl")
+                dataset = "hsapiens_gene_ensembl",
+                host = "useast.ensembl.org")
 
 sampleAnno <- read.csv(annoFile, stringsAsFactors = FALSE) %>% 
   filter(ATACseq_QCpass) %>% 
@@ -33,23 +34,91 @@ dob_temp  <- dba(sampleSheet = sSheet)
 
 ###############################################################################
 # Genes of interest
-outDir <- "../rsync_folder/tracks/figure/50kbBuffer/"
+outDir <- "../rsync_folder/tracks/IFNG_induced/"
 
 if (!dir.exists(outDir)) {
   dir.create(outDir, recursive = TRUE)
 }
 
-# myTranscript <- "ENST00000518237"
-# eg <- "IDO2"
-# pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, "IDO1"), 
-#     height = 5, width = 5)
-# transcriptToPlot(transcript = myTranscript, 
-#            buffer = c(1000),
-#            basicDob = dob_temp, 
-#            mart = mart, 
-#            sA = sampleAnno,
-#            extraGenes = eg)
-# dev.off()
+myGene <- "ACE2"
+eg <- c("BMX")
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno,
+           extraGenes = eg)
+dev.off()
+
+
+myGene <- "AIM2"
+eg <- "IFI16"
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno,
+           extraGenes = eg)
+dev.off()
+
+myGene <- "NLRP3"
+eg <- "OR2B11"
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno,
+           extraGenes = eg)
+dev.off()
+
+myGene <- "BATF2"
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno)
+dev.off()
+
+myGene <- "CXCL9"
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno)
+dev.off()
+
+myGene <- "CXCL10"
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno)
+dev.off()
+
+myGene <- "CXCL11"
+pdf(sprintf("%s/MDD_ATACseq_%sTrack.pdf", outDir, myGene), 
+    height = 5, width = 5)
+geneToPlot(symbol = myGene, 
+           buffer = c(10000),
+           basicDob = dob_temp,
+           mart = mart, 
+           sA = sampleAnno)
+dev.off()
+
+
+###############################################################################
 
 myGene <- "IDO1"
 eg <- "IDO2"

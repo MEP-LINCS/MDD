@@ -183,6 +183,7 @@ geneMatsCombined <- lapply(geneMats,
                                           "IFNG+EGF" = 9:10)
 )
 
+
 tPlotsInduced <- makeTornadoPlots(geneMatsCombined$Induced)
 
 if (!dir.exists(sprintf("%s/MDD_ATACseq_InducedIFNG_tornadoPlot_PDF", outDirPlots))) {
@@ -310,42 +311,121 @@ HeatmapL3C(RNAseqL3Z[c(inducedGenesIFNG48, inducedGenesNotIFNG[orderL3Z]), ],
 dev.off()
 
 
-# MDD_RNAseq_FPKM <-
-#   RNAseqL3 %>%
-#   t %>% scale(scale = FALSE) %>% t %>% 
-#   data.frame
-# 
-# MDD_RNAseq_FPKM_Medians <-
-#   RNAseqL3 %>%
-#   t %>% scale(scale = FALSE) %>% t %>% 
-#   data.frame %>% 
-#   rownames_to_column("hgnc_symbol") %>%
-#   pivot_longer(-hgnc_symbol, values_to = "z", names_to = "specimenID") %>%
-#   left_join(sa.RNA.L3) %>%
-#   mutate(experimentalCondition = fct_inorder(as.factor(experimentalCondition))) %>%
-#   group_by(experimentalCondition, hgnc_symbol) %>%
-#   summarize(medianZ = median(z, na.rm = TRUE)) %>%
-#   mutate(medianZ = replace_na(medianZ, 0)) %>%
-#   ungroup %>%
-#   pivot_wider(names_from = experimentalCondition, values_from = medianZ) %>%
-#   column_to_rownames("hgnc_symbol")
+##############################################################################
+# DEGEne Stackedbarplots
 
-# sa.RNA.L4 <-
-#   sa.RNA.L3 %>% 
-#   distinct(experimentalCondition, .keep_all = TRUE) %>% 
-#   mutate(experimentalCondition = fct_inorder(as.factor(experimentalCondition))) %>% 
-#   dplyr::select(experimentalCondition, Ligand, Time) %>% 
-#   mutate(Ligand = fct_inorder(as.factor(Ligand)),
-#          Time   = fct_inorder(as.factor(Time)))
-# 
-# ha.RNA.L4 <- HeatmapAnnotation(
-#   df = sa.RNA.L4 %>% dplyr::select(-experimentalCondition), 
-#   col = col)
+pdf(sprintf("%s/MDD_RNAseq_DEGeneStackedBarplot.pdf", outDirPlots),
+    height = 6, width = 6)
+cTable %>% 
+  filter(DECategory != "None") %>% 
+  mutate(experimentalCondition = fct_inorder(experimentalCondition)) %>% 
+  ggplot(aes(experimentalCondition)) +
+  geom_bar(aes(fill = DECategory)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  # scale_color_manual(values = col$Ligand) +
+  scale_fill_manual("Category", 
+                    values = c("Induced" = "firebrick3",
+                               "Repressed" = "steelblue3",
+                               "DE" = "gray50"))
+  # ggtitle("Differentially Expressed Protein-Coding Genes") 
+dev.off()
 
+# I think the math could be easy on this, but I don't have the raw numbers to try it myself. 
+# Here is my thought - In comparing panels B and E - 
+# is it possible to add up all the 'ligand' DE genes, induced genes, and repressed genes 
+# and then compare these values to the respective values in B.
+# This analysis should show that many of the DE gene changes are conserved across ligands, 
+# whereas the induced are mostly ligand specific. In other words what % of DE genes show up
+# in alteast two ligand conditions, and what % of induced genes show up in atleast two ligand conditions.
+# Thoughts on this?
 
-# HeatmapL3C(MDD_RNAseq_FPKM[tpList$Induced$ensembl_gene_id, ],
-# cluster_rows = FALSE,
-# featureName = "mean-centered\nlog2(fpkm + 1)")
-# HeatmapL4C(MDD_RNAseq_FPKM_Medians[tpList$Induced$ensembl_gene_id, ],
-# cluster_rows = FALSE,
-# featureName = "mean-centered\nlog2(fpkm + 1)")
+cTable %>% 
+  filter(geneType == "protein_coding") %>% 
+  filter(DECategory %in% c("DE", "Repressed")) %>% 
+  dplyr::select(ensembl_gene_id, Ligand) %>% 
+  distinct() %>% 
+  group_by(ensembl_gene_id) %>% 
+  summarize(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  ungroup %>% 
+  mutate(ligandSpecific = n == 1) %>% 
+  group_by(ligandSpecific) %>% 
+  summarize(n = n())
+1472 + 1115
+
+1472/2587
+
+## DE Genes - how many are ligand specific?
+cTable %>% 
+  filter(geneType == "protein_coding") %>% 
+  filter(DECategory == "DE") %>% 
+  dplyr::select(ensembl_gene_id, Ligand) %>% 
+  distinct() %>% 
+  group_by(ensembl_gene_id) %>% 
+  summarize(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  ungroup %>% 
+  mutate(ligandSpecific = n == 1) %>% 
+  group_by(ligandSpecific) %>% 
+  summarize(n = n())
+
+1462/(1462 + 810)
+1462 + 810
+## Induced Genes - how many are ligand specific?
+cTable %>% 
+  filter(geneType == "protein_coding") %>% 
+  filter(DECategory == "Induced") %>% 
+  dplyr::select(ensembl_gene_id, Ligand) %>% 
+  distinct() %>% 
+  group_by(ensembl_gene_id) %>% 
+  summarize(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  ungroup %>% 
+  mutate(ligandSpecific = n == 1) %>% 
+  group_by(ligandSpecific) %>% 
+  summarize(n = n())
+
+476/(476 + 149)
+
+forDonut <-
+  cTable %>% 
+  filter(geneType == "protein_coding") %>%
+  group_by(ensembl_gene_id) %>% 
+  summarize(Category = case_when(any(Induced, na.rm = TRUE) ~ "Induced",
+                                 any(Repressed, na.rm = TRUE) ~ "Repressed",
+                                 any(DE, na.rm = TRUE) ~ "Differentially Expressed",
+                                 !any(DE, na.rm = TRUE) & any(expressed, na.rm = TRUE) ~ "Expressed, no change",
+                                 !any(expressed) ~ "Not Expressed")) %>% 
+  mutate(Category = fct_relevel(as.factor(Category), c("Not Expressed",
+                                                       "Expressed, no change",
+                                                       "Differentially Expressed",
+                                                       "Induced", "Repressed"))) %>% 
+  ungroup %>% 
+  group_by(Category) %>% 
+  summarize(n = n()) %>% 
+  ungroup %>% 
+  mutate(fraction = n/sum(n))
+forDonut$ymax = cumsum(forDonut$fraction)
+forDonut$ymin = c(0, head(forDonut$ymax, n = -1))
+
+lenGenes <- 
+  cTable %>% 
+  filter(geneType == "protein_coding") %>% 
+  pull(ensembl_gene_id) %>% 
+  unique %>% 
+  length
+
+a <- ggdonutchart(forDonut, "n", "n", 
+                  fill = "Category") +
+  ggtitle(sprintf("%s Protein-Coding Genes", lenGenes)) +
+  scale_fill_manual(values = c("Not Expressed" = "gray30",
+                               "Expressed, no change" = "gray95",
+                               "Differentially Expressed" = "darkorchid2",
+                               "Induced" = "firebrick3",
+                               "Repressed" = "steelblue3"))
+a <- ggpar(a, legend = "right")
+
+if(!dir.exists(outDirPlots)) {dir.create(outDirPlots)}
+pdf(sprintf("%s/MDD_RNAseq_geneCategoryDonutPlot.pdf", outDirPlots), height = 5, width = 6)
+a
+dev.off()

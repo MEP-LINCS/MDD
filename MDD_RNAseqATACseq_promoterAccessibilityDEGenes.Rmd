@@ -15,154 +15,61 @@ output:
 ---
 
 ```{r librariesPaths, include = FALSE}
-library(genomation)
-library(biomaRt)
+# Libraries
 library(tidyverse)
-library(cmapR)
-library(ComplexHeatmap)
 library(cowplot)
 library(ggpubr)
-library(circlize)
-library(goseq)
+library(xlsx)
+library(DT)
+
+library(biomaRt)
 library(TxDb.Hsapiens.UCSC.hg38.knownGene)
 library(GenomicFeatures)
-library(DT)
-library(xlsx)
+# library(cmapR)
 
-theme_set(theme_cowplot())
+library(ComplexHeatmap)
+library(circlize)
+library(genomation)
 
-RNAscript <- "R/MDD_import_RNAseq_ensembl.R"
-RNAseqResultsFile <- "RNAseq/MDD_RNAseq_shrunkenResults.Rdata"
+# Tables
 transcriptsFile <- "misc/MDD_RNAseq_mostAbundantTranscripts.txt"
 ATACseqSAFile   <- "ATACseq/Metadata/MDD_ATACseq_sampleMetadata.csv"
 ATACseqAccTable <- "ATACseq/Data/misc/promoter_accessibility_table.csv"
 HLA_filtFile <- "RNAseq/misc/HLA_geneList.csv"
-promoterDir <- "ATACseq/Data/misc"
-colScript <- "R/MDD_importColors_pretty.R"
-bwDir <- "ATACseq/Data/Level0/bigWig"
-outDirPlots <- "plots/RNAseqATACseq"
-heatmapFunctionScript <- "R/MDD_RNAseq_heatmapFunctions.R"
 
+# Scripts
+RNAscript <- "R/MDD_import_RNAseq_ensembl.R"
+heatmapFunctionScript <- "R/MDD_RNAseq_heatmapFunctions.R"
+colScript <- "R/MDD_importColors_pretty.R"
+
+# Data
+RNAseqResultsFile <- "RNAseq/MDD_RNAseq_shrunkenResults.Rdata"
+
+# In directories
+bwDir <- "ATACseq/Data/Level0/bigWig"
+promoterDir <- "ATACseq/Data/misc"
+
+# Parameters
 RNAseq_lfc_threshold  <- 1.5
 RNAseq_padj_threshold <- 0.01
 
-# Functions for ATAC-seq data
-getProm <- function(txdb, annoTable, buffer = 1500, genesOnly = FALSE) {
-  txdb <- keepStandardChromosomes(txdb)
-  txdb <- dropSeqlevels(txdb, c("chrY", "chrM"))
-  
-  if (genesOnly) {
-    txdb <- genes(txdb)
-    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
-    prom$ensembl_gene_id <- annoTable[match(prom$gene_id, 
-                                            annoTable$entrezgene), 1]
-  } else {
-    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
-    prom$tx_name         <- str_remove(prom$tx_name, "[.][0-9]+")
-    prom$ensembl_gene_id <- annoTable[match(prom$tx_name, 
-                                            annoTable$ensembl_transcript_id), ]$ensembl_gene_id
-  }
-  
-  filt <- is.na(prom$ensembl_gene_id)
-  prom <- prom[!filt]
-  
-  return(prom)
-}
+# Out directories
+outDirPlots <- "plots/RNAseqATACseq"
 
-combineMat <- function(geneMat, combine) {
-  dumSum <- function(x, y) {
-    z <- x + y
-    return(z)
-  }
-  
-  geneMatAvg <-
-    lapply(combine, function(x) {
-      # print(x)
-      x_sum <-
-        Reduce(dumSum, geneMat[x])
-      x_avg <- (x_sum/length(x))
-      return(x_avg)
-    })
-  
-  names(geneMatAvg) <- names(combine)
-  geneMatAvg <- as(geneMatAvg, "ScoreMatrixList")
-  return(geneMatAvg)
-}
-
-
-HeatmapL3C <- function(mat, ca = ha.RNA.L3, featureName = "Z-score", showRow = FALSE, clust = FALSE, ...) {
-  Heatmap(mat, 
-          top_annotation = ca,
-          cluster_columns = clust,
-          show_row_names = showRow,
-          cluster_row_slices = FALSE,
-          row_names_gp = gpar(fontsize = 7),
-          show_column_names = FALSE,
-          name = featureName,
-          col = colorRamp2(c(-3, 0, 3), c("blue", "white", "red")),
-          ...)
-}
-
-
-getProm <- function(txdb, annoTable, buffer = 1500, genesOnly = FALSE) {
-  txdb <- keepStandardChromosomes(txdb)
-  txdb <- dropSeqlevels(txdb, c("chrY", "chrM"))
-  
-  if (genesOnly) {
-    txdb <- genes(txdb)
-    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
-    prom$ensembl_gene_id <- aT[match(prom$gene_id, aT$entrezgene), 1]
-  } else {
-    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
-    prom$tx_name         <- str_remove(prom$tx_name, "[.][0-9]+")
-    prom$ensembl_gene_id <- aT[match(prom$tx_name, aT$ensembl_transcript_id), 1]
-  }
-  
-  filt <- is.na(prom$ensembl_gene_id)
-  prom <- prom[!filt]
-  
-  return(prom)
-}
-
-geneGrangestoTSS <- function(x, buffer = 1000) {
-  strands <- as.vector(strand(x))
-  
-  end(x[strands == "+"])   <- start(x[strands == "+"]) + buffer
-  start(x[strands == "+"]) <- start(x[strands == "+"]) - buffer
-  
-  start(x[strands == "-"]) <- end(x[strands == "-"]) - buffer
-  end(x[strands == "-"])   <- end(x[strands == "-"]) + buffer
-  
-  x
-}
-
-combineMat <- function(geneMat, combine) {
-  dumSum <- function(x, y) {
-    z <- x + y
-    return(z)
-  }
-  
-  geneMatAvg <-
-    lapply(combine, function(x) {
-      print(x)
-      x_sum <-
-        Reduce(dumSum, geneMat[x])
-      x_avg <- (x_sum/length(x))
-      return(x_avg)
-    })
-  
-  names(geneMatAvg) <- names(combine)
-  geneMatAvg <- as(geneMatAvg, "ScoreMatrixList")
-  return(geneMatAvg)
-}
-
-
-source(colScript)
 ###############################################################################
+
+theme_set(theme_cowplot())
 ```
 
 ```{r}
-source(heatmapFunctionScript)
+# source(colScript)
+```
+
+```{r}
+# source(heatmapFunctionScript)
+```
+
+```{r}
 ```
 
 # Introduction
@@ -180,9 +87,12 @@ This will then be joined to promoter accessibility in the ctrl condition.
 Returning to the minimum expression filter of log2fpkm ≥ 0.05 in ≥2 replicates 
 of a condition.
 
-```{r}
+```{r sourceRNAscript}
 source(RNAscript)
+```
 
+
+```{r makeExprFiltBasic}
 exprFilt <-
   RNAseqL3 %>% 
   data.frame %>% 
@@ -192,7 +102,9 @@ exprFilt <-
   group_by(experimentalCondition, ensembl_gene_id) %>% 
   summarize(expressed = sum(log2fpkm >= 0.5) >= 2) %>% 
   ungroup
+```
 
+```{r showExprFiltBasic}
 exprFilt %>% 
   filter(expressed) %>% 
   group_by(experimentalCondition, expressed) %>% 
@@ -220,7 +132,7 @@ exprFilt %>%
 
 Filtering RNAseq data to only protein-coding genes.
 
-```{r, fig.height = 10, fig.width = 10}
+```{r showExpressedGenesPerCategory, fig.height = 10, fig.width = 10}
 exprFilt %>% 
   mutate(experimentalCondition = fct_relevel(experimentalCondition, 
                                              unique(sa.RNA.L3$experimentalCondition))) %>% 
@@ -247,7 +159,9 @@ exprFilt %>%
   theme(axis.text.x = element_text(size = 8, angle = 90, hjust = 1)) +
   scale_fill_manual(values = col$Ligand) +
   ggtitle("# of Expressed Genes Per Category")
+```
 
+```{r makeExprFiltProteinCoding}
 exprFilt <- 
   exprFilt %>% 
   mutate(experimentalCondition = fct_relevel(experimentalCondition, 
@@ -262,7 +176,7 @@ exprFilt <-
   filter(geneType == "protein_coding")
 ```
 
-```{r}
+```{r showExprFiltProteinCoding, fig.height = 10, fig.width = 10}
 exprFilt %>% 
   filter(expressed) %>% 
   group_by(experimentalCondition, expressed) %>% 
@@ -290,9 +204,11 @@ Loading DESeq2 results table, joining with expression filter. Annotations as fol
 |Induced| ≥ 1.5          | ≤ 0.01  | TRUE | FALSE |
 |Repressed| ≤ -1.5       | ≤ 0.01  | FALSE | TRUE |
 
-```{r}
+```{r loadRNAseqResults}
 load(RNAseqResultsFile)
+```
 
+```{r joinExprFiltResults}
 RNAseq_resExpr <-
   Reduce(bind_rows, res_RNA_df) %>% 
   mutate(padj = replace_na(padj, 1)) %>% 
@@ -820,8 +736,6 @@ ha.RNA.L4 <- HeatmapAnnotation(
   df = sa.RNA.L4 %>% dplyr::select(-experimentalCondition), 
   col = col
   )
-
-
 
 # png(sprintf("%s/MDD_ATACseq_inducedIFNG_tornadoPlot.png", outDirPlots),
 #     height = 12, width = 12, units = "in", res = 450)

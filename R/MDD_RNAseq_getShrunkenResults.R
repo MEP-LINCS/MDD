@@ -45,3 +45,19 @@ save(res_RNA, res_RNA_df,
      file = sprintf("%s/MDD_RNAseq_shrunkenResults.Rdata", outDir))
 save(res_RNA_df, 
      file = sprintf("%s/MDD_RNAseq_shrunkenResults_df.Rdata", outDir))
+
+load(sprintf("%s/MDD_RNAseq_shrunkenResults.Rdata", outDir))
+
+sig_genes <- lapply(res_RNA_df, function(X) {
+  X <- X %>%
+    filter(abs(log2FoldChange) >= 1.5,
+           padj <= 0.01) %>% 
+    arrange(log2FoldChange)
+  }
+)
+
+sig_genes_long <- Reduce(bind_rows, sig_genes) %>% 
+  dplyr::select(experimentalCondition, hgnc_symbol, ensembl_gene_id, log2FoldChange, padj, everything())
+
+write_csv(sig_genes_long, path = "../RNAseq/Data/MDD_RNAseq_DEGenesLong.csv")
+ 
