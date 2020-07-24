@@ -18,8 +18,8 @@ library(RColorBrewer)
 library(writexl)
 
 source("../R/MDD_functions.R")
-create_pdfs <- FALSE
-write_csvs <- FALSE
+create_pdfs <- TRUE
+write_csvs <- TRUE
 
 ```
 
@@ -401,7 +401,7 @@ plsr_module_count <- hm_data_ann_plsr %>%
   count() %>%
   ungroup() %>%
   rename(Module = Cluster)
-write_csv(plsr_module_count, "MDD_intgrated_plsr_module_count.csv")
+write_csv(plsr_module_count, "MDD_integrated_plsr_module_count.csv")
 
 #Write out pdfs of each module with row names
 if(create_pdfs){
@@ -523,7 +523,7 @@ if(write_csvs){
   res <- lapply(1:clust_num, function(cl_select){
     df_p_sp_sel <- hm_data_ann %>%
       filter(Cluster == cl_select) %>%
-      write_csv(paste0("Tables/Ligand_clusters/MDD_ligand_cluster_",cl_select,"_features",clust_num,".csv"),col_names = TRUE)
+      write_csv(paste0("Tables/Ligand_clusters/MDD_ligand_cluster_",cl_select,"_features.csv"),col_names = TRUE)
   })
 }
 
