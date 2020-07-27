@@ -18,8 +18,8 @@ library(RColorBrewer)
 library(writexl)
 
 source("../R/MDD_functions.R")
-create_pdfs <- TRUE
-write_csvs <- TRUE
+create_pdfs <- FALSE
+write_csvs <- FALSE
 
 ```
 
@@ -30,6 +30,20 @@ data_path <- "Data/selected_assay_pk_data_rr.rda"
 if(!file.exists(data_path)) stop("cannot load ",data_path)
 load(data_path)
 
+#Load migration distances
+migration_dist <- read_csv("Data/MDD_migration_distance_lineage_T0.csv") %>%
+  filter(thour == 48) %>%
+  rename(ligand = treatment,
+         experimentalTimePoint = thour,
+         value = lineage_length_mean) %>%
+  mutate(Type = "live",
+         feature = "migration_distance_live",
+         ligand = str_remove(ligand, "[+]EGF")) %>%
+  rrscale_assay()
+
+selected_assay_pk_data_rr <-selected_assay_pk_data_rr %>%
+  bind_rows(migration_dist)
+  
 feature_gene <- read_csv("Data/MDD_Integrated_feature_gene.csv")
 
 ifng_cluster_features <- readxl::read_excel("Data/MDD_ligand_ifng_cluster_features_UMAP_HIGHLIGHTS.xlsx",col_names = FALSE, sheet = "2") %>%
@@ -72,7 +86,7 @@ df_p <- selected_assay_pk_data_rr %>%
 cluster_cols <- structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:9, 12, 11, 10)],
                           names = 1:clust_num)
 #cluster_cols[13] <- "slategrey"
-assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1, 7)],
+assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1, 7,8)],
                         names = unique(df_p$Type))
 # assay_cols <- structure(RColorBrewer::brewer.pal(length(unique(df_p$Type)), "Paired")[c(6, 2:5, 1, 7:8)],
                         # names = unique(df_p$Type))
