@@ -41,8 +41,9 @@ migration_dist <- read_csv("Data/MDD_migration_distance_lineage_T0.csv") %>%
          ligand = str_remove(ligand, "[+]EGF")) %>%
   rrscale_assay()
 
-selected_assay_pk_data_rr <-selected_assay_pk_data_rr %>%
-  bind_rows(migration_dist)
+selected_assay_pk_data_rr <-selected_assay_pk_data_rr 
+# %>%
+#   bind_rows(migration_dist)
   
 feature_gene <- read_csv("Data/MDD_Integrated_feature_gene.csv")
 
@@ -70,7 +71,8 @@ ligand_cols <- c("CTRL" = "#7A4A2A",
 ```{r Heatmaps, fig.height = 8}
 
 df_p <- selected_assay_pk_data_rr %>%
-  mutate(feature = paste0(feature, "_", experimentalTimePoint),
+  mutate(
+    #feature = paste0(feature, "_", experimentalTimePoint),
          Type = str_replace(Type, "motifs", "motif"),
          ligand = str_replace(ligand, "ctrl", "CTRL")) %>%
   filter(!ligand == "CTRL",
@@ -81,12 +83,38 @@ df_p <- selected_assay_pk_data_rr %>%
          "TGFB+EGF" = "TGFB") %>%
   dplyr::select(all_of(ligand_order), everything())
 
+df_p_long <-  selected_assay_pk_data_rr %>%
+  mutate(
+    #feature = paste0(feature, "_", experimentalTimePoint),
+         Type = str_replace(Type, "motifs", "motif"),
+         ligand = str_replace(ligand, "ctrl", "CTRL")) %>%
+  filter(!ligand == "CTRL",
+         str_detect(Type,"Hallmark|pathway", negate = TRUE))
 
+df_p_T0 <- selected_assay_pk_data_rr %>%
+  mutate(Type = str_replace(Type, "motifs", "motif"),
+         ligand = str_replace(ligand, "ctrl", "CTRL")) %>%
+  filter(ligand == "CTRL",
+         str_detect(Type,"Hallmark|pathway", negate = TRUE)) %>%
+  select(-experimentalTimePoint, -ligand, -Type) %>%
+  rename(value_T0 = value) %>%
+  right_join(df_p_long, by = c("feature")) %>%
+  mutate(value= value - value_T0,
+         feature = paste0(feature, "_", experimentalTimePoint)) %>%
+  select(-value_T0) %>%
+  pivot_wider(names_from = ligand) %>%
+  dplyr::rename("BMP2+EGF" = "BMP2",
+         "IFNG+EGF" = "IFNG",
+         "TGFB+EGF" = "TGFB") %>%
+  dplyr::select(all_of(ligand_order), everything())
+  
+###debugging shortcut#######
+df_p <- df_p_T0
 #setup for common cluster colors used in heatmap and ggplot
 cluster_cols <- structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:9, 12, 11, 10)],
                           names = 1:clust_num)
 #cluster_cols[13] <- "slategrey"
-assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1, 7,8)],
+assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1, 7)],
                         names = unique(df_p$Type))
 # assay_cols <- structure(RColorBrewer::brewer.pal(length(unique(df_p$Type)), "Paired")[c(6, 2:5, 1, 7:8)],
                         # names = unique(df_p$Type))
@@ -96,10 +124,11 @@ assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1, 7,8
 # z scale across rows
 df_p_as_matrix <- df_p %>%
   select(all_of(ligand_order)) %>%
-  as.matrix() %>%
-  t %>%
-  scale() %>%
-  t
+  as.matrix()
+  #
+  # t %>%
+  # scale() %>%
+  # t
 rownames(df_p_as_matrix) <- df_p$feature
 df_p_as_matrix <- df_p_as_matrix[order(rownames(df_p_as_matrix)),]
 
@@ -137,7 +166,7 @@ haRow <- HeatmapAnnotation(df = chm_ann,
                                       Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE)))
 chm <- Heatmap(df_p_as_matrix,
                name = "Z score",
-               column_title = "Selected assay data, rrscaled, z-scaled",
+               column_title = "Selected assay data, rrscaled, T0 relative",
                column_title_gp = gpar(fontsize = 12),
                col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
                #col = colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100),
@@ -154,7 +183,7 @@ chm <- Heatmap(df_p_as_matrix,
                left_annotation = haRow)
 chm
 if(create_pdfs){
-  pdf("MDD_ligands_heatmap_main_CHM_no_pathways.pdf") 
+  pdf("MDD_ligands_heatmap_main_CHM_no_pathways_no_z_T0.pdf") 
   draw(chm)
   res <- dev.off()
 } 
