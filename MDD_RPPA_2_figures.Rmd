@@ -1,0 +1,439 @@
+---
+title: "MDD RPPA 2 figures"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+
+suppressMessages(library(tidyverse))
+suppressMessages(library(ComplexHeatmap))
+suppressMessages(library(circlize))
+library(umap)
+
+create_pdfs <- FALSE
+```
+
+
+
+
+```{r standardFigureFunctions}
+
+
+get_win_probs <- function(df, low = .02, hi = .98){
+  windsorize_probs <- df %>%
+    select(-feature) %>%
+    unlist %>%
+    quantile(probs = c(low, hi), na.rm = TRUE)
+}
+  
+plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name){
+  #Generate a 2d scatterplot of the UMAP dimensions
+  #Use size to represent timepoint, dot in center to represent ligand_2 == EGF
+
+  windsorize_probs <- get_win_probs(df, .01, .99)
+  
+  #convert specimenID column names to specimanName and reorder
+ df <- prep_data(df, md) %>%
+    select(-matches("EdU"))
+  
+   #Create annotation values
+  df_ann <-prep_annotations(df, md)
+
+   df_mat <- df %>%
+    select(-feature) %>%
+     t() %>%
+  as.matrix()
+  colnames(df_mat) <- df$feature
+
+  df_UMAP <- umap(df_mat, na.rm = TRUE)$layout %>%
+    data.frame() %>%
+    rename(UMAP_1 = X1,
+           UMAP_2 = X2) %>%
+    cbind(df_ann) %>%
+    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)),
+           Time = as.character(Time),
+           Time = as.numeric(Time))
+  
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2,
+                           size = Time,
+                           colour = Ligand,
+                           fill = Ligand)) +
+    geom_point(shape = 21, alpha = .8) +
+    scale_color_manual(values = ligand_EGF_cols) +
+    scale_fill_manual(values = ligand_cols) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(2, 6)) +
+    labs(title = paste("UMAP embedding of ", assay_name, " data")) +
+    guides(colour = guide_legend(override.aes = list(size = 4)),
+           size = guide_legend(override.aes = list(shape = 19))) +
+    theme_bw() +
+    theme(axis.title = element_blank(),
+          #axis.ticks = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+
+  if(create_pdfs){
+    pdf(paste0("MDD_standard_UMAP_",assay_name, ".pdf"), width = 6, height = 5)
+  print(p)
+  res <- dev.off()
+  }
+  print(p)
+}
+
+plot_pca <- function(df, md, ligand_cols = ligand_cols, assay_name,
+                   ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")){
+  #Generate a 2d scatterplot of the first two princpal components
+  #Use size to represent timepoint, dot in center to represent ligand_2 == EGF
+
+  windsorize_probs <- get_win_probs(df, .01, .99)
+  
+  #convert specimenID column names to specimenName and reorder
+  df <- prep_data(df, md) 
+  
+   #Create annotation values
+  df_ann <-prep_annotations(df, md)
+
+   df_mat <- df %>%
+    select(-feature) %>%
+     t() %>%
+  as.matrix()
+  colnames(df_mat) <- df$feature
+
+    df_pca <- prcomp(df_mat)$x %>%
+  data.frame() %>%
+    cbind(df_ann)
+    
+  df_pca <- prcomp(df_mat)$x %>%
+  data.frame() %>%
+    cbind(df_ann) %>%
+   mutate(Ligand = factor(Ligand, levels = names(ligand_cols)),
+           Time = as.character(Time),
+           Time = as.numeric(Time))
+  p <- ggplot(df_pca, aes(x = PC1,
+                          y = PC2,
+                          size = Time,
+                          colour = Ligand,
+                          fill = Ligand)) +
+    geom_point(shape = 21, alpha = .8) +
+    scale_color_manual(values = ligand_EGF_cols) +
+    scale_fill_manual(values = ligand_cols) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(2, 6)) +
+    labs(title = paste("UMAP embedding of ", assay_name, " data")) +
+    guides(colour = guide_legend(override.aes = list(size = 4)),
+           size = guide_legend(override.aes = list(shape = 19))) +
+    theme_bw() +
+    theme(axis.title = element_blank(),
+          #axis.ticks = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+  
+p
+}
+
+
+plot_correlation <- function(df, md, assay_name,
+                      ligand_cols = ligand_cols,
+                   ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")){
+  #calculate correlations across the conditions and show in a heatmap
+
+  windsorize_probs <- get_win_probs(df, .01, .99)
+  
+  #convert specimenID column names to specimanName, reorder delete EGF samples
+  df <- prep_data(df, md) 
+  
+  title_suffix <- ""
+ 
+  #Create annotation values
+  haRow <- create_row_annotations(df, md)
+  
+  #Create the heatmap
+  Heatmap(matrix = select(df, -feature) %>%
+            as.matrix() %>%
+            t %>%
+            scale(scale = FALSE) %>%
+            t %>%
+            cor(use = "complete.obs",method = "spearman"),
+          name = "correlation",
+          column_title = paste0("Correlation of ",assay_name, title_suffix),
+          top_annotation = create_top_annotations(df, md),
+          left_annotation = haRow,
+          show_row_names = FALSE,
+          show_column_names = FALSE,
+          cluster_rows = FALSE,
+          cluster_columns = FALSE,
+          col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+          na_col = "grey")
+}
+
+```
+
+```{r globalVariables}
+
+ligand_cols <- c("CTRL" = "#7A4A2A",
+                 "PBS" = "#8dd3c7",
+                 "HGF" = "#80b1d3",
+                 "OSM" = "#fdb462",
+                 "EGF" = "#fb8072",
+                 "BMP2+EGF" = "#b3de69",
+                 "IFNG+EGF" = "#bebada",
+                 "TGFB+EGF" = "#ffd92f")
+
+ligand_EGF_cols <- c("CTRL" = "#7A4A2A",
+                      "PBS" = "#8dd3c7",
+                      "HGF" = "#80b1d3",
+                      "OSM" = "#fdb462",
+                      "EGF" = "#ff0000",
+                      "BMP2+EGF" = "#ff0000",
+                      "IFNG+EGF" = "#ff0000",
+                      "TGFB+EGF" = "#ff0000")
+
+# md <- read_csv("../metadata/MDD_sample_annotations.csv") %>%
+#   mutate(specimenName = str_replace(specimenName, "ctrl", "CTRL"),
+#          experimentalCondition = str_replace(experimentalCondition, "ctrl", "CTRL"),
+#          ligand= str_replace(ligand, "ctrl", "CTRL"))
+
+```
+
+### RPPA 2{.tabset .tabset-fade}
+
+#### QA
+
+```{r load_data}
+
+condition_order <- c( "Starve_-16.5",
+                      "Starve_0",
+                      "Exp_-16.5",
+                      "Exp_0",
+                      "Growth_-16.5",
+                      "Growth_0",
+                      "Null_1",
+                      "OneFifth_0",
+                      "OneThird_0",
+                      "GSK_0",
+                      "NullGSK_1",
+                      "Lins_0",
+                      "NullLins_1",
+                      "Tram_0",
+                      "NullTram_1",
+                      "Lap_0",
+                      "NullRux_1",
+                      "EGF_1",
+                      "EGFGSK_1",
+                      "EGFLins_1",
+                      "EGFRux_1",
+                      "EGFTram_1",
+                      "EGFOSM_1",
+                      "OSM_1",
+                      "OSMGSK_1",
+                      "OSMLins_1",
+                      "OSMRux_1",
+                      "OSMTram_1"
+)
+condition_replicate_order <- paste0(rep(condition_order, each = 3), rep(c("_1", "_2", "_3"), times = 27))
+
+RPPA_2_header <- read_csv("RPPA2/Data/MDD_RPPA_2_header.csv")
+
+RPPA_2 <- read_csv("RPPA2/Data/MDD_RPPA_2_data.csv")
+
+RPPA_2_drugs <- RPPA_2 %>%
+  filter(str_count(Sample_description, "_") == 2) %>%
+  mutate(replicate = str_remove(Sample_description, "_.*"),
+         treatment = str_remove(Sample_description, ".*_"),
+         experimentalTimepoint = str_extract(Sample_description, "_.*_"),
+         experimentalTimepoint = str_remove_all(experimentalTimepoint, "_"),
+         experimentalTimepoint = str_replace(experimentalTimepoint, "165", "-16.5"),
+         condition = paste(treatment, experimentalTimepoint, sep = "_"),
+         condition = factor(condition, levels = condition_order),
+         condition_replicate = paste(treatment, experimentalTimepoint, replicate, sep = "_"),
+         condition_replicate = factor(condition_replicate, levels = condition_replicate_order, ordered = TRUE)) %>%
+  arrange(condition_replicate)
+
+RPPA_2_drugs_med <- RPPA_2_drugs %>%
+  group_by(condition) %>%
+  summarise_if(is.numeric, median, na.rm = TRUE) %>%
+  ungroup()
+
+RPPA_2_extras <- RPPA_2 %>%
+  filter(!str_count(Sample_description, "_") == 2)
+
+
+```
+
+```{r antibody_QA,  fig.height=4, fig.width=4}
+
+p <- ggplot(RPPA_2, aes(CF1)) +
+  geom_histogram()
+p
+
+p <- ggplot(RPPA_2, aes(CF2)) +
+  geom_histogram() +
+  geom_vline(xintercept = c(0.25, 2.5), color = "blue")
+p
+
+p <- ggplot(RPPA_2_header, aes(x = probabilities_qc_score)) +
+  geom_histogram(binwidth = .003) +
+  geom_vline(xintercept = 0.80, color = "blue")
+p
+
+```
+
+#### Heatmap
+
+```{r heatmaps,  fig.height=15, fig.width=15}
+
+df <- RPPA_2_extras %>%
+  select_if(is.numeric) %>%
+  select(-c(Order, CF1, CF2)) 
+
+dm <- df %>%
+  as.matrix() %>%
+  t()
+colnames(dm) <- RPPA_2_extras$Sample_description
+
+#Create the heatmap
+  hm <- Heatmap(matrix = dm,
+          name = "abundance",
+          column_title = "RPPA 2 extras",
+          show_row_names = FALSE,
+          show_column_names = TRUE,
+          cluster_columns = TRUE,
+          cluster_rows = TRUE)
+  
+df <- RPPA_2_drugs %>%
+  select_if(is.numeric) %>%
+  select(-c(Order, CF1, CF2))
+
+dm <- df %>%
+  as.matrix() %>%
+  t()
+colnames(dm) <- RPPA_2_drugs$condition_replicate
+
+#Create the heatmap
+  hm <- Heatmap(matrix = dm,
+          name = "abundance",
+          column_title = "RPPA 2 drugs",
+          show_row_names = FALSE,
+          show_column_names = TRUE,
+          cluster_columns = FALSE,
+          cluster_rows = TRUE)
+hm
+
+df <- RPPA_2_drugs_med %>%
+  select_if(is.numeric) %>%
+  select(-c(Order, CF1, CF2)) 
+
+dm <- df %>%
+  as.matrix() %>%
+  t()
+colnames(dm) <- paste(RPPA_2_drugs_med$condition)
+
+#Create the heatmap
+  hm <- Heatmap(matrix = dm,
+          name = "abundance",
+          column_title = "RPPA 2 drugs",
+          show_row_names = FALSE,
+          show_column_names = TRUE,
+          cluster_columns = FALSE,
+          cluster_rows = TRUE)
+hm
+
+```
+
+```{r signaling_combinations}
+# 1 hour responses to signaling combo antibodies
+signaling_combo_antibodies <- readxl::read_xlsx("RPPA2/Data/RPPA_SIGNALINGCOMBO.xlsx") %>%
+  drop_na()
+
+df <- RPPA_2_drugs %>%
+  select(condition_replicate, signaling_combo_antibodies$ANTIBODIES) %>%
+  filter(str_detect(condition_replicate, "Exp_0|_1_"))
+
+dm <- df %>%
+  select(-condition_replicate) %>%
+  as.matrix() %>%
+  scale() %>%
+  t()
+colnames(dm) <- paste(df$condition_replicate)
+
+#Create the heatmap
+hm <- Heatmap(matrix = dm,
+              name = "z-score",
+              column_title = "RPPA 2 drugs, signaling combinations",
+              show_row_names = TRUE,
+              row_names_gp = gpar(fontsize = 12),
+              show_column_names = TRUE,
+              column_names_gp = gpar(fontsize = 12),
+              cluster_columns = FALSE,
+              cluster_rows = FALSE)
+hm
+
+
+df <- RPPA_2_drugs_med %>%
+  select(condition, signaling_combo_antibodies$ANTIBODIES) %>%
+  filter(str_detect(condition, "Exp_0|_1$"))
+
+
+dm <- df %>%
+  select(-condition) %>%
+  as.matrix() %>%
+  scale() %>%
+  t()
+colnames(dm) <- paste(df$condition)
+
+#Create the heatmap
+hm <- Heatmap(matrix = dm,
+              name = "z-score",
+              column_title = "RPPA 2 drugs, signaling combinations",
+              show_row_names = TRUE,
+              row_names_gp = gpar(fontsize = 12),
+              show_column_names = TRUE,
+              column_names_gp = gpar(fontsize = 12),
+              cluster_columns = FALSE,
+              cluster_rows = FALSE)
+hm
+
+
+```
+
+
+#### UMAP
+
+```{r create_display_umap, eval = TRUE}
+
+umap_obj <- RPPA_2_drugs %>%
+  select_if(is.numeric) %>%
+  select(-Order) %>%
+  as.matrix() %>%
+  umap()
+
+RPPA_2_drugs_umap <- umap_obj$layout %>%
+  as_tibble() %>%
+  rename_with(~ paste0("umap",gsub("V","", .x))) %>%
+  bind_cols(RPPA_2_drugs)
+
+
+p <- ggplot(RPPA_2_drugs_umap, aes(x = umap1,
+                                   y = umap2,
+                                   label = condition_replicate,
+                                   size = experimentalTimepoint,
+                                   color = treatment,
+                                   shape = replicate)) +
+  geom_point()  
+p
+
+p <- ggplot(RPPA_2_drugs_umap, aes(x = umap1,
+                                   y = umap2,
+                                   label = condition_replicate,
+                                   size = experimentalTimepoint,
+                                   color = treatment,
+                                   shape = replicate)) +
+  geom_text(size = 3) 
+p
+
+```
+
+
+##
