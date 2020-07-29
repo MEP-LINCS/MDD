@@ -124,11 +124,10 @@ assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1, 7)]
 # z scale across rows
 df_p_as_matrix <- df_p %>%
   select(all_of(ligand_order)) %>%
-  as.matrix()
-  #
-  # t %>%
-  # scale() %>%
-  # t
+  as.matrix() %>%
+  t %>%
+  scale() %>%
+  t
 rownames(df_p_as_matrix) <- df_p$feature
 df_p_as_matrix <- df_p_as_matrix[order(rownames(df_p_as_matrix)),]
 
@@ -233,6 +232,30 @@ if(create_pdfs) {
   res <- dev.off()
 } 
 
+#Make a heatmap of the average cluster response
+chm <- Heatmap(t(df_cl_as_matrix),
+               name = "Z score",
+               column_title = "MDD Integrated ligand cluster averages",
+               column_title_gp = gpar(fontsize = 12),
+               #col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE, 
+               cluster_columns = FALSE,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 10),
+               column_names_gp = gpar(fontsize = 10),
+               column_names_rot = 0,
+               use_raster = FALSE)
+draw(chm)
+
+if(create_pdfs) {
+  pdf("MDD_ligand_heatmap_cluster_averages.pdf")
+  draw(chm)
+  res <- dev.off()
+} 
+
 
 df_cl_cors <- cor(df_p_as_matrix)
 
@@ -323,9 +346,6 @@ for(ligand in ligand_order){
     res <- dev.off()
   }
 }
-
-### make a bar plot of module 3 enrichments for each of the ligands? 
-### Color code the bars based on the ligand.
 
 
 #make a faceted version of the mean cluster values by ligand
