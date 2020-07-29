@@ -274,7 +274,7 @@ rrscale_assay <- function(df_long, zscore_cutoff = Inf){
     rr_objects <- df_sp %>%
       dplyr::select(-Type, -experimentalCondition) %>%
       as.matrix() %>%
-      rrscale(zeros = 0.01,z = zscore_cutoff)
+      rrscale::rrscale(zeros = 0.01,z = zscore_cutoff)
     
     rr_mat <- rr_objects[["RR"]] %>%
       as_tibble()
@@ -287,7 +287,7 @@ rrscale_assay <- function(df_long, zscore_cutoff = Inf){
     rr_objects <- df_sp %>%
       dplyr::select(-Type, -ligand, -experimentalTimePoint) %>%
       as.matrix() %>%
-      rrscale(zeros = 0.01,z = zscore_cutoff)
+      rrscale::rrscale(zeros = 0.01,z = zscore_cutoff)
     
     rr_mat <- rr_objects[["RR"]] %>%
       as_tibble()
