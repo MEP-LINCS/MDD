@@ -1,4 +1,4 @@
-# Calculate GCP log2 fold changes and differentially expressed proteins.
+# Calculate motif log2 fold changes and differentially expressed proteins.
 #
 # The purpose of this script is to calculate log2 fold changes for all conditions
 # compared to ctrl_0, using limma.
@@ -6,19 +6,19 @@
 # L2FCs and or DE proteins
 
 library(tidyverse)
-library(cowplot)
+#library(cowplot)
 library(limma)
 library(ComplexHeatmap)
 
 
-GCPlevel3File <- "../GCP/Data/MDD_GCP_Level3.csv"
+motiflevel3File <- "../ATACseq/Data/MDD_ATACseq_MotifFamilyScores.csv"
 MDDannoFile <- "../Metadata/MDD_sample_annotations.csv"
 
 logFC_threshold <- 0.5
 pval_threshold  <- 0.01
 
-outDirPlots <- "../plots/GCP_limma"
-outDirData <- "../GCP/Data/DEResults"
+outDirPlots <- "../plots/motif_DE_T0"
+outDirData <- "../ATACseq/Data/DEResults"
 
 if (!dir.exists(outDirPlots)) {
   dir.create(outDirPlots)
@@ -30,32 +30,31 @@ if (!dir.exists(outDirData)) {
 
 ###############################################################################
 
-GCP.mat <- read.table(GCPlevel3File,
+motif.mat <- read.table(motiflevel3File,
                        header = TRUE,
                        sep = ",",
                        row.names = 1)
-GCP.meta <- read.table(MDDannoFile,
+motif.meta <- read.table(MDDannoFile,
                         header = TRUE,
                         sep = ",") %>% 
   filter(str_detect(experimentalTimePoint, "0|24|48"),
-         specimenID %in% colnames(GCP.mat)) %>% 
+         specimenID %in% colnames(motif.mat)) %>% 
   dplyr::select(specimenID, specimenName, ligand, experimentalTimePoint, experimentalCondition, replicate) %>% 
   mutate(experimentalCondition = fct_inorder(factor(experimentalCondition)))
 
-GCP.mat <- GCP.mat %>%
-  dplyr::select(all_of(unique(GCP.meta$specimenID)))
+motif.mat <- motif.mat %>%
+  dplyr::select(all_of(unique(motif.meta$specimenID)))
 
 ###############################################################################
 # Creating design for comparisons.
 # All conditions to be compared to ctrl_0.
-#limma anlaysis expects log-expression values
-design <- model.matrix(~experimentalCondition, GCP.meta)
+design <- model.matrix(~experimentalCondition, motif.meta)
 
-lm <- lmFit(GCP.mat, design)
+lm <- lmFit(motif.mat, design)
 lm <- eBayes(lm)
 
 tt <- topTable(lm, number = Inf)
-write.csv(tt, sprintf("%s/GCP_DE_topTables.csv", outDirData))
+write.csv(tt, sprintf("%s/motifs_DE_topTables.csv", outDirData))
 
 res <- decideTests(lm, p.value = pval_threshold, lfc = logFC_threshold)
 
@@ -65,13 +64,13 @@ colnames(resTP) <- colnames(design)[-1] %>%
   str_remove("experimentalCondition")
 
 
-pdf(sprintf("%s/GCP_significantAnalytes.pdf", outDirPlots), height = 12, width = 16)
+pdf(sprintf("%s/motif_significantAnalytes.pdf", outDirPlots), height = 12, width = 16)
 hm <- Heatmap(resTP,
               name = "significant",
               cluster_columns = FALSE,
               show_column_names = TRUE,
               column_names_gp = gpar(fontsize = 9),
               show_row_names = TRUE,
-              column_title = "GCP: significant histone epigentic marks compared to ctrl_0")
+              column_title = "motif: significant motifs compared to ctrl_0")
 draw(hm)
 dev.off()

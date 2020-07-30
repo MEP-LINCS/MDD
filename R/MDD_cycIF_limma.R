@@ -27,7 +27,9 @@ cycIF.mat <- read.table(cycIFlevel3File,
                        header = TRUE,
                        sep = ",",
                        row.names = 1)
-cycIF.mat <- cycIF.mat[!str_detect(rownames(cycIF.mat),"_med_|dna.*cytoplasm|laws|nucrin|centcyto|plasmem|none"),] 
+
+cycIF.mat <- cycIF.mat[!str_detect(rownames(cycIF.mat),"_med_|dna.*cytoplasm|laws|nucrin|centcyto|plasmem|none"),]
+cycIF.mat <- log2(cycIF.mat+.0001)
 
 cycIF.meta <- read.table(MDDannoFile,
                         header = TRUE,
@@ -53,10 +55,10 @@ write.csv(tt, sprintf("%s/cycIF_DE_topTables.csv", outDirData))
 
 res <- decideTests(lm, p.value = pval_threshold, lfc = logFC_threshold)
 
-resTP <- matrix(res, nrow = nrow(res))
+resTP <- matrix(res, nrow = nrow(res))[,-1]
 
 rownames(resTP) <- rownames(res)
-colnames(resTP) <- colnames(design) %>%
+colnames(resTP) <- colnames(design)[-1] %>%
   str_remove("experimentalCondition") %>%
   str_replace("[(]Intercept[)]","CTRL")
 # 
