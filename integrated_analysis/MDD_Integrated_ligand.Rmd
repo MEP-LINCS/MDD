@@ -62,6 +62,7 @@ ligand_cols <- c("CTRL" = "#7A4A2A",
                  "BMP2+EGF" = "#b3de69",
                  "IFNG+EGF" = "#bebada",
                  "TGFB+EGF" = "#ffd92f")
+
 ```
 
 ## {.tabset .tabset-fade}
