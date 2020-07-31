@@ -2,7 +2,7 @@
 
 library(tidyverse)
 
-assays <- c("GCP", "cycIF", "motifs")
+assays <- c("GCP", "cycIF", "motifs", "RPPA", "RNAseq")
 
 read_tt <- function(x){
   
@@ -18,6 +18,7 @@ T0_DE_integrated <- map(assays, read_tt) %>%
   bind_rows(.id = "Type") %>%
   mutate(Type = assays[as.integer(Type)]) %>%
   rename(feature = X1) %>%
-  rename_with( ~gsub("experimentalCondition", "", .x, fixed = TRUE))
+  rename_with( ~gsub("experimentalCondition", "", .x, fixed = TRUE)) %>%
+  filter(!AveExpr == 0)
 
-write_csv(T0_DE_integrated, "../integrated_analysis/T0_DE_integrated.csv")
+write_csv(T0_DE_integrated, "../integrated_analysis/integrated_T0_DE.csv")
