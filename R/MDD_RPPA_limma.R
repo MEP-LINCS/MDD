@@ -6,7 +6,7 @@
 # L2FCs and or DE proteins
 
 library(tidyverse)
-library(cowplot)
+#library(cowplot)
 library(limma)
 library(ComplexHeatmap)
 
@@ -14,7 +14,7 @@ library(ComplexHeatmap)
 RPPAlevel3File <- "../RPPA/Data/MDD_RPPA_Level3.csv"
 MDDannoFile <- "../Metadata/MDD_sample_annotations.csv"
 
-logFC_threshold <- 0.5
+logFC_threshold <- 0.25
 pval_threshold  <- 0.01
 
 outDirPlots <- "../plots/RPPA_limma"
@@ -52,12 +52,15 @@ RPPA.mat <- RPPA.mat %>%
 design <- model.matrix(~experimentalCondition, RPPA.meta)
 
 lm <- lmFit(RPPA.mat, design)
-lm <- eBayes(lm)
+lm <- treat(lm, lfc = logFC_threshold)
 
-tt <- topTable(lm, number = Inf)
-write.csv(tt, sprintf("%s/RPPA_DE_topTables.csv", outDirData))
+res <- decideTests(lm, p.value = pval_threshold)
 
-res <- decideTests(lm, p.value = pval_threshold, lfc = logFC_threshold)
+lfc_values <- lm[["coefficients"]]
+p_values <- lm[['p.value']]
+tt <- topTreat(lm, number = Inf)
+
+write.csv(tt, sprintf("%s/RPPA_DE_topTreat.csv", outDirData))
 
 resTP <- matrix(res, nrow = nrow(res))[,-1]
 rownames(resTP) <- rownames(res)
