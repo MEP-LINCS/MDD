@@ -14,6 +14,8 @@ RNA_resultsFile <- "../RNAseq/Data/MDD_RNAseq_shrunkenResults_df.Rdata"
 RNAseq_logFC_threshold <- 1.5
 RNAseq_pval_threshold  <- 0.01
 
+outDir <- "../plots/RPPA_RNAseq_concordanceHeatmaps/lfc15"
+
 ###############################################################################
 if(!grepl("R$", getwd())) {
   setwd("R")
@@ -94,11 +96,10 @@ hmapForRowOrder <- Heatmap(RNA_matched, cluster_columns = FALSE,
 RNA_matched <- RNA_matched[row_order(hmapForRowOrder), ]
 RPPA_matched <- res[rownames(RNA_matched), colnames(RNA_matched)]
 
-dir <- "../plots/RPPA_RNAseq_concordanceHeatmaps/lfc15"
 
-if(!dir.exists(dir)) {
-  dir.create(dir)
-}
+# if(!dir.exists(dir)) {
+  # dir.create(dir)
+# }
 
 combined.meta.forHA <-
   RPPA.meta %>% 
@@ -165,8 +166,11 @@ RPPA_matched_factors <-
   column_to_rownames("gene")
 RPPA_matched_factors <- RPPA_matched_factors[, columnOrder]
 
+if (!dir.exists(outDirPlots)) {
+  dir.create(outDirPlots)
+}
 
-pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceHeatmap.pdf", dir), height = 9, width = 15)
+pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceHeatmap.pdf", outDirPlots), height = 9, width = 15)
 Heatmap(RNA_matched_factors, cluster_columns = FALSE, 
         cluster_rows = FALSE,
         show_row_names = FALSE, column_title = "RNAseq", 
@@ -232,25 +236,10 @@ DEFeatureList <- setNames(DEFeatureList$sc,
 # This euler diagram shows overlaps between the "up" and "down" sets of genes. 
 # The "noChange" groups are not shown.
 
-
-
-pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceEuler.pdf", dir), height = 6, width = 6)
+pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceEuler.pdf", outDirPlots), height = 6, width = 6)
 euler(DEFeatureList[!grepl("NoChange", names(DEFeatureList))]) %>% 
   plot(quantities = TRUE, 
        fills = c("steelblue4", "firebrick4", "steelblue1", "firebrick2"))
 dev.off()
  
-DEFeatureList[!grepl("NoChange", names(DEFeatureList))]
-
-c(DEFeatureList$RNAseq_NoChange,
-          DEFeatureList$RPPA_NoChange) %>% 
-  unique %>% 
-  length
   
-
-length(DEFeatureList$RNAseq_NoChange)
-length(DEFeatureList$RPPA_NoChange)
-
-intersect(DEFeatureList$RNAseq_Down,
-          DEFeatureList$RPPA_Down) %>% 
-  length

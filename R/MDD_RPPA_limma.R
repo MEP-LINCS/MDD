@@ -17,7 +17,7 @@ RPPAlevel3File <- "../RPPA/Data/MDD_RPPA_Level3.csv"
 RPPAannoFile <- "../Metadata/MDD_sample_annotations.csv"
 antibodyFile   <- "../RPPA/Metadata/MDD_RPPA_antibodyAnnotations.csv"
 
-logFC_threshold <- 0.5
+logFC_threshold <- 0.25
 pval_threshold  <- 0.01
 
 outDirPlots <- "../plots/RPPA_limma"
@@ -50,9 +50,10 @@ design <- model.matrix(~experimentalCondition, RPPA.meta)
 RPPA.mat <- RPPA.mat[aTrppa %>% pull(antibody), ]
 
 lm <- lmFit(RPPA.mat, design)
-lm <- eBayes(lm)
+# lm <- eBayes(lm)
+lm <- treat(lm, lfc = logFC_threshold)
 
-res <- decideTests(lm, p.value = pval_threshold, lfc = logFC_threshold)
+res <- decideTests(lm, p.value = pval_threshold)
 
 # resTP <- data.matrix(res)
 # 
@@ -65,3 +66,8 @@ res <- decideTests(lm, p.value = pval_threshold, lfc = logFC_threshold)
 #         column_names_gp = gpar(fontsize = 9), show_row_names = FALSE, 
 #         column_title = "RPPA: significant antibodies compared to ctrl_0")
 # dev.off()
+
+dir.create(outDirData)
+
+write_csv(rownames_to_column(data.frame(res[, -1]), "antibody"), path = sprintf("%s/MDD_RPPA_significantAntibodies.csv", outDirData))
+save(res, file = sprintf("%s/MDD_RPPA_limmaResults.Rdata", outDirData))
