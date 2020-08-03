@@ -1,0 +1,550 @@
+---
+title: "MDD integrated data analysis by ligand"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+#library(iheatmapr)
+#library(pheatmap)
+library(ComplexHeatmap)
+library(circlize)
+library(umap)
+library(cluster)
+#library(plotly)
+library(RColorBrewer)
+library(writexl)
+
+source("../R/MDD_functions.R")
+create_pdfs <- TRUE
+write_csvs <- FALSE
+
+```
+
+
+
+```{r read_data_and_metadata}
+data_path <- "../integrated_analysis/integrated_T0_DE.csv"
+
+# 
+# #Load migration distances
+# migration_dist <- read_csv("Data/MDD_migration_distance_lineage_T0.csv") %>%
+#   filter(thour == 48) %>%
+#   rename(ligand = treatment,
+#          experimentalTimePoint = thour,
+#          value = lineage_length_mean) %>%
+#   mutate(Type = "live",
+#          feature = "migration_distance_live",
+#          ligand = str_remove(ligand, "[+]EGF")) %>%
+#   rrscale_assay()
+# 
+# selected_assay_pk_data_rr <-selected_assay_pk_data_rr 
+# # %>%
+# #   bind_rows(migration_dist)
+#   
+# feature_gene <- read_csv("Data/MDD_Integrated_feature_gene.csv")
+# 
+# ifng_cluster_features <- readxl::read_excel("Data/MDD_ligand_ifng_cluster_features_UMAP_HIGHLIGHTS.xlsx",col_names = FALSE, sheet = "2") %>%
+#   rename("feature" = "...1") %>%
+#   select(feature)
+
+clust_num <- 11
+cluster_method <- "kmeans"
+#cluster_method <- "ha"
+
+experimentalTimePoints <- c("_24", "_48")
+ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+condition_order <- paste0(rep(ligand_order, each = length(experimentalTimePoints)), rep(c("_24", "_48"), times = length(ligand_order)))
+ligand_cols <- c("CTRL" = "#7A4A2A",
+                 "PBS" = "#8dd3c7",
+                 "HGF" = "#80b1d3",
+                 "OSM" = "#fdb462",
+                 "EGF" = "#fb8072",
+                 "BMP2+EGF" = "#b3de69",
+                 "IFNG+EGF" = "#bebada",
+                 "TGFB+EGF" = "#ffd92f")
+
+```
+
+```{r prepData}
+
+#Read in the integrated data, add EGF to some names, set order
+if(!file.exists(data_path)) stop("cannot read ",data_path)
+integrated_T0_DE <- read_csv(data_path) %>%
+  pivot_longer(cols = matches("_24|_48"), names_to = "condition") %>%
+  mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
+         condition = str_replace(condition, "IFNG","IFNG+EGF"),
+         condition = str_replace(condition, "TGFB","TGFB+EGF")) %>%
+  pivot_wider(names_from = condition) %>%
+  select(feature, Type, all_of(condition_order)) %>%
+  drop_na
+
+#setup for common cluster and assay colors
+# cluster_cols <- structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:9, 12, 11, 10)],
+#                           names = 1:clust_num)
+cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)],
+                          names = 1:12), c("13" = "black", "14" = "gray"))
+
+assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1)],
+                        names = unique(integrated_T0_DE$Type))
+
+#Create data and metadata matrices and annotations
+# z scale across rows
+#k means cluster and order by cluster value
+
+int_T0_DE_matrix <- integrated_T0_DE %>%
+  select(all_of(condition_order)) %>%
+  as.matrix() 
+# %>%
+#   t %>%
+#   scale() %>%
+#   t
+rownames(int_T0_DE_matrix) <- integrated_T0_DE$feature
+int_T0_DE_matrix <- int_T0_DE_matrix[!is.nan(int_T0_DE_matrix[,1]),]
+#df_p_as_matrix <- df_p_as_matrix[order(rownames(df_p_as_matrix)),]
+
+#seed the kmeans clustering with a fixed, random set of points
+set.seed(42)
+centers <- int_T0_DE_matrix[sample(1:nrow(int_T0_DE_matrix), size = clust_num, replace = FALSE),]
+clusters <- kmeans(x = int_T0_DE_matrix, iter.max = 20, centers = centers)$cluster
+
+integrated_T0_DE<-tibble(feature = names(clusters),
+                 Cluster = clusters) %>%
+  right_join(integrated_T0_DE, by = "feature") %>%
+  arrange(desc(Cluster))
+
+heatmap_ann <- integrated_T0_DE %>%
+  select(Cluster, Type) %>%
+  mutate(Cluster = factor(Cluster, levels = 1:clust_num, ordered = TRUE)) %>%
+  as.data.frame()
+
+haRow <- HeatmapAnnotation(df = heatmap_ann,
+                           which = "row",
+                           col = list(Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE),
+                                      Type = assay_cols))
+
+```
+## {.tabset .tabset-fade}
+
+### heatmap
+
+```{r heatmaps}
+
+dm <- integrated_T0_DE %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+
+hm <- Heatmap(dm,
+               name = "lfc ",
+               column_title = "Selected assay data, T0 DE",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+               #col = colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100),
+               cluster_rows = FALSE,
+               cluster_row_slices = TRUE, 
+               cluster_columns = FALSE,
+               row_split = integrated_T0_DE$Cluster,
+               #row_split = clust_num,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = FALSE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+                left_annotation = haRow,
+               use_raster = FALSE)
+hm
+if(create_pdfs){
+  pdf("MDD_integrated_T0_DE_heatmap_lfc_no_z_kmeans.pdf") 
+  draw(hm)
+  res <- dev.off()
+} 
+
+```
+
+```{r writeTables}
+selectFeature <- function(df){
+  #browser()
+  res <- df %>%
+    select(feature, Type) %>%
+    mutate(analyte = str_remove(feature, "_.*")) %>%
+    rename(assay = Type) %>%
+    select(feature, analyte, assay, time, symbol)
+return(res)
+}
+
+selectDerivedFeature <- function(df){
+  #browser()
+  res <- df %>%
+    select(feature, FDR, Type)
+return(res)
+}
+
+module_features <- integrated_T0_DE %>%
+  #select(feature, Cluster, Type,  feature) %>%
+  #bind_rows(reactome_pathways) %>%
+  arrange(Cluster, Type) %>%
+  mutate(Cluster = paste0("module_", Cluster),
+         Cluster = factor(Cluster, levels = unique(Cluster))) %>%
+  split(.$Cluster) 
+
+res <- write_xlsx(module_features,
+                  path = "MDD_int_T0_DE_tables.xlsx")
+```
+
+
+### UMAPs
+
+```{r UMAPAnalysis, fig.width=5.75, fig.height=4.75}
+
+#Generate a 2d scatterplot of the UMAP dimensions and color by clusters, assay type
+
+#Create annotation values
+dm <- integrated_T0_DE %>%
+  dplyr::select(-feature, -Cluster, -Type) %>%
+  as.matrix()
+rownames(dm) <- integrated_T0_DE$feature
+
+custom_settings = umap.defaults
+custom_settings$random_state <- 42
+custom_settings$n_epochs = 200
+custom_settings$n_neighbors = 15
+
+#ToDO: read umap from file instead of calculating each time
+
+if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))){
+  load(paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))
+} else {
+df_UMAP <- umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
+  data.frame(feature = rownames(dm)) %>%
+  rename(UMAP_1 = X1,
+         UMAP_2 = X2) %>%
+  left_join(integrated_T0_DE, by = "feature") 
+save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))
+}
+
+plot_UMAP_3d <- FALSE
+if(plot_UMAP_3d){
+  custom_settings$n_components = 3
+  
+  df_UMAP_3d <-  umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
+    data.frame(feature = rownames(dm)) %>%
+    rename(UMAP_1 = X1,
+           UMAP_2 = X2,
+           UMAP_3 = X3) %>%
+    left_join(integrated_T0_DE, by = "feature")
+  df_UMAP_3d$Cluster_color <- cluster_cols[df_UMAP_3d$Cluster]
+  save(df_UMAP_3d, file = "MDD_UMAP_3d")
+  
+  library(rgl)
+  plot3d(df_UMAP_3d$UMAP_1,
+         df_UMAP_3d$UMAP_2,
+         df_UMAP_3d$UMAP_3,
+         col = factor(df_UMAP_3d$Cluster_color))
+}
+
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2,
+                           colour = factor(Cluster))) +
+    geom_point(size = 1, alpha = .6, shape = 16) +
+    scale_color_manual(values = cluster_cols) +
+    labs(title = paste("UMAP embedding colored by cluster"),
+         colour = "Cluster") +
+    guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
+    theme_bw()+
+    theme(axis.title = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line =element_blank())
+  p
+  
+  if(create_pdfs) {
+    pdf("MDD_ligands_umap_main.pdf")    
+    print(p)
+    res <- dev.off()
+  } 
+```
+
+There are `r dim(dm)[1]` dots in the 2d UMAP that represent the significant differentially expressed features relative to T0in the integrated matrix.  
+
+
+```{r UMAPAnalysis2, fig.width=7.5, fig.height=4}
+p <- ggplot(data = df_UMAP[df_UMAP$Type=="RNA",], aes(x = UMAP_1,
+                                                      y = UMAP_2,
+                                                      colour = factor(Type))) +
+  geom_point(size = .8, alpha = .6) +
+  scale_colour_manual(values = assay_cols)+
+  labs(title = paste("UMAP embedding colored by assay"),
+       colour = "Assay") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
+  theme_bw()+
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line =element_blank())
+p <- p + geom_point(data = df_UMAP[!df_UMAP$Type=="RNA",],size = .8, alpha = .8)
+p
+
+if(create_pdfs) {
+  pdf("MDD_ligands_umap_type.pdf") 
+      print(p)
+  res <- dev.off()
+}
+
+```
+
+```{r highlightAssay, fig.width=2.5, fig.height=2.5}
+
+
+p_list <- lapply(unique(df_UMAP$Type), function(assay){
+  
+  df <- df_UMAP
+  
+  p <- ggplot(data = df[!df$Type==assay,], 
+              aes(x = UMAP_1,
+                  y = UMAP_2,
+                  color = Type)) +
+    geom_point(color = "gray",size = 1, alpha = .4, shape = 16) +
+    scale_colour_manual(values = assay_cols) +
+    annotate("text",x = -2, y = -6, label = assay) +
+    # scale_color_manual(values=c("grey", "slateblue1"))+
+    scale_size_area(limits = c(0, 30)) +
+    labs()+
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme_bw()+
+    theme(axis.title = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line =element_blank())
+  p <- p + geom_point(data = df[df$Type==assay,], 
+                      size = 1,
+                      alpha = .9,
+                      shape = 16) 
+  return(p)
+  
+})
+
+res <- map(p_list, print)
+
+if(create_pdfs) {
+  pdf("MDD_ligands_umap_type_highlights.pdf") 
+  res <- map(p_list, print)
+  res <- dev.off()
+}
+```
+
+
+```{r UMAPbyCondition, fig.width=2.5, fig.height=2.5, eval = TRUE}
+
+
+df <- df_UMAP %>%
+  rename("BMP2_EGF_24" = "BMP2+EGF_24",
+         "IFNG_EGF_24" =  "IFNG+EGF_24",
+         "TGFB_EGF_24" = "TGFB+EGF_24",
+         "BMP2_EGF_48" = "BMP2+EGF_48",
+         "IFNG_EGF_48" =  "IFNG+EGF_48",
+         "TGFB_EGF_48" = "TGFB+EGF_48")
+df_UMAP_conditions <- colnames(df)[str_detect(colnames(df_UMAP),"PBS|HGF|OSM|EGF|BMP2|IFNG|TGFB")] %>%
+  str_replace("[+]","_")
+
+p_list <- lapply(df_UMAP_conditions, function(condition){
+  p <- ggplot(df, aes_string(x = "UMAP_1",
+                             y = "UMAP_2",
+                             colour = condition)) +
+    geom_point(size = 1.5, alpha = .8, shape = 16) +
+    annotate("text",x = -2, y = -6, label = condition)+
+    #colorRampPalette(rev(brewer.pal(n = 7, name = "RdBu")))(100)
+    #scale_color_gradient2(low = "blue4", mid = "azure", high = "red", midpoint = 0,) +
+    scale_color_gradientn(colours = colorRampPalette(rev(brewer.pal(n = 7, name =
+                                                                      "RdBu")))(100)) +
+    labs()+
+    guides(colour = FALSE)+
+    theme_bw()+
+    theme(text = element_text(size = 1),
+          axis.title = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line = element_line(colour = "black"))
+  return(p)
+})
+res <- map(p_list, print)
+if(create_pdfs) {
+  pdf("MDD_ligands_umap_by_ligand.pdf")
+  res <- map(p_list, print)
+  res <- dev.off()
+}
+
+```
+
+
+### cluster analysis
+
+
+
+```{r featureTypes, fig.width=8, fig.height=4}
+#create a bar chart of the feature types
+df <- integrated_T0_DE %>%
+  #drop_na() %>%
+  select(feature, Type) %>%
+  distinct()
+
+p <- ggplot(df, aes(x = Type, fill = Type)) +
+  geom_bar() +
+  coord_cartesian(ylim = c(0, 10000)) +
+  scale_fill_manual(values = assay_cols)+
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the MDD integrated dataset"),
+       x ="Feature type") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    axis.text.x =  element_text(angle = 90),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+
+p
+
+p_log <- ggplot(df, aes(x = Type, fill = Type)) +
+  geom_bar() +
+  scale_y_log10() +
+  scale_fill_manual(values = assay_cols)+
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the MDD integrated dataset"),
+       x ="Feature type") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    axis.text.x =  element_text(angle = 90),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+
+p_log
+if(create_pdfs){
+  pdf("MDD_ligands_feature_type_distribution.pdf")
+  print(p)  
+  res <- dev.off()
+  pdf("MDD_ligands_feature_type_distribution_log_scale.pdf")
+  print(p_log)
+  res <- dev.off()
+} 
+
+```
+
+
+```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
+#implement gap statistic analysis
+
+
+plot_gap_custom <- function(x) {
+  gstab = data.frame(x$Tab, k = seq_len(nrow(x$Tab)))
+  p <- ggplot(gstab, aes(k, gap)) + 
+    geom_line() +
+    geom_errorbar(aes(ymax = gap + SE.sim,
+                      ymin = gap - SE.sim), width=0.1) +
+    geom_point(size = .5, col=  "red") +
+    labs(title = paste("Gap analysis to determine cluster number,",cluster_method)) +
+     theme_bw()+
+  theme(axis.ticks = element_blank(),
+        panel.border = element_blank(),
+       # panel.grid.major = element_blank(),
+        #panel.grid.minor = element_blank(),
+        axis.line =element_blank())
+  return(p)
+}
+
+dm <- integrated_T0_DE %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+
+if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))){
+  load(paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))
+} else {
+  gss <- clusGap(dm, FUN = kmeans, K.max = 15, B = 100, verbose = FALSE)
+  save(gss, file = paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))
+}
+
+  plot_gap_custom(gss)
+if(create_pdfs){
+  pdf("MDD_ligands_gap_cluster.pdf")
+  p <- plot_gap_custom(gss)
+  print(p)
+  res <- dev.off()
+}
+# 
+# p <- ggplot(integrated_T0_DE, aes(x = as.factor(Cluster), fill = Type)) +
+#   geom_bar() +
+#   scale_fill_manual(values = assay_cols)+
+#   labs(x = "Cluster",
+#        fill = "Assay") +
+#   theme_bw()+
+#   theme(axis.ticks = element_blank(),
+#         panel.border = element_blank(),
+#         panel.grid.major = element_blank(),
+#         panel.grid.minor = element_blank(),
+#         axis.line =element_blank())
+# p
+# if(create_pdfs){
+#   pdf("MDD_ligands_assay_cluster.pdf")
+#   print(p)
+#   res <- dev.off()
+# }
+```
+
+```{r assayClusterdistribution, fig.width=8, fig.height=4, eval = FALSE}
+
+
+
+p <- ggplot(hm_data, aes(x = as.factor(Cluster), fill = Type)) +
+  geom_bar(position = "dodge") +  
+  scale_fill_manual(values = assay_cols) +
+  labs(x = "Cluster",
+       fill = "Assay") +
+  facet_wrap(~Type, scales = "free_y") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    #axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p
+
+if(create_pdfs){
+  pdf("MDD_ligands_cluster_feature_counts.pdf")
+  print(p)
+  res <- dev.off()
+} 
+
+```
+
+
+This analysis can be interpreted to select the number of clusters in the dataset. It is based on a method described in Modern Statistics for Modern Biology by Susan Holmes and Wolfgang Huber http://web.stanford.edu/class/bios221/book/Chap-Clustering.html and is excerpted below.  
+
+Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it to averages from simulated data with less structure can be a good way of choosing k. This is the basic idea of the gap statistic introduced by Tibshirani, Walther, and Hastie (2001). We compute log(WSSk) for a range of values of k, the number of clusters, and compare it to that obtained on reference data of similar dimensions with various possible ‘non-clustered’ distributions. We can use uniformly distributed data as we did above or data simulated with the same covariance structure as our original data.
+
+The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
+
+The first local maximum is k = 13. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value minus its standard error is less than this local maximum at 13.  
+
+
+<bksp>
+
+<bksp>
+
+###
+
