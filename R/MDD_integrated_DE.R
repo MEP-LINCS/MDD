@@ -13,8 +13,8 @@ library(ComplexHeatmap)
 assays <- c("cycIF","RPPA", "GCP", "motifs", "RNAseq")
 #assay <- c("RPPA")
 
-logFC_threshold <- 0.25
-pval_threshold  <- 0.01
+logFC_threshold <- 0
+pval_threshold  <- 1
 
 
 get_assay_values <- function(assay){
@@ -50,23 +50,12 @@ get_assay_values <- function(assay){
   }
   
   if(assay == "RNAseq"){
-    #Get annotations to convert from ensemble to HGNC
-    # mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
-    #                 dataset = "hsapiens_gene_ensembl",
-    #                 host = "uswest.ensembl.org")
-    # 
-    # annoTable <- getBM(attributes = c("ensembl_gene_id",
-    #                                   "hgnc_symbol"),
-    #                    mart = mart)
     mat <- mat %>%
       rownames_to_column("ensembl_gene_id") %>%
-      # left_join(annoTable, by = "ensembl_gene_id") %>%
-      # dplyr::select(-ensembl_gene_id) %>%
       group_by(ensembl_gene_id) %>%
       summarise(across(everything(),mean), .groups = "drop") %>%
       data.frame()
     rownames(mat) <- mat$ensembl_gene_id
-    
   }
   
   mat <- mat %>%
@@ -87,9 +76,9 @@ combined_analysis <- lapply(assays, function(assay){
   design <- model.matrix(~experimentalCondition, assay_values[["meta"]])
   
   lm <- lmFit(assay_values[["mat"]], design)
-  lm <- treat(lm, lfc = logFC_threshold)
+  lm <- eBayes(lm)
   adj_p_value_list <- lapply(colnames(lm$coefficients), function(condition){
-    adj_p_values <- topTreat(lm, n = Inf, coef = condition)["adj.P.Val"] %>%
+    adj_p_values <- topTable(lm, n = Inf, coef = condition)["adj.P.Val"] %>%
       rownames_to_column("feature")
     return(adj_p_values)
   })
