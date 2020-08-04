@@ -6,12 +6,12 @@
 # L2FCs and or DE proteins
 
 library(tidyverse)
-library(biomaRt)
+# library(biomaRt)
 library(limma)
 library(ComplexHeatmap)
 
 assays <- c("cycIF","RPPA", "GCP", "motifs", "RNAseq")
-assay <- c("RNAseq")
+#assay <- c("RPPA")
 
 logFC_threshold <- 0.25
 pval_threshold  <- 0.01
@@ -28,7 +28,7 @@ get_assay_values <- function(assay){
                         sep = ",",
                         row.names = 1)
   row_sd <- apply(mat_raw, 1, sd, na.rm = TRUE)
-
+  
   mat <- mat_raw[complete.cases(mat_raw) &!row_sd == 0,]
   
   meta <- read.table(MDDannoFile,
@@ -51,13 +51,13 @@ get_assay_values <- function(assay){
   
   if(assay == "RNAseq"){
     #Get annotations to convert from ensemble to HGNC
-    mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
-                    dataset = "hsapiens_gene_ensembl",
-                    host = "uswest.ensembl.org")
-    
-    annoTable <- getBM(attributes = c("ensembl_gene_id",
-                                      "hgnc_symbol"),
-                       mart = mart)
+    # mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
+    #                 dataset = "hsapiens_gene_ensembl",
+    #                 host = "uswest.ensembl.org")
+    # 
+    # annoTable <- getBM(attributes = c("ensembl_gene_id",
+    #                                   "hgnc_symbol"),
+    #                    mart = mart)
     mat <- mat %>%
       rownames_to_column("ensembl_gene_id") %>%
       # left_join(annoTable, by = "ensembl_gene_id") %>%
@@ -65,8 +65,8 @@ get_assay_values <- function(assay){
       group_by(ensembl_gene_id) %>%
       summarise(across(everything(),mean), .groups = "drop") %>%
       data.frame()
-rownames(mat) <- mat$ensembl_gene_id
-
+    rownames(mat) <- mat$ensembl_gene_id
+    
   }
   
   mat <- mat %>%
@@ -80,14 +80,24 @@ rownames(mat) <- mat$ensembl_gene_id
 # All conditions to be compared to ctrl_0.
 #limma anlaysis expects log-expression values
 
-foo <- lapply(assays, function(assay){
- #browser() 
+combined_analysis <- lapply(assays, function(assay){
+  #browser() 
   assay_values <- get_assay_values(assay)
   
   design <- model.matrix(~experimentalCondition, assay_values[["meta"]])
   
   lm <- lmFit(assay_values[["mat"]], design)
   lm <- treat(lm, lfc = logFC_threshold)
+  adj_p_value_list <- lapply(colnames(lm$coefficients), function(condition){
+    adj_p_values <- topTreat(lm, n = Inf, coef = condition)["adj.P.Val"] %>%
+      rownames_to_column("feature")
+    return(adj_p_values)
+  })
+  adjusted_p_values_df <- bind_rows(adj_p_value_list, .id = "condition") %>%
+    mutate(condition = colnames(lm$coefficients)[as.integer(condition)],
+           condition = str_remove(condition, "experimentalCondition")) %>%
+    dplyr::filter(!condition == '(Intercept)') %>%
+    pivot_wider(names_from = condition, values_from = adj.P.Val)
   
   #Filter to significant condition rows
   sig_conditions <- decideTests(lm, p.value = pval_threshold)
@@ -98,8 +108,6 @@ foo <- lapply(assays, function(assay){
   features <- rownames(sig_conditions)[feature_index] 
   
   lfc_values <- lm[["coefficients"]][features,]
-  p_values <- lm[['p.value']][features,]
-  
   
   outDirPlots <- paste0("../plots/",assay,"_limma")
   outDirData <- paste0("../",assay,"/Data/DEResults")
@@ -113,14 +121,11 @@ foo <- lapply(assays, function(assay){
     dir.create(outDirData)
   }
   write.csv(lfc_values, sprintf("%s/%s_DE_lfc_values.csv", outDirData, assay))
-  write.csv(p_values, sprintf("%s/%s_DE_p_values.csv", outDirData, assay))
-  # 
-  # resTP <- matrix(sig_conditions, nrow = nrow(sig_conditions))
-  # rownames(resTP) <- rownames(res)
-  # colnames(resTP) <- colnames(design)[-1] %>%
-  #   str_remove("experimentalCondition")
+  write_csv(adjusted_p_values_df, sprintf("%s/%s_DE_adj_p_values.csv", outDirData, assay))
+  
   show_row_names <- FALSE
   if(nrow(sig_conditions) < 100) show_row_names <- TRUE
+  gc()
   pdf(sprintf("%s/%s_significantAnalytes.pdf", outDirPlots, assay), height = 12, width = 16)
   hm <- Heatmap(sig_conditions,
                 name = "significant",
@@ -133,3 +138,4 @@ foo <- lapply(assays, function(assay){
   dev.off()
   
 })
+
