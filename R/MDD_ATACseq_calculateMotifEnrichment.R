@@ -109,12 +109,12 @@ motif_families <-
               values_from = motifEnrichment)
 
 motif_families <- motif_families[, c("family", sampleAnno %>% filter(ATACseq_QCpass) %>% pull(specimenID))]
+
 write_csv(motif_families, path = motifFamilies_out)
 
 ##########
 
 # apply(column_to_rownames(motifScores, "motif"), 1, function(x) {X <- var(x)^(1/2); X}) %>% 
 #   summary
-# apply(column_to_rownames(motif_families, "family"), 1, function(x) {X <- var(x)^(1/2); X}) %>% 
-#   summary
-
+# apply(column_to_rownames(motif_families, "family"), 1, function(x) {X <- var(x)^(1/2); X}) %>%
+  # summary

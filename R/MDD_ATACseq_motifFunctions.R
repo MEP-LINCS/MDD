@@ -1,4 +1,6 @@
-calculateMotifScores <- function(countsDob, referenceMotifs, colData, expect = TRUE) {
+calculateMotifScores <- function(countsDob, referenceMotifs, colData, 
+                                 returnZ = FALSE,
+                                 expect = TRUE) {
   
   atacseqCounts <- 
     dba.peakset(countsDob, bRetrieve = TRUE) %>% 
@@ -34,9 +36,13 @@ calculateMotifScores <- function(countsDob, referenceMotifs, colData, expect = T
                         annotations = motifsInPeaks)
   }
   
-  # getting raw scores of deviations
-  motifScores <- deviationScores(motifDev)
+  if(!returnZ) {
+    motifScores <- deviations(motifDev)
+  } else {
+    motifScores <- deviationScores(motifDev)
+  }
   
+  # getting raw scores of deviations
   return(motifScores)
 }
 
