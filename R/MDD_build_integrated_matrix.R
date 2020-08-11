@@ -2,8 +2,7 @@
 
 library(tidyverse)
 
-assays <- c("GCP", "cycIF", "motifs", "RPPA", "RNAseq")
-
+assays <- c("cycIF","GCP",  "motifs", "RNAseq", "RPPA")
 read_assay_values <- function(x, output_type = "lfc_values"){
   #browser()
   if(x == "motifs"){
@@ -11,25 +10,25 @@ read_assay_values <- function(x, output_type = "lfc_values"){
   } else {
     data_type = x
   }
-  foo <- paste0("../", data_type, "/Data/DEResults/",x,"_DE_",output_type,".csv") %>% 
+  foo <- paste0("../", data_type, "/Data/IntegratedResults/",x,"_int_",output_type,".csv") %>% 
     read_csv
 }
 
 output_type =  "lfc_values"
 T0_DE_integrated <- map(assays, read_assay_values, output_type) %>%
   bind_rows(.id = "Type") %>%
+  dplyr::select(-X1) %>%
   mutate(Type = assays[as.integer(Type)]) %>%
-  mutate(across(where(is.numeric), signif, digits = 4)) %>%
-  rename(feature = X1) %>%
-  rename_with( ~gsub("experimentalCondition", "", .x, fixed = TRUE))
-
-write_csv(T0_DE_integrated, paste0("../integrated_analysis/integrated_T0_DE_",output_type,".csv"))
+  mutate(across(where(is.numeric), signif, digits = 4))
+  
+write_csv(T0_DE_integrated, paste0("../integrated_analysis/integrated_matrix_",output_type,".csv"))
 
 output_type =  "adj_p_values"
-T0_DE_integrated <- map(assays, read_assay_values, output_type) %>%
+assays_with_p_values <- c("cycIF","GCP", "RNAseq", "RPPA")
+T0_DE_integrated <- map(assays_with_p_values, read_assay_values, output_type) %>%
   bind_rows(.id = "Type") %>%
   mutate(Type = assays[as.integer(Type)]) %>%
   mutate(across(where(is.numeric), signif, digits = 4))
 
-write_csv(T0_DE_integrated, paste0("../integrated_analysis/integrated_T0_DE_",output_type,".csv"))
+write_csv(T0_DE_integrated, paste0("../integrated_analysis/integrated_",output_type,".csv"))
 
