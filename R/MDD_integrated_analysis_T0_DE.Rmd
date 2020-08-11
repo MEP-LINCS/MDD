@@ -1,5 +1,5 @@
 ---
-title: "MDD integrated data analysis by ligand"
+title: "MDD integrated data analysis by condition"
 output: html_document
 ---
 
@@ -7,52 +7,26 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
 
 suppressMessages(library(tidyverse))
-#library(iheatmapr)
-#library(pheatmap)
 library(ComplexHeatmap)
 library(circlize)
 library(umap)
 library(cluster)
-#library(plotly)
 library(RColorBrewer)
 library(writexl)
 
 source("../R/MDD_functions.R")
-create_pdfs <- TRUE
+create_pdfs <- FALSE
 write_csvs <- FALSE
 
 ```
 
 
 
-```{r read_data_and_metadata}
-data_path <- "../integrated_analysis/integrated_T0_DE.csv"
-
-# 
-# #Load migration distances
-# migration_dist <- read_csv("Data/MDD_migration_distance_lineage_T0.csv") %>%
-#   filter(thour == 48) %>%
-#   rename(ligand = treatment,
-#          experimentalTimePoint = thour,
-#          value = lineage_length_mean) %>%
-#   mutate(Type = "live",
-#          feature = "migration_distance_live",
-#          ligand = str_remove(ligand, "[+]EGF")) %>%
-#   rrscale_assay()
-# 
-# selected_assay_pk_data_rr <-selected_assay_pk_data_rr 
-# # %>%
-# #   bind_rows(migration_dist)
-#   
-# feature_gene <- read_csv("Data/MDD_Integrated_feature_gene.csv")
-# 
-# ifng_cluster_features <- readxl::read_excel("Data/MDD_ligand_ifng_cluster_features_UMAP_HIGHLIGHTS.xlsx",col_names = FALSE, sheet = "2") %>%
-#   rename("feature" = "...1") %>%
-#   select(feature)
+```{r setup_parameters_and_metadata}
+data_path <- "../integrated_analysis/integrated_matrix_lfc_values.csv"
 
 clust_num <- 11
 cluster_method <- "kmeans"
-#cluster_method <- "ha"
 
 experimentalTimePoints <- c("_24", "_48")
 ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
@@ -82,8 +56,6 @@ integrated_T0_DE <- read_csv(data_path) %>%
   drop_na
 
 #setup for common cluster and assay colors
-# cluster_cols <- structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:9, 12, 11, 10)],
-#                           names = 1:clust_num)
 cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)],
                           names = 1:12), c("13" = "black", "14" = "gray"))
 
@@ -91,19 +63,14 @@ assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1)],
                         names = unique(integrated_T0_DE$Type))
 
 #Create data and metadata matrices and annotations
-# z scale across rows
 #k means cluster and order by cluster value
 
 int_T0_DE_matrix <- integrated_T0_DE %>%
   select(all_of(condition_order)) %>%
   as.matrix() 
-# %>%
-#   t %>%
-#   scale() %>%
-#   t
+
 rownames(int_T0_DE_matrix) <- integrated_T0_DE$feature
 int_T0_DE_matrix <- int_T0_DE_matrix[!is.nan(int_T0_DE_matrix[,1]),]
-#df_p_as_matrix <- df_p_as_matrix[order(rownames(df_p_as_matrix)),]
 
 #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
@@ -141,12 +108,10 @@ hm <- Heatmap(dm,
                column_title = "Selected assay data, T0 DE",
                column_title_gp = gpar(fontsize = 12),
                col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
-               #col = colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100),
                cluster_rows = FALSE,
                cluster_row_slices = TRUE, 
                cluster_columns = FALSE,
                row_split = integrated_T0_DE$Cluster,
-               #row_split = clust_num,
                row_gap = unit(2, "mm"),
                row_title = " ",
                show_row_names = FALSE,
@@ -160,6 +125,34 @@ if(create_pdfs){
   draw(hm)
   res <- dev.off()
 } 
+
+#Create a matrix and heatmap of the mean cluster values by condition
+ integrated_T0_DE_mean <- integrated_T0_DE %>%
+  group_by(Cluster) %>%
+  summarise(across(.cols = matches("_24|48"), .fns = mean))
+
+dm_mean <- integrated_T0_DE_mean %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(dm_mean) <- paste0("Module_",integrated_T0_DE_mean$Cluster)
+
+hm <- Heatmap(dm_mean,
+               name = "lfc ",
+               column_title = "T0 DE cluster averages",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE, 
+               cluster_columns = FALSE,
+               #row_split = integrated_T0_DE$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+                #left_annotation = haRow,
+               use_raster = FALSE)
+hm
 
 ```
 
@@ -182,8 +175,6 @@ return(res)
 }
 
 module_features <- integrated_T0_DE %>%
-  #select(feature, Cluster, Type,  feature) %>%
-  #bind_rows(reactome_pathways) %>%
   arrange(Cluster, Type) %>%
   mutate(Cluster = paste0("module_", Cluster),
          Cluster = factor(Cluster, levels = unique(Cluster))) %>%
@@ -210,8 +201,6 @@ custom_settings = umap.defaults
 custom_settings$random_state <- 42
 custom_settings$n_epochs = 200
 custom_settings$n_neighbors = 15
-
-#ToDO: read umap from file instead of calculating each time
 
 if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))){
   load(paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))
@@ -269,7 +258,7 @@ if(plot_UMAP_3d){
   } 
 ```
 
-There are `r dim(dm)[1]` dots in the 2d UMAP that represent the significant differentially expressed features relative to T0in the integrated matrix.  
+There are `r dim(dm)[1]` dots in the 2d UMAP that represent the significant differentially expressed features relative to T0 in the integrated matrix.  
 
 
 ```{r UMAPAnalysis2, fig.width=7.5, fig.height=4}
@@ -302,7 +291,6 @@ if(create_pdfs) {
 
 ```{r highlightAssay, fig.width=2.5, fig.height=2.5}
 
-
 p_list <- lapply(unique(df_UMAP$Type), function(assay){
   
   df <- df_UMAP
@@ -314,7 +302,6 @@ p_list <- lapply(unique(df_UMAP$Type), function(assay){
     geom_point(color = "gray",size = 1, alpha = .4, shape = 16) +
     scale_colour_manual(values = assay_cols) +
     annotate("text",x = -2, y = -6, label = assay) +
-    # scale_color_manual(values=c("grey", "slateblue1"))+
     scale_size_area(limits = c(0, 30)) +
     labs()+
     guides(colour = FALSE,
@@ -364,8 +351,6 @@ p_list <- lapply(df_UMAP_conditions, function(condition){
                              colour = condition)) +
     geom_point(size = 1.5, alpha = .8, shape = 16) +
     annotate("text",x = -2, y = -6, label = condition)+
-    #colorRampPalette(rev(brewer.pal(n = 7, name = "RdBu")))(100)
-    #scale_color_gradient2(low = "blue4", mid = "azure", high = "red", midpoint = 0,) +
     scale_color_gradientn(colours = colorRampPalette(rev(brewer.pal(n = 7, name =
                                                                       "RdBu")))(100)) +
     labs()+
@@ -381,8 +366,74 @@ p_list <- lapply(df_UMAP_conditions, function(condition){
 })
 res <- map(p_list, print)
 if(create_pdfs) {
-  pdf("MDD_ligands_umap_by_ligand.pdf")
+  pdf("MDD_integrated_umap_by_condition.pdf")
   res <- map(p_list, print)
+  res <- dev.off()
+}
+
+```
+
+### phenotype analysis
+
+```{r correlate_to_pheontypes}
+
+level3File <- paste0("../IF/Data/MDD_IF_Level3.csv")
+
+raw_df <- read_csv(level3File)
+colnames(raw_df) <- raw_df[raw_df$X1 == "specimenName",]
+
+if_df <- raw_df %>%
+  select(matches("specimenName|24_C2|48_C2")) %>%
+  rename(feature = specimenName) %>%
+  filter(str_detect(feature, "_")) %>%
+  mutate(across(-feature, as.numeric)) %>%
+  pivot_longer(cols = matches("_C2_")) %>%
+  mutate(condition = str_remove(name, "_C2_.$")) %>%
+    mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
+         condition = str_replace(condition, "IFNG","IFNG+EGF"),
+         condition = str_replace(condition, "TGFB","TGFB+EGF")) %>%
+  group_by(feature, condition) %>%
+  summarise(value = mean(value)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = condition, values_from = value) %>%
+  select(feature, condition_order)
+
+if_dm <- if_df %>%
+  select(-feature) %>%
+  as.matrix()
+  rownames(if_dm) <- if_df$feature
+
+if_module_dm <- rbind(dm_mean, if_dm) %>%
+  t
+  
+cor_dm <- cor(if_module_dm)
+
+cor_hm <- Heatmap(cor_dm,
+                   name = "correlation ",
+                  row_names_gp = gpar(fontsize = 6),
+                  column_names_gp = gpar(fontsize = 6),)
+cor_hm
+
+if(create_pdfs) {
+  pdf("MDD_integrated_module_IF_correlations.pdf")
+  res <- print(cor_hm)
+  res <- dev.off()
+}
+
+
+#Reduce phenotype set
+if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|Normalized_First_Neighbor_Dist|G2S_Proportion|G2_Proportion|DNA2n_Proportion|Edu_Positive_Proportion")]
+cor_dm <- cor(if_module_dm_reduced)
+
+cor_hm <- Heatmap(cor_dm,
+                   name = "correlation",
+                  row_names_gp = gpar(fontsize = 12),
+                  column_names_gp = gpar(fontsize = 12),)
+cor_hm
+
+if(create_pdfs) {
+  pdf("MDD_integrated_module_IF_correlations_reduced.pdf")
+  res <- print(cor_hm)
   res <- dev.off()
 }
 
@@ -390,7 +441,6 @@ if(create_pdfs) {
 
 
 ### cluster analysis
-
 
 
 ```{r featureTypes, fig.width=8, fig.height=4}
@@ -407,8 +457,7 @@ p <- ggplot(df, aes(x = Type, fill = Type)) +
   labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the MDD integrated dataset"),
        x ="Feature type") +
   theme_bw()+
-  theme(#axis.title = element_blank(),
-    axis.text.x =  element_text(angle = 90),
+  theme(axis.text.x =  element_text(angle = 90),
     axis.ticks = element_blank(),
     panel.border = element_blank(),
     panel.grid.major = element_blank(),
@@ -424,8 +473,7 @@ p_log <- ggplot(df, aes(x = Type, fill = Type)) +
   labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the MDD integrated dataset"),
        x ="Feature type") +
   theme_bw()+
-  theme(#axis.title = element_blank(),
-    axis.text.x =  element_text(angle = 90),
+  theme(axis.text.x =  element_text(angle = 90),
     axis.ticks = element_blank(),
     panel.border = element_blank(),
     panel.grid.major = element_blank(),
@@ -445,9 +493,7 @@ if(create_pdfs){
 ```
 
 
-```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
-#implement gap statistic analysis
-
+```{r gapStatistics, fig.width=4, fig.height=4, eval = FALSE}
 
 plot_gap_custom <- function(x) {
   gstab = data.frame(x$Tab, k = seq_len(nrow(x$Tab)))
@@ -460,8 +506,6 @@ plot_gap_custom <- function(x) {
      theme_bw()+
   theme(axis.ticks = element_blank(),
         panel.border = element_blank(),
-       # panel.grid.major = element_blank(),
-        #panel.grid.minor = element_blank(),
         axis.line =element_blank())
   return(p)
 }
@@ -504,11 +548,9 @@ if(create_pdfs){
 # }
 ```
 
-```{r assayClusterdistribution, fig.width=8, fig.height=4, eval = FALSE}
+```{r assayClusterdistribution, fig.width=8, fig.height=4, eval = TRUE}
 
-
-
-p <- ggplot(hm_data, aes(x = as.factor(Cluster), fill = Type)) +
+p <- ggplot(integrated_T0_DE, aes(x = as.factor(Cluster), fill = Type)) +
   geom_bar(position = "dodge") +  
   scale_fill_manual(values = assay_cols) +
   labs(x = "Cluster",
