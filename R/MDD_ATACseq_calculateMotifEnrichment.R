@@ -6,6 +6,7 @@ library(chromVARmotifs)
 library(Matrix)
 library(SummarizedExperiment)
 library(BSgenome.Hsapiens.UCSC.hg38)
+library(biomaRt)
 
 set.seed(2019)
 
@@ -39,14 +40,19 @@ mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
                 dataset = "hsapiens_gene_ensembl")
 
 annoTable <-
-  getBM(attributes = c("ensembl_gene_id", "hgnc_symbol",
+  getBM(attributes = c("ensembl_gene_id", 
+                       "hgnc_symbol",
                        "uniprot_gn_id"),
         mart = mart)
 
 ##############################################################################
 # Calculating motif scores
-motifScores <- calculateMotifScores(dob.counts, motifs, sampleAnno) %>% 
-  data.frame %>% 
+motifScores <- calculateMotifScores(dob.counts, 
+                                    motifs, sampleAnno, expect = FALSE)
+
+motifScores <- 
+  motifScores %>%  
+  data.frame %>%
   rownames_to_column("motif")
 
 ##############################################################################
@@ -108,13 +114,7 @@ motif_families <-
   pivot_wider(names_from = specimenID,
               values_from = motifEnrichment)
 
-motif_families <- motif_families[, c("family", sampleAnno %>% filter(ATACseq_QCpass) %>% pull(specimenID))]
-
+motif_families <- motif_families[, 
+                                 c("family", sampleAnno %>% filter(ATACseq_QCpass) %>% pull(specimenID))]
 write_csv(motif_families, path = motifFamilies_out)
 
-##########
-
-# apply(column_to_rownames(motifScores, "motif"), 1, function(x) {X <- var(x)^(1/2); X}) %>% 
-#   summary
-# apply(column_to_rownames(motif_families, "family"), 1, function(x) {X <- var(x)^(1/2); X}) %>%
-  # summary
