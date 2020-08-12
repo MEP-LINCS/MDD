@@ -17,7 +17,7 @@ RPPAlevel3File <- "../RPPA/Data/MDD_RPPA_Level3.csv"
 RPPAannoFile <- "../Metadata/MDD_sample_annotations.csv"
 antibodyFile   <- "../RPPA/Metadata/MDD_RPPA_antibodyAnnotations.csv"
 
-logFC_threshold <- 0.25
+logFC_threshold <- 0.5
 pval_threshold  <- 0.01
 
 outDirPlots <- "../plots/RPPA_limma"
@@ -50,10 +50,34 @@ design <- model.matrix(~experimentalCondition, RPPA.meta)
 RPPA.mat <- RPPA.mat[aTrppa %>% pull(antibody), ]
 
 lm <- lmFit(RPPA.mat, design)
-# lm <- eBayes(lm)
-lm <- treat(lm, lfc = logFC_threshold)
+lm <- eBayes(lm)
+# lm <- treat(lm, lfc = logFC_threshold)
 
-res <- decideTests(lm, p.value = pval_threshold)
+res <- decideTests(lm, p.value = pval_threshold, lfc = logFC_threshold)
+
+resFullLFC <- 
+  lm$coefficients %>% 
+  data.frame %>% 
+  rownames_to_column("antibody") %>% 
+  dplyr::select(-contains("intercept")) %>% 
+  pivot_longer(-antibody, names_to = "experimentalCondition", values_to = "coefficient") %>% 
+  mutate(experimentalCondition = str_remove(experimentalCondition, "experimentalCondition"))
+
+resFullPval <- 
+  lm$p.value %>% 
+  data.frame %>% 
+  rownames_to_column("antibody") %>% 
+  dplyr::select(-contains("intercept")) %>% 
+  pivot_longer(-antibody, names_to = "experimentalCondition", values_to = "pvalue") %>% 
+  mutate(experimentalCondition = str_remove(experimentalCondition, "experimentalCondition")) %>% 
+  group_by(experimentalCondition) %>% 
+  mutate(adjusted_pvalue = p.adjust(pvalue, method = "BH"))
+
+RPPA_resultsTW <-
+  resFullPval %>% 
+  left_join(resFullLFC) %>% 
+  dplyr::select(antibody, experimentalCondition, coefficient, contains("pvalue")) %>% 
+  arrange(experimentalCondition, antibody)
 
 # resTP <- data.matrix(res)
 # 
@@ -69,5 +93,7 @@ res <- decideTests(lm, p.value = pval_threshold)
 
 dir.create(outDirData)
 
-write_csv(rownames_to_column(data.frame(res[, -1]), "antibody"), path = sprintf("%s/MDD_RPPA_significantAntibodies.csv", outDirData))
-save(res, file = sprintf("%s/MDD_RPPA_limmaResults.Rdata", outDirData))
+# write_csv(rownames_to_column(data.frame(res[, -1]), "antibody"), path = sprintf("%s/MDD_RPPA_significantAntibodies.csv", outDirData))
+# save(res, file = sprintf("%s/MDD_RPPA_limmaResults.Rdata", outDirData))
+
+write_csv(RPPA_resultsTW, path = sprintf("%s/MDD_RPPA_limma_logFCTable.csv", outDirData))
