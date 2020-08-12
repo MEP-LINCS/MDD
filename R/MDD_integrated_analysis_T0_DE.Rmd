@@ -24,6 +24,7 @@ write_csvs <- FALSE
 
 ```{r setup_parameters_and_metadata}
 data_path <- "../integrated_analysis/integrated_matrix_lfc_values.csv"
+p_values_path <- "../integrated_analysis/integrated_adj_p_values.csv"
 
 clust_num <- 11
 cluster_method <- "kmeans"
@@ -46,7 +47,7 @@ ligand_cols <- c("CTRL" = "#7A4A2A",
 
 #Read in the integrated data, add EGF to some names, set order
 if(!file.exists(data_path)) stop("cannot read ",data_path)
-integrated_T0_DE <- read_csv(data_path) %>%
+integrated_T0_DE_all <- read_csv(data_path) %>%
   pivot_longer(cols = matches("_24|_48"), names_to = "condition") %>%
   mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
          condition = str_replace(condition, "IFNG","IFNG+EGF"),
@@ -54,6 +55,39 @@ integrated_T0_DE <- read_csv(data_path) %>%
   pivot_wider(names_from = condition) %>%
   select(feature, Type, all_of(condition_order)) %>%
   drop_na
+
+#Read in adjusted p values and use to filter
+adj_p_value_threshold <- .01
+evaluate_p_values <- function(x){
+  any(x <= adj_p_value_threshold)
+}
+integrated_adj_p_values <- read_csv(p_values_path,
+                                    col_types = cols(
+                                      Type = col_character(),
+                                      feature = col_character(),
+                                      PBS_24 = col_double(),
+                                      PBS_48 = col_double(),
+                                      BMP2_24 = col_double(),
+                                      BMP2_48 = col_double(),
+                                      IFNG_24 = col_double(),
+                                      IFNG_48 = col_double(),
+                                      TGFB_24 = col_double(),
+                                      TGFB_48 = col_double(),
+                                      HGF_24 = col_double(),
+                                      HGF_48 = col_double(),
+                                      OSM_24 = col_double(),
+                                      OSM_48 = col_double(),
+                                      EGF_24 = col_double(),
+                                      EGF_48 = col_double()
+                                    )) %>%
+  drop_na() %>%
+  rowwise() %>%
+  filter(evaluate_p_values(c_across(PBS_24:EGF_48)))
+
+         
+#Filter data to significant values based on adjusted p values
+integrated_T0_DE <- integrated_T0_DE_all %>%
+  filter(Type == "motifs"|paste0(feature, Type) %in% paste0(integrated_adj_p_values$feature, integrated_adj_p_values$Type))
 
 #setup for common cluster and assay colors
 cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)],
