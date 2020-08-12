@@ -25,10 +25,10 @@ write_csv(T0_DE_integrated, paste0("../integrated_analysis/integrated_matrix_",o
 
 output_type =  "adj_p_values"
 assays_with_p_values <- c("cycIF","GCP", "RNAseq", "RPPA")
-T0_DE_integrated <- map(assays_with_p_values, read_assay_values, output_type) %>%
+T0_DE_integrated_p_values <- map(assays_with_p_values, read_assay_values, output_type) %>%
   bind_rows(.id = "Type") %>%
-  mutate(Type = assays[as.integer(Type)]) %>%
+  mutate(Type = assays_with_p_values[as.integer(Type)]) %>%
   mutate(across(where(is.numeric), signif, digits = 4))
 
-write_csv(T0_DE_integrated, paste0("../integrated_analysis/integrated_",output_type,".csv"))
+write_csv(T0_DE_integrated_p_values, paste0("../integrated_analysis/integrated_",output_type,".csv"))
 
