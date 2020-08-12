@@ -224,7 +224,7 @@ combined_analysis <- lapply(assays, function(assay){
     
     pdf(sprintf("%s/%s_int_values_z_hist.pdf", outDirPlots, assay), height = 12, width = 16)
     df <- lfc_values_z %>%
-      as.tibble() %>%
+      as_tibble() %>%
       pivot_longer(cols = matches("_24|_48"))
     p <- ggplot(df, aes(x = value)) +
       geom_histogram(bins = 300) +
@@ -237,7 +237,7 @@ combined_analysis <- lapply(assays, function(assay){
     
     pdf(sprintf("%s/%s_int_values_hist.pdf", outDirPlots, assay), height = 12, width = 16)
     df <- lfc_values %>%
-      as.tibble() %>%
+      as_tibble() %>%
       pivot_longer(cols = matches("_24|_48"))
     p <- ggplot(df, aes(x = value)) +
       geom_histogram(bins = 300) +
