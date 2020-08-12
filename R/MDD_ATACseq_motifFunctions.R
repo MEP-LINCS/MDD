@@ -1,5 +1,6 @@
 calculateMotifScores <- function(countsDob, referenceMotifs, colData, 
                                  returnZ = FALSE,
+                                 returnObject = FALSE,
                                  expect = TRUE) {
   
   atacseqCounts <- 
@@ -37,13 +38,19 @@ calculateMotifScores <- function(countsDob, referenceMotifs, colData,
   }
   
   if(!returnZ) {
+    # getting raw scores of deviations
     motifScores <- deviations(motifDev)
   } else {
+    # getting z-scores of deviations
     motifScores <- deviationScores(motifDev)
   }
   
-  # getting raw scores of deviations
-  return(motifScores)
+  if(!returnObject) {
+    return(motifScores)
+  } else {
+    return(list("object" = motifDev, 
+                "scores" = motifScores))
+  }
 }
 
 collapseReps <- function(x, sA) {

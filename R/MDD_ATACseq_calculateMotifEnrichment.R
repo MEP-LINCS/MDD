@@ -16,10 +16,13 @@ RNAfile <- "../RNAseq/Data/MDD_RNAseq_Level3.csv"
 
 # out
 motifFamilies_out <- "../ATACseq/Data/motif/MDD_ATACseq_MotifFamilyScores.csv"
+motifFamilies_out_L4 <- "../ATACseq/Data/motif/MDD_ATACseq_MotifFamilyScores_summarized.csv"
 motifScores_out   <- "../ATACseq/Data/motif/MDD_ATACseq_MotifScores.csv"
 motifAnno_out     <- "../ATACseq/Data/motif/MDD_ATACseq_MotifAnno_orig.csv"
 
 ###############################################################################
+if( str_extract(getwd(), "[:alnum:]+$") != "R" ) {setwd("R")}
+
 source("MDD_ATACseq_motifFunctions.R")
 ###############################################################################
 # Loading ATACseq data
@@ -37,7 +40,7 @@ sampleAnno <-
 
 # annotation table to map uniprot ids to ensembl gene ids/hugo symbols
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
-                dataset = "hsapiens_gene_ensembl")
+                dataset = "hsapiens_gene_ensembl", host = "uswest.ensembl.org")
 
 annoTable <-
   getBM(attributes = c("ensembl_gene_id", 
@@ -47,8 +50,11 @@ annoTable <-
 
 ##############################################################################
 # Calculating motif scores
-motifScores <- calculateMotifScores(dob.counts, 
-                                    motifs, sampleAnno, expect = FALSE)
+motifScoresObject <- calculateMotifScores(dob.counts, 
+                                    motifs, sampleAnno, expect = FALSE,
+                                    returnZ = TRUE, returnObject = TRUE)
+
+motifScores <- motifScoresObject$scores
 
 motifScores <- 
   motifScores %>%  
@@ -118,3 +124,13 @@ motif_families <- motif_families[,
                                  c("family", sampleAnno %>% filter(ATACseq_QCpass) %>% pull(specimenID))]
 write_csv(motif_families, path = motifFamilies_out)
 
+# Summarizing to experimental conditions
+
+motif_families %>% 
+  pivot_longer(-family, names_to = "specimenID", values_to = "motifEnrichment") %>% 
+  left_join(sampleAnno) %>% 
+  group_by(family, experimentalCondition) %>% 
+  summarize(meanEnrichment = mean(motifEnrichment)) %>% 
+  pivot_wider(names_from = experimentalCondition, values_from = meanEnrichment) %>% 
+  write_csv(path = motifFamilies_out_L4)
+  
