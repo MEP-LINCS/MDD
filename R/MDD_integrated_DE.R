@@ -37,7 +37,7 @@ get_assay_values <- function(assay){
       lfcSE = col_double(),
       pvalue = col_double(),
       padj = col_double()
-    ))
+    )) 
     meta <- NULL
   } else if(assay == "RPPA"){
     mat <- read_csv(level3File,
@@ -57,7 +57,7 @@ get_assay_values <- function(assay){
     mat_raw <- read.table(level3File,
                           header = TRUE,
                           sep = ",",
-                          row.names = 1)
+                          row.names = 1) 
     row_sd <- apply(mat_raw, 1, sd, na.rm = TRUE)
     
     mat <- mat_raw[complete.cases(mat_raw) &!row_sd == 0,]
@@ -72,13 +72,17 @@ get_assay_values <- function(assay){
   }
   
   if(assay == "cycIF"){
-    mat <- mat[!str_detect(rownames(mat),"_med_|dna.*cytoplasm|laws|nucrin|centcyto|plasmem|none"),]
+    mat <- mat[!str_detect(rownames(mat),"_med_|dna.*cytoplasm|laws|nucrin|centcyto|plasmem|none|_txt_ent"),]
     mat <- log2(mat+.0001)
   }
   
   if(!assay %in% c("RNAseq", "RPPA"))  mat <- mat %>%
     dplyr::select(all_of(unique(meta$specimenID)))
   
+  #delete all PBS values
+  
+  #rrscale each assay
+  #mat <- rrscale::rrscale(mat, zeros = 0.001, z = Inf)$RR
   return(list(mat = mat, meta = meta))
 }
 
@@ -112,18 +116,20 @@ combined_analysis <- lapply(assays, function(assay){
       group_by(feature, experimentalCondition) %>%
       summarise(value = mean(value), .groups = "drop") %>%
       pivot_wider(names_from = experimentalCondition, values_from = value)
-    
-    pdf(sprintf("%s/%s_int_values_hist.pdf", outDirPlots, assay), height = 12, width = 16)
-    df <- lfc_values %>%
-      as_tibble() %>%
-      pivot_longer(cols = where(is.numeric))
-    p <- ggplot(df, aes(x = value)) +
-      geom_histogram(bins = 300) +
-      #coord_cartesian(xlim = c(-6,6)) +
-      labs(title = sprintf("%s deviation z scores histogram", assay)) +
-      theme_bw()
-    print(p)
-    dev.off()
+  
+    # lfc_values <- lfc_values %>%
+    #       mutate(across(where(is.numeric), zscale))
+    # pdf(sprintf("%s/%s_int_values_hist.pdf", outDirPlots, assay), height = 12, width = 16)
+    # df <- lfc_values %>%
+    #   as_tibble() %>%
+    #   pivot_longer(cols = where(is.numeric))
+    # p <- ggplot(df, aes(x = value)) +
+    #   geom_histogram(bins = 300) +
+    #   #coord_cartesian(xlim = c(-6,6)) +
+    #   labs(title = sprintf("%s deviation z scores histogram", assay)) +
+    #   theme_bw()
+    # print(p)
+    # dev.off()
     
   } else if (assay == "RNAseq"){
     lfc_values <- assay_values$mat %>%
@@ -140,15 +146,15 @@ combined_analysis <- lapply(assays, function(assay){
       #drop_na() %>%
       rename(feature = hgnc_symbol)
     
-    lfc_mean <- lfc_values[,-1] %>%
-      unlist() %>%
-      mean
-    
-    lfc_sd <- lfc_values[,-1] %>%
-      unlist() %>%
-      sd
-    
-    lfc_values_z <- (lfc_values[,-1]-lfc_mean)/lfc_sd
+    # lfc_mean <- lfc_values[,-1] %>%
+    #   unlist() %>%
+    #   mean
+    # 
+    # lfc_sd <- lfc_values[,-1] %>%
+    #   unlist() %>%
+    #   sd
+    # 
+    # lfc_values_z <- (lfc_values[,-1]-lfc_mean)/lfc_sd
   } else if (assay == "RPPA"){
     lfc_values <- assay_values$mat %>%
       dplyr::select(experimentalCondition, antibody, coefficient) %>%
@@ -161,16 +167,16 @@ combined_analysis <- lapply(assays, function(assay){
       pivot_wider(names_from = experimentalCondition, values_from = adjusted_pvalue) %>%
       #drop_na() %>%
       rename(feature = antibody)
-    
-    lfc_mean <- lfc_values[,-1] %>%
-      unlist() %>%
-      mean
-    
-    lfc_sd <- lfc_values[,-1] %>%
-      unlist() %>%
-      sd
-    
-    lfc_values_z <- (lfc_values[,-1]-lfc_mean)/lfc_sd
+    # 
+    # lfc_mean <- lfc_values[,-1] %>%
+    #   unlist() %>%
+    #   mean
+    # 
+    # lfc_sd <- lfc_values[,-1] %>%
+    #   unlist() %>%
+    #   sd
+    # 
+    # lfc_values_z <- (lfc_values[,-1]-lfc_mean)/lfc_sd
   } else {
     design <- model.matrix(~experimentalCondition, assay_values$meta)
     
@@ -181,6 +187,7 @@ combined_analysis <- lapply(assays, function(assay){
         rownames_to_column("feature")
       return(adj_p_values)
     })
+    
     adjusted_p_values_df <- bind_rows(adj_p_value_list, .id = "condition") %>%
       mutate(condition = colnames(lm$coefficients)[as.integer(condition)],
              condition = str_remove(condition, "experimentalCondition")) %>%
@@ -192,74 +199,78 @@ combined_analysis <- lapply(assays, function(assay){
       rownames_to_column(var = "feature") %>%
       select(matches("experimentalCondition|feature")) %>%
       rename_with(~gsub("experimentalCondition", "", .x, fixed = TRUE))
-    
-    lfc_mean <- lfc_values[,-1] %>%
-      unlist() %>%
-      mean
-    
-    lfc_sd <- lfc_values[,-1] %>%
-      unlist() %>%
-      sd
-    
-    lfc_values_z <- (lfc_values[,-1]-lfc_mean)/lfc_sd
+    # 
     
   }
+  
+  #filter to eliminate low variance genes
+  if(assay == "RNAseq"){
+    lfc_values <-lfc_values %>%
+      rowwise() %>%
+      mutate(variance = var(c_across(PBS_24:EGF_48))) %>%
+      filter(variance >= .1)
+  }
+  
+  rrscale_lfc_values <- function(x){
+    x_numeric <- x %>%
+      select(where(is.numeric))
+      
+    x_numeric_rr <- rrscale::rrscale(x_numeric, z = Inf, zeros = .001)[["RR"]]
+    x_rr <- bind_cols(feature = x$feature, x_numeric_rr)
+    return(x_rr)
+  }
+  lfc_values_rr <-lfc_values %>%
+    select(-matches("PBS|variance")) %>%
+             rrscale_lfc_values()
   
   write.csv(lfc_values, sprintf("%s/%s_int_lfc_values.csv", outDirData, assay))
-  #write.csv(lfc_values_z, sprintf("%s/%s_DE_lfc_z_scores.csv", outDirData, assay))
-  if(!assay %in% c("motifs", "RNAseq", "RPPA")) {
+  write.csv(lfc_values_rr, sprintf("%s/%s_int_lfc_rr_noPBS.csv", outDirData, assay))
+  if(!assay %in% c("motifs")) {
     write_csv(adjusted_p_values_df, sprintf("%s/%s_int_adj_p_values.csv", outDirData, assay))
-    
-    show_row_names <- FALSE
-    if(nrow(assay_values[['mat']]) < 100) show_row_names <- TRUE
-    pdf(sprintf("%s/%s_input_values_hist.pdf", outDirPlots, assay), height = 12, width = 16)
-    df <- assay_values[['mat']] %>%
-      pivot_longer(cols = matches("sid"))
-    p <- ggplot(df, aes(x = value)) +
-      geom_histogram(bins = 300) +
-      labs(title = sprintf("%s input values histogram", assay)) +
-      theme_bw()
-    print(p)
-    dev.off()
-    
-    pdf(sprintf("%s/%s_int_values_z_hist.pdf", outDirPlots, assay), height = 12, width = 16)
-    df <- lfc_values_z %>%
-      as_tibble() %>%
-      pivot_longer(cols = matches("_24|_48"))
-    p <- ggplot(df, aes(x = value)) +
-      geom_histogram(bins = 300) +
-      coord_cartesian(xlim = c(-5,5)) +
-      labs(title = sprintf("%s integrated Z scores histogram", assay)) +
-      theme_bw()
-    print(p)
-    dev.off()
-    
-    
-    pdf(sprintf("%s/%s_int_values_hist.pdf", outDirPlots, assay), height = 12, width = 16)
-    df <- lfc_values %>%
-      as_tibble() %>%
-      pivot_longer(cols = matches("_24|_48"))
-    p <- ggplot(df, aes(x = value)) +
-      geom_histogram(bins = 300) +
-      coord_cartesian(xlim = c(-6,6)) +
-      labs(title = sprintf("%s integrated values histogram", assay)) +
-      theme_bw()
-    print(p)
-    dev.off()
-    
-  } else {
-    pdf(sprintf("%s/%s_int_values_hist.pdf", outDirPlots, assay), height = 12, width = 16)
-    df <- lfc_values %>%
-      as_tibble() %>%
-      pivot_longer(cols = where(is.numeric))
-    p <- ggplot(df, aes(x = value)) +
-      geom_histogram(bins = 300) +
-      #coord_cartesian(xlim = c(-6,6)) +
-      labs(title = sprintf("%s input values histogram", assay)) +
-      theme_bw()
-    print(p)
-    dev.off()
   }
+  show_row_names <- FALSE
+  if(nrow(assay_values[['mat']]) < 100) show_row_names <- TRUE
+  pdf(sprintf("%s/%s_values_hist.pdf", outDirPlots, assay), height = 12, width = 16)
+  df <- assay_values[['mat']] %>%
+    pivot_longer(cols = matches("sid|log2FoldChange|coefficient"))
+  p <- ggplot(df, aes(x = value)) +
+    geom_histogram(bins = 300) +
+    labs(title = sprintf("%s histograms", assay)) +
+    theme_bw()
+  print(p)
   
+  # pdf(sprintf("%s/%s_int_values_z_hist.pdf", outDirPlots, assay), height = 12, width = 16)
+  # df <- lfc_values_z %>%
+  #   as_tibble() %>%
+  #   pivot_longer(cols = matches("_24|_48"))
+  # p <- ggplot(df, aes(x = value)) +
+  #   geom_histogram(bins = 300) +
+  #   coord_cartesian(xlim = c(-5,5)) +
+  #   labs(title = sprintf("%s integrated Z scores histogram", assay)) +
+  #   theme_bw()
+  # print(p)
+  # dev.off()
+  
+  df <- lfc_values %>%
+    as_tibble() %>%
+    pivot_longer(cols = matches("_24|_48"))
+  p <- ggplot(df, aes(x = value)) +
+    geom_histogram(bins = 300) +
+    coord_cartesian(xlim = c(-6,6)) +
+    labs(title = sprintf("%s integrated values histogram", assay)) +
+    theme_bw()
+  print(p)
+  
+  df <- lfc_values_rr %>%
+    as_tibble() %>%
+    pivot_longer(cols = matches("_24|_48"))
+  p <- ggplot(df, aes(x = value)) +
+    geom_histogram(bins = 300) +
+    coord_cartesian(xlim = c(-6,6)) +
+    labs(title = sprintf("%s integrated rr histogram", assay)) +
+    theme_bw()
+  print(p)
+  
+  dev.off()
 })
 
