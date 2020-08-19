@@ -3,18 +3,18 @@
 library(tidyverse)
 
 assays <- c("cycIF","GCP",  "motifs", "RNAseq", "RPPA")
-read_assay_values <- function(x, output_type = "lfc_values"){
+read_assay_values <- function(x, output_type = "lfc_rr_noPBS"){
   #browser()
   if(x == "motifs"){
     data_type = "ATACseq"
   } else {
     data_type = x
   }
-  foo <- paste0("../", data_type, "/Data/IntegratedResults/",x,"_int_",output_type,".csv") %>% 
+  int_data <- paste0("../", data_type, "/Data/IntegratedResults/",x,"_int_",output_type,".csv") %>% 
     read_csv
 }
 
-output_type =  "lfc_values"
+output_type =  "lfc_rr_noPBS"
 T0_DE_integrated <- map(assays, read_assay_values, output_type) %>%
   bind_rows(.id = "Type") %>%
   dplyr::select(-X1) %>%
