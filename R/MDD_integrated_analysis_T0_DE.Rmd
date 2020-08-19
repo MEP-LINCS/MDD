@@ -1,5 +1,5 @@
 ---
-title: "MDD integrated data analysis by condition"
+title: "MDD integrated data analysis by condition using z scores and PAM clustering"
 output: html_document
 ---
 
@@ -16,18 +16,20 @@ library(writexl)
 
 source("../R/MDD_functions.R")
 create_pdfs <- FALSE
-write_csvs <- FALSE
+write_csvs <- TRUE
 
 ```
 
 
 
 ```{r setup_parameters_and_metadata}
-data_path <- "../integrated_analysis/integrated_matrix_lfc_values.csv"
+data_path <- "../integrated_analysis/integrated_matrix_lfc_rr.csv"
 p_values_path <- "../integrated_analysis/integrated_adj_p_values.csv"
+shared_features_path <- "../integrated_analysis/integrated_shared_features.csv"
+unique_features_path <- "../integrated_analysis/integrated_unique_features.csv"
 
-clust_num <- 11
-cluster_method <- "kmeans"
+clust_num <- 9
+cluster_method <- "pam"
 
 experimentalTimePoints <- c("_24", "_48")
 ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
@@ -52,71 +54,96 @@ integrated_T0_DE_all <- read_csv(data_path) %>%
   mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
          condition = str_replace(condition, "IFNG","IFNG+EGF"),
          condition = str_replace(condition, "TGFB","TGFB+EGF")) %>%
-  pivot_wider(names_from = condition) %>%
+  pivot_wider(names_from = condition, values_from = value) %>%
   select(feature, Type, all_of(condition_order)) %>%
   drop_na
 
-#Read in adjusted p values and use to filter
-adj_p_value_threshold <- .01
-evaluate_p_values <- function(x){
-  any(x <= adj_p_value_threshold)
-}
-integrated_adj_p_values <- read_csv(p_values_path,
-                                    col_types = cols(
-                                      Type = col_character(),
-                                      feature = col_character(),
-                                      PBS_24 = col_double(),
-                                      PBS_48 = col_double(),
-                                      BMP2_24 = col_double(),
-                                      BMP2_48 = col_double(),
-                                      IFNG_24 = col_double(),
-                                      IFNG_48 = col_double(),
-                                      TGFB_24 = col_double(),
-                                      TGFB_48 = col_double(),
-                                      HGF_24 = col_double(),
-                                      HGF_48 = col_double(),
-                                      OSM_24 = col_double(),
-                                      OSM_48 = col_double(),
-                                      EGF_24 = col_double(),
-                                      EGF_48 = col_double()
-                                    )) %>%
-  drop_na() %>%
-  rowwise() %>%
-  filter(evaluate_p_values(c_across(PBS_24:EGF_48)))
+#Read in the integrated data, add EGF to some names, set order
+if(!file.exists(unique_features_path)) stop("cannot read ",unique_features_path)
+integrated_unique <- read_csv(unique_features_path) %>%
+  mutate(ligand = str_replace(ligand, "BMP2","BMP2+EGF"),
+         ligand = str_replace(ligand, "IFNG","IFNG+EGF"),
+         ligand = str_replace(ligand, "TGFB","TGFB+EGF")) %>%
+  select(ligand, Type, feature) %>%
+  left_join(integrated_T0_DE_all, by = c("feature" = "feature", "Type" = "Type" )) %>%
+  rename(Cluster = ligand) %>%
+  drop_na
 
-         
-#Filter data to significant values based on adjusted p values
-integrated_T0_DE <- integrated_T0_DE_all %>%
-  filter(Type == "motifs"|paste0(feature, Type) %in% paste0(integrated_adj_p_values$feature, integrated_adj_p_values$Type))
+#Read in the integrated data, add EGF to some names, set order
+if(!file.exists(shared_features_path)) stop("cannot read ",shared_features_path)
+integrated_shared <- read_csv(shared_features_path) %>%
+  mutate(ligand = str_replace(ligand, "BMP2","BMP2+EGF"),
+         ligand = str_replace(ligand, "IFNG","IFNG+EGF"),
+         ligand = str_replace(ligand, "TGFB","TGFB+EGF")) %>%
+  select(Type, feature) %>%
+  distinct() %>%
+  left_join(integrated_T0_DE_all, by = c("feature" = "feature", "Type" = "Type" ))  %>%
+  drop_na
+
+# #Read in adjusted p values and use to filter
+# adj_p_value_threshold <- .01
+# evaluate_p_values <- function(x){
+#   any(x <= adj_p_value_threshold)
+# }
+# integrated_adj_p_values <- read_csv(p_values_path,
+#                                     col_types = cols(
+#                                       Type = col_character(),
+#                                       feature = col_character(),
+#                                       PBS_24 = col_double(),
+#                                       PBS_48 = col_double(),
+#                                       BMP2_24 = col_double(),
+#                                       BMP2_48 = col_double(),
+#                                       IFNG_24 = col_double(),
+#                                       IFNG_48 = col_double(),
+#                                       TGFB_24 = col_double(),
+#                                       TGFB_48 = col_double(),
+#                                       HGF_24 = col_double(),
+#                                       HGF_48 = col_double(),
+#                                       OSM_24 = col_double(),
+#                                       OSM_48 = col_double(),
+#                                       EGF_24 = col_double(),
+#                                       EGF_48 = col_double()
+#                                     )) %>%
+#   drop_na() %>%
+#   rowwise() %>%
+#   filter(evaluate_p_values(c_across(PBS_24:EGF_48)))
 
 #setup for common cluster and assay colors
 cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)],
                           names = 1:12), c("13" = "black", "14" = "gray"))
 
 assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1)],
-                        names = unique(integrated_T0_DE$Type))
+                        names = unique(integrated_shared$Type))
 
 #Create data and metadata matrices and annotations
 #k means cluster and order by cluster value
 
-int_T0_DE_matrix <- integrated_T0_DE %>%
+int_T0_DE_matrix <- integrated_shared %>%
   select(all_of(condition_order)) %>%
   as.matrix() 
 
-rownames(int_T0_DE_matrix) <- integrated_T0_DE$feature
+rownames(int_T0_DE_matrix) <- integrated_shared$feature
 int_T0_DE_matrix <- int_T0_DE_matrix[!is.nan(int_T0_DE_matrix[,1]),]
 
-#seed the kmeans clustering with a fixed, random set of points
+#cluster shared matrix
+if(cluster_method == "kmeans"){
+  #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
 centers <- int_T0_DE_matrix[sample(1:nrow(int_T0_DE_matrix), size = clust_num, replace = FALSE),]
 clusters <- kmeans(x = int_T0_DE_matrix, iter.max = 20, centers = centers)$cluster
+} else if(cluster_method == "HA") {
+  clust_obj <- hclust(dist(int_T0_DE_matrix))
+  clusters <- cutree(clust_obj, k = clust_num)
+} else if(cluster_method == "pam") {
+  clusters  <- pam(x = int_T0_DE_matrix, k = clust_num, cluster.only=TRUE)
+} else stop("unsupported cluster method chosen")
 
-integrated_T0_DE<-tibble(feature = names(clusters),
+integrated_shared<-tibble(feature = names(clusters),
                  Cluster = clusters) %>%
-  right_join(integrated_T0_DE, by = "feature") %>%
+  right_join(integrated_shared, by = "feature") %>%
   arrange(desc(Cluster))
 
-heatmap_ann <- integrated_T0_DE %>%
+heatmap_ann <- integrated_shared %>%
   select(Cluster, Type) %>%
   mutate(Cluster = factor(Cluster, levels = 1:clust_num, ordered = TRUE)) %>%
   as.data.frame()
@@ -133,19 +160,19 @@ haRow <- HeatmapAnnotation(df = heatmap_ann,
 
 ```{r heatmaps}
 
-dm <- integrated_T0_DE %>%
+dm <- integrated_shared %>%
     select(all_of(condition_order)) %>%
   as.matrix()
 
 hm <- Heatmap(dm,
-               name = "lfc ",
-               column_title = "Selected assay data, T0 DE",
+               name = "lfc rr",
+               column_title = "Shared features",
                column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+               col = colorRamp2(c(-4, 0, 4), c("#2166AC", "white", "#B2182B")),
                cluster_rows = FALSE,
                cluster_row_slices = TRUE, 
                cluster_columns = FALSE,
-               row_split = integrated_T0_DE$Cluster,
+               row_split = integrated_shared$Cluster,
                row_gap = unit(2, "mm"),
                row_title = " ",
                show_row_names = FALSE,
@@ -155,13 +182,13 @@ hm <- Heatmap(dm,
                use_raster = FALSE)
 hm
 if(create_pdfs){
-  pdf("MDD_integrated_T0_DE_heatmap_lfc_no_z_kmeans.pdf") 
+  pdf("MDD_integrated_rr_heatmap.pdf") 
   draw(hm)
   res <- dev.off()
 } 
 
 #Create a matrix and heatmap of the mean cluster values by condition
- integrated_T0_DE_mean <- integrated_T0_DE %>%
+ integrated_T0_DE_mean <- integrated_shared %>%
   group_by(Cluster) %>%
   summarise(across(.cols = matches("_24|48"), .fns = mean))
 
@@ -170,11 +197,11 @@ dm_mean <- integrated_T0_DE_mean %>%
   as.matrix()
 rownames(dm_mean) <- paste0("Module_",integrated_T0_DE_mean$Cluster)
 
-hm <- Heatmap(dm_mean,
+hm_mean <- Heatmap(dm_mean,
                name = "lfc ",
-               column_title = "T0 DE cluster averages",
+               column_title = "Shared cluster averages",
                column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+               col = colorRamp2(c(-4, 0, 4), c("#2166AC", "white", "#B2182B")),
                cluster_rows = FALSE,
                cluster_row_slices = FALSE, 
                cluster_columns = FALSE,
@@ -186,7 +213,64 @@ hm <- Heatmap(dm_mean,
                column_names_gp = gpar(fontsize = 10),
                 #left_annotation = haRow,
                use_raster = FALSE)
-hm
+
+
+#make a heatmap of the unique features
+#Create data and metadata matrices and annotations
+#k means cluster and order by cluster value
+
+int_T0_DE_matrix <- integrated_shared %>%
+  select(all_of(condition_order)) %>%
+  as.matrix() 
+
+rownames(int_T0_DE_matrix) <- integrated_shared$feature
+int_T0_DE_matrix <- int_T0_DE_matrix[!is.nan(int_T0_DE_matrix[,1]),]
+
+
+hm_unique_ann <- integrated_unique %>%
+  select(Cluster, Type) %>%
+  mutate(Cluster = factor(Cluster, ordered = TRUE)) %>%
+  as.data.frame()
+
+
+haRow_unique <- HeatmapAnnotation(df = hm_unique_ann,
+                                  which = "row",
+                                  col = list(Cluster = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols))
+
+dm_unique <- integrated_unique %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+
+hm_unique <- Heatmap(dm_unique,
+               name = "lfc rr",
+               column_title = "Ligand-unique features",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-4, 0, 4), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE, 
+               cluster_columns = FALSE,
+               row_split = integrated_unique$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = FALSE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_unique,
+               use_raster = FALSE)
+hm_unique
+
+hm_mean
+
+#create a mean matrix of the unique features
+ integrated_unique_mean <- integrated_unique %>%
+  group_by(Cluster) %>%
+  summarise(across(.cols = matches("_24|48"), .fns = mean))
+
+dm_unique_mean <- integrated_unique_mean %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(dm_unique_mean) <- paste0("Module_",integrated_unique_mean$Cluster)
 
 ```
 
@@ -208,14 +292,23 @@ selectDerivedFeature <- function(df){
 return(res)
 }
 
-module_features <- integrated_T0_DE %>%
+module_features <- integrated_shared %>%
   arrange(Cluster, Type) %>%
   mutate(Cluster = paste0("module_", Cluster),
          Cluster = factor(Cluster, levels = unique(Cluster))) %>%
   split(.$Cluster) 
 
 res <- write_xlsx(module_features,
-                  path = "MDD_int_T0_DE_tables.xlsx")
+                  path = "MDD_int_rr_shared_tables.xlsx")
+
+module_features <- integrated_unique %>%
+  arrange(Cluster, Type) %>%
+  mutate(Cluster = paste0("module_", Cluster),
+         Cluster = factor(Cluster, levels = unique(Cluster))) %>%
+  split(.$Cluster) 
+
+res <- write_xlsx(module_features,
+                  path = "MDD_int_rr_unique_tables.xlsx")
 ```
 
 
@@ -226,10 +319,10 @@ res <- write_xlsx(module_features,
 #Generate a 2d scatterplot of the UMAP dimensions and color by clusters, assay type
 
 #Create annotation values
-dm <- integrated_T0_DE %>%
+dm <- integrated_shared %>%
   dplyr::select(-feature, -Cluster, -Type) %>%
   as.matrix()
-rownames(dm) <- integrated_T0_DE$feature
+rownames(dm) <- integrated_shared$feature
 
 custom_settings = umap.defaults
 custom_settings$random_state <- 42
@@ -243,7 +336,7 @@ df_UMAP <- umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
   data.frame(feature = rownames(dm)) %>%
   rename(UMAP_1 = X1,
          UMAP_2 = X2) %>%
-  left_join(integrated_T0_DE, by = "feature") 
+  left_join(integrated_shared, by = "feature") 
 save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))
 }
 
@@ -256,7 +349,7 @@ if(plot_UMAP_3d){
     rename(UMAP_1 = X1,
            UMAP_2 = X2,
            UMAP_3 = X3) %>%
-    left_join(integrated_T0_DE, by = "feature")
+    left_join(integrated_shared, by = "feature")
   df_UMAP_3d$Cluster_color <- cluster_cols[df_UMAP_3d$Cluster]
   save(df_UMAP_3d, file = "MDD_UMAP_3d")
   
@@ -286,13 +379,13 @@ if(plot_UMAP_3d){
   p
   
   if(create_pdfs) {
-    pdf("MDD_ligands_umap_main.pdf")    
+    pdf("MDD_conditions_umap_main.pdf")    
     print(p)
     res <- dev.off()
   } 
 ```
 
-There are `r dim(dm)[1]` dots in the 2d UMAP that represent the significant differentially expressed features relative to T0 in the integrated matrix.  
+There are `r dim(dm)[1]` dots in the 2d UMAP that represent the significant differentially expressed features relative to T0 in the shared-features integrated matrix.  
 
 
 ```{r UMAPAnalysis2, fig.width=7.5, fig.height=4}
@@ -437,7 +530,7 @@ if_dm <- if_df %>%
   as.matrix()
   rownames(if_dm) <- if_df$feature
 
-if_module_dm <- rbind(dm_mean, if_dm) %>%
+if_module_dm <- rbind(dm_mean, dm_unique_mean, if_dm) %>%
   t
   
 cor_dm <- cor(if_module_dm)
@@ -479,7 +572,7 @@ if(create_pdfs) {
 
 ```{r featureTypes, fig.width=8, fig.height=4}
 #create a bar chart of the feature types
-df <- integrated_T0_DE %>%
+df <- integrated_shared %>%
   #drop_na() %>%
   select(feature, Type) %>%
   distinct()
@@ -488,7 +581,7 @@ p <- ggplot(df, aes(x = Type, fill = Type)) +
   geom_bar() +
   coord_cartesian(ylim = c(0, 10000)) +
   scale_fill_manual(values = assay_cols)+
-  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the MDD integrated dataset"),
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the shared-features MDD integrated dataset"),
        x ="Feature type") +
   theme_bw()+
   theme(axis.text.x =  element_text(angle = 90),
@@ -504,7 +597,7 @@ p_log <- ggplot(df, aes(x = Type, fill = Type)) +
   geom_bar() +
   scale_y_log10() +
   scale_fill_manual(values = assay_cols)+
-  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the MDD integrated dataset"),
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "shared features at unique timepoints in the MDD integrated dataset"),
        x ="Feature type") +
   theme_bw()+
   theme(axis.text.x =  element_text(angle = 90),
@@ -527,7 +620,7 @@ if(create_pdfs){
 ```
 
 
-```{r gapStatistics, fig.width=4, fig.height=4, eval = FALSE}
+```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
 
 plot_gap_custom <- function(x) {
   gstab = data.frame(x$Tab, k = seq_len(nrow(x$Tab)))
@@ -536,7 +629,7 @@ plot_gap_custom <- function(x) {
     geom_errorbar(aes(ymax = gap + SE.sim,
                       ymin = gap - SE.sim), width=0.1) +
     geom_point(size = .5, col=  "red") +
-    labs(title = paste("Gap analysis to determine cluster number,",cluster_method)) +
+    labs(title = paste("Gap analysis to determine shared-features cluster number,",cluster_method)) +
      theme_bw()+
   theme(axis.ticks = element_blank(),
         panel.border = element_blank(),
@@ -544,14 +637,17 @@ plot_gap_custom <- function(x) {
   return(p)
 }
 
-dm <- integrated_T0_DE %>%
+hclusCut <- function(x, k, d.meth = "euclidean", ...)
+   list(cluster = cutree(hclust(dist(x, method=d.meth), ...), k=k))
+
+dm <- integrated_shared %>%
     select(all_of(condition_order)) %>%
   as.matrix()
 
 if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))){
   load(paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))
 } else {
-  gss <- clusGap(dm, FUN = kmeans, K.max = 15, B = 100, verbose = FALSE)
+  gss <- clusGap(dm, FUN = pam, K.max = 15, B = 50, verbose = FALSE)
   save(gss, file = paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))
 }
 
@@ -563,7 +659,7 @@ if(create_pdfs){
   res <- dev.off()
 }
 # 
-# p <- ggplot(integrated_T0_DE, aes(x = as.factor(Cluster), fill = Type)) +
+# p <- ggplot(integrated_shared, aes(x = as.factor(Cluster), fill = Type)) +
 #   geom_bar() +
 #   scale_fill_manual(values = assay_cols)+
 #   labs(x = "Cluster",
@@ -584,7 +680,7 @@ if(create_pdfs){
 
 ```{r assayClusterdistribution, fig.width=8, fig.height=4, eval = TRUE}
 
-p <- ggplot(integrated_T0_DE, aes(x = as.factor(Cluster), fill = Type)) +
+p <- ggplot(integrated_shared, aes(x = as.factor(Cluster), fill = Type)) +
   geom_bar(position = "dodge") +  
   scale_fill_manual(values = assay_cols) +
   labs(x = "Cluster",
@@ -615,7 +711,7 @@ Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it t
 
 The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
 
-The first local maximum is k = 13. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value minus its standard error is less than this local maximum at 13.  
+The first local maximum is k = 3 and the second one is at 9. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value is less than the local maximum at 9 minus its standard error.  
 
 
 <bksp>
