@@ -32,7 +32,7 @@ p_values_path <- paste0("../integrated_analysis/integrated_adj_p_values", PBS_po
 shared_features_path <- paste0("../integrated_analysis/integrated_shared_features_rr", PBS_pointer, ".csv") 
 unique_features_path <- paste0("../integrated_analysis/integrated_unique_features_rr", PBS_pointer, ".csv") 
 
-clust_num <- 10
+clust_num <- 12
 cluster_method <- "pam"
 
 experimentalTimePoints <- c("_24", "_48")
@@ -81,13 +81,16 @@ all_features_data <- read_csv(data_path) %>%
 
 #Read in the integrated data, add EGF to some names, set order
 if(!file.exists(unique_features_path)) stop("cannot read ",unique_features_path)
-unique_features <- read_csv(unique_features_path)
+set.seed(42)
+unique_features <- read_csv(unique_features_path) %>%
+  slice_sample(prop = 1)
 unique_features_data <- unique_features%>%
   mutate(ligand = str_replace(ligand, "BMP2","BMP2+EGF"),
          ligand = str_replace(ligand, "IFNG","IFNG+EGF"),
          ligand = str_replace(ligand, "TGFB","TGFB+EGF"),
-         feature_type =  paste(feature, Type, sep = "_")) %>%
-  select(ligand, feature_type, Direction) %>%
+         feature_type =  paste(feature, Type, sep = "_"),
+         Set = ligand) %>%
+  select(ligand, feature_type, Direction, Set) %>%
   left_join(all_features_data, by = "feature_type") %>%
   rename(Cluster = ligand) %>%
   mutate(Cluster = paste(Cluster, Direction, sep = "_")) %>%
@@ -95,19 +98,23 @@ unique_features_data <- unique_features%>%
 
 #Read in the integrated data, add EGF to some names, set order
 if(!file.exists(shared_features_path)) stop("cannot read ",shared_features_path)
-shared_features <- read_csv(shared_features_path)
+set.seed(42)
+shared_features <- read_csv(shared_features_path) %>%
+  slice_sample(prop = 1)
 shared_features_data <- shared_features %>%
   mutate(ligand = str_replace(ligand, "BMP2","BMP2+EGF"),
          ligand = str_replace(ligand, "IFNG","IFNG+EGF"),
          ligand = str_replace(ligand, "TGFB","TGFB+EGF"),
-         feature_type =  paste(feature, Type, sep = "_")) %>%
-  select(feature_type) %>%
+         feature_type =  paste(feature, Type, sep = "_"),
+         Set = "shared") %>%
+  select(feature_type, Set) %>%
   distinct() %>%
   left_join(all_features_data, by = c("feature_type" ))  %>%
   drop_na
-
-set_features_data <- bind_rows(shared_features_data, select(unique_features_data, -Direction, -Cluster))
-assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(6, 2:3,5, 1)], names = unique(set_features_data$Type))
+set.seed(42)
+set_features_data <- bind_rows(shared_features_data, select(unique_features_data, -Direction, -Cluster)) %>%
+  slice_sample(prop = 1)
+assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(3, 2,6,5, 1)], names = unique(set_features_data$Type))
 
 ```
 ## {.tabset .tabset-fade}
@@ -125,39 +132,47 @@ set_features_dm <- set_features_dm[!is.nan(set_features_dm[,1]),]
 
 #cluster all features 
 if(cluster_method == "kmeans"){
-#seed the clustering with a fixed, random set of points
-set.seed(42)
-centers <- set_features_dm[sample(1:nrow(set_features_dm), size = clust_num, replace = FALSE),]
-clusters <- kmeans(x = set_features_dm, iter.max = 20, centers = centers)$cluster
+  #seed the clustering with a fixed, random set of points
+  set.seed(42)
+  centers <- set_features_dm[sample(1:nrow(set_features_dm), size = clust_num, replace = FALSE),]
+  clusters <- kmeans(x = set_features_dm, iter.max = 20, centers = centers)$cluster
 } else if(cluster_method == "HA") {
   clust_obj <- hclust(dist(set_features_dm))
   clusters <- cutree(clust_obj, k = clust_num)
 } else if(cluster_method == "pam") {
-  set.seed(42)
-medoids <- sample(1:nrow(set_features_dm), size = clust_num, replace = FALSE)
-  clusters  <- pam(x = set_features_dm, k = clust_num, medoids = medoids, cluster.only=TRUE)
+  
+  if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))){
+    load(paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))
+  } else {
+    set.seed(42)
+    medoids <- sample(1:nrow(set_features_dm), size = clust_num, replace = FALSE)
+    clusters  <- pam(x = set_features_dm, k = clust_num, medoids = medoids, cluster.only=TRUE)
+    save(clusters, file = paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))
+  }
+  
 } else stop("unsupported cluster method chosen")
 
 #Add the cluster assignements to the data
-set_features_data_ann <- set_features_ann <- tibble(feature_type = names(clusters),
+set_features_data_ann <-  tibble(feature_type = names(clusters),
                            Cluster = clusters) %>%
   right_join(set_features_data, by = "feature_type") %>%
     mutate(Cluster = factor(Cluster, ordered = TRUE))
 
 set_features_ann <- set_features_data_ann %>%
-  select(Cluster, Type) %>%
+  select(Cluster, Type, Set) %>%
   as.data.frame()
 
 haRow_set <- HeatmapAnnotation(df = set_features_ann,
                                which = "row",
                                col = list(Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE),
-                                          Type = assay_cols))
+                                          Type = assay_cols,
+                                          Set = c("shared" = "black", ligand_cols)))
 
 hm_set <- Heatmap(set_features_dm,
                name = "lfc rr",
                column_title = "Set features",
                column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
                cluster_rows = FALSE,
                cluster_row_slices = FALSE, 
                cluster_columns = FALSE,
@@ -246,12 +261,16 @@ if(create_pdfs){
   group_by(Cluster) %>%
   summarise(across(.cols = matches("_24|48"), .fns = mean))
 
+  shared_features_count <- shared_features_data_ann %>%
+  group_by(Cluster) %>%
+ count()
+  
 shared_features_data_mean_dm <- shared_features_data_mean %>%
   select(-Cluster) %>%
   as.matrix()
-rownames(shared_features_data_mean_dm) <- paste0("Module_",shared_features_data_mean$Cluster)
+rownames(shared_features_data_mean_dm) <- paste0("Module_",shared_features_data_mean$Cluster,"_", shared_features_count$n)
 
-hm_mean <- Heatmap(shared_features_data_mean_dm,
+hm_shared_mean <- Heatmap(shared_features_data_mean_dm,
                name = "lfc ",
                column_title = "Shared cluster averages",
                column_title_gp = gpar(fontsize = 12),
@@ -308,23 +327,51 @@ hm_unique <- Heatmap(unique_features_data_dm,
                use_raster = FALSE)
 hm_unique
 
-#hm_mean
-
 if(create_pdfs){
   pdf("MDD_integrated_rr_unique_heatmap.pdf") 
   draw(hm_unique)
   res <- dev.off()
 } 
 
-# #create a mean matrix of the unique features
-#  integrated_unique_mean <- integrated_unique %>%
-#   group_by(Cluster) %>%
-#   summarise(across(.cols = matches("_24|48"), .fns = mean))
-# 
-# dm_unique_mean <- integrated_unique_mean %>%
-#   select(-Cluster) %>%
-#   as.matrix()
-# rownames(dm_unique_mean) <- paste0("Module_",integrated_unique_mean$Cluster)
+
+# #Create a matrix and heatmap of the mean cluster values by condition
+ unique_features_data_mean <- unique_features_data_ann %>%
+  group_by(Cluster) %>%
+  summarise(across(.cols = matches("_24|48"), .fns = mean))
+
+  unique_features_count <- unique_features_data_ann %>%
+  group_by(Cluster) %>%
+    count()
+
+unique_features_data_mean_dm <- unique_features_data_mean %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(unique_features_data_mean_dm) <- paste0(unique_features_data_mean$Cluster, "_",unique_features_count$n)
+
+hm_unique_mean <- Heatmap(unique_features_data_mean_dm,
+               name = "lfc ",
+               column_title = "Unique cluster averages",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               use_raster = FALSE)
+
+hm_shared_mean
+hm_unique_mean
+
+if(create_pdfs){
+  pdf("MDD_mean_heatmaps.pdf") 
+  draw(hm_shared_mean)
+  draw(hm_unique_mean)
+  res <- dev.off()
+} 
 
 ```
 
@@ -345,6 +392,15 @@ selectDerivedFeature <- function(df){
     select(feature, FDR, Type)
 return(res)
 }
+
+module_features <- set_features_data_ann %>%
+  arrange(Cluster, Type) %>%
+  mutate(Cluster = paste0("module_", Cluster),
+         Cluster = factor(Cluster, levels = unique(Cluster))) %>%
+  split(.$Cluster) 
+
+res <- write_xlsx(module_features,
+                  path = "MDD_int_rr_set_tables.xlsx")
 
 module_features <- shared_features_data_ann %>%
   arrange(Cluster, Type) %>%
@@ -374,7 +430,7 @@ res <- write_xlsx(module_features,
 
 #Create annotation values
 dm <- shared_features_data_ann %>%
-  dplyr::select(-feature, -Cluster, -Type, -feature_type) %>%
+  dplyr::select(-feature, -Cluster, -Type, -feature_type. -Set) %>%
   as.matrix()
 rownames(dm) <- shared_features_data_ann$feature_type
 
@@ -597,10 +653,10 @@ rownames(unique_features_data_mean_dm) <- unique_features_data_mean_df$Cluster
 if_module_dm <- rbind(shared_features_data_mean_dm, unique_features_data_mean_dm, if_dm) %>%
   t
   
-cor_dm <- cor(if_module_dm)
+cor_dm <- cor(if_module_dm, method ="spearman")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "correlation ",
+                   name = "spearman/ncorrelation ",
                   row_names_gp = gpar(fontsize = 6),
                   column_names_gp = gpar(fontsize = 6),)
 cor_hm
@@ -613,10 +669,10 @@ if(create_pdfs) {
 
 #Reduce phenotype set
 if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|StdIntensity_KRT5|MinIntensity_KRT5|_Negative|_Positive")]
-cor_dm <- cor(if_module_dm_reduced)
+cor_dm <- cor(if_module_dm_reduced,  method ="spearman")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "correlation",
+                   name = "spearman/ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
                   column_names_gp = gpar(fontsize = 10),)
 cor_hm
@@ -631,10 +687,10 @@ if(create_pdfs) {
 
 #Modules only set
 if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative|_Positive")]
-cor_dm <- cor(if_module_dm_reduced)
+cor_dm <- cor(if_module_dm_reduced,  method = "spearman")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "correlation",
+                   name = "spearman/ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
                   column_names_gp = gpar(fontsize = 10),)
 cor_hm
@@ -650,10 +706,10 @@ if(create_pdfs) {
 if_modules_dm <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative|_Positive")]
 
 if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|MinIntensity_KRT5")]
-cor_dm <- cor(if_modules_dm, if_phenotypes_dm)
+cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="spearman")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "correlation",
+                   name = "spearman/ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
                   column_names_gp = gpar(fontsize = 10),)
 cor_hm
@@ -787,6 +843,27 @@ p <- ggplot(shared_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) 
   labs(x = "Cluster",
        fill = "Assay") +
   facet_wrap(~Type, scales = "free_y") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    #axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p
+
+df <- shared_features_data_ann %>%
+  group_by(Type, Cluster) %>%
+  count() %>%
+  ungroup()
+
+p <- ggplot(df, aes(x = n, fill = Type)) +
+  geom_density() +  
+  scale_fill_manual(values = assay_cols) +
+  labs(x = "feature count",
+       fill = "Assay") +
+  facet_wrap(~Type, scales = "free") +
   theme_bw()+
   theme(#axis.title = element_blank(),
     #axis.text = element_blank(),
