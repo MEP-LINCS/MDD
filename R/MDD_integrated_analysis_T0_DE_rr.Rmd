@@ -13,6 +13,7 @@ library(umap)
 library(cluster)
 library(RColorBrewer)
 library(writexl)
+library(UpSetR)
 
 source("../R/MDD_functions.R")
 create_pdfs <- TRUE
@@ -32,7 +33,8 @@ p_values_path <- paste0("../integrated_analysis/integrated_adj_p_values", PBS_po
 shared_features_path <- paste0("../integrated_analysis/integrated_shared_features_rr", PBS_pointer, ".csv") 
 unique_features_path <- paste0("../integrated_analysis/integrated_unique_features_rr", PBS_pointer, ".csv") 
 
-clust_num <- 12
+shared_clust_num <- 12
+combined_clust_num <- 18
 cluster_method <- "pam"
 
 experimentalTimePoints <- c("_24", "_48")
@@ -41,7 +43,7 @@ ligand_order <-  c("HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
 condition_order <- paste0(rep(ligand_order, each = length(experimentalTimePoints)), rep(c("_24", "_48"), times = length(ligand_order)))
 
 #create a named vector of color values for the Heatmap clusters
-cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)], names = 1:12), c("13" = "black", "14" = "gray"))
+cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)], names = 1:12), c("13" = "black", "14" = "gray", "15" = "brown", "16" = "gray20", "17" = "gray40", "18" = "gray60", "19" = "gray80"))
 
 ligand_cols <- c("CTRL" = "#7A4A2A",
                  "PBS" = "#8dd3c7",
@@ -112,9 +114,9 @@ shared_features_data <- shared_features %>%
   left_join(all_features_data, by = c("feature_type" ))  %>%
   drop_na
 set.seed(42)
-set_features_data <- bind_rows(shared_features_data, select(unique_features_data, -Direction, -Cluster)) %>%
+combined_features_data <- bind_rows(shared_features_data, select(unique_features_data, -Direction, -Cluster)) %>%
   slice_sample(prop = 1)
-assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(3, 2,6,5, 1)], names = unique(set_features_data$Type))
+assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(3, 2,6,5, 1)], names = unique(combined_features_data$Type))
 
 ```
 ## {.tabset .tabset-fade}
@@ -124,71 +126,71 @@ assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(3, 2,6,5, 1)], n
 ```{r heatmaps}
 
 #create a numeric matrix with feature row names
-set_features_dm <- set_features_data %>%
+combined_features_dm <- combined_features_data %>%
   select(all_of(condition_order)) %>%
   as.matrix() 
-rownames(set_features_dm) <- set_features_data$feature_type
-set_features_dm <- set_features_dm[!is.nan(set_features_dm[,1]),]
+rownames(combined_features_dm) <- combined_features_data$feature_type
+combined_features_dm <- combined_features_dm[!is.nan(combined_features_dm[,1]),]
 
 #cluster all features 
 if(cluster_method == "kmeans"){
   #seed the clustering with a fixed, random set of points
   set.seed(42)
-  centers <- set_features_dm[sample(1:nrow(set_features_dm), size = clust_num, replace = FALSE),]
-  clusters <- kmeans(x = set_features_dm, iter.max = 20, centers = centers)$cluster
+  centers <- combined_features_dm[sample(1:nrow(combined_features_dm), size = combined_clust_num, replace = FALSE),]
+  clusters <- kmeans(x = combined_features_dm, iter.max = 20, centers = centers)$cluster
 } else if(cluster_method == "HA") {
-  clust_obj <- hclust(dist(set_features_dm))
-  clusters <- cutree(clust_obj, k = clust_num)
+  clust_obj <- hclust(dist(combined_features_dm))
+  clusters <- cutree(clust_obj, k = combined_clust_num)
 } else if(cluster_method == "pam") {
   
   if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))){
     load(paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))
   } else {
     set.seed(42)
-    medoids <- sample(1:nrow(set_features_dm), size = clust_num, replace = FALSE)
-    clusters  <- pam(x = set_features_dm, k = clust_num, medoids = medoids, cluster.only=TRUE)
+    medoids <- sample(1:nrow(combined_features_dm), size = combined_clust_num, replace = FALSE)
+    clusters  <- pam(x = combined_features_dm, k = combined_clust_num, medoids = medoids, cluster.only=TRUE, pamonce = 5)
     save(clusters, file = paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))
   }
   
 } else stop("unsupported cluster method chosen")
 
 #Add the cluster assignements to the data
-set_features_data_ann <-  tibble(feature_type = names(clusters),
+combined_features_data_ann <-  tibble(feature_type = names(clusters),
                            Cluster = clusters) %>%
-  right_join(set_features_data, by = "feature_type") %>%
+  right_join(combined_features_data, by = "feature_type") %>%
     mutate(Cluster = factor(Cluster, ordered = TRUE))
 
-set_features_ann <- set_features_data_ann %>%
+combined_features_ann <- combined_features_data_ann %>%
   select(Cluster, Type, Set) %>%
   as.data.frame()
 
-haRow_set <- HeatmapAnnotation(df = set_features_ann,
+haRow_combined <- HeatmapAnnotation(df = combined_features_ann,
                                which = "row",
                                col = list(Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE),
                                           Type = assay_cols,
                                           Set = c("shared" = "black", ligand_cols)))
 
-hm_set <- Heatmap(set_features_dm,
+hm_combined <- Heatmap(combined_features_dm,
                name = "lfc rr",
-               column_title = "Set features",
+               column_title = "Combined features",
                column_title_gp = gpar(fontsize = 12),
                col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
                cluster_rows = FALSE,
                cluster_row_slices = FALSE, 
                cluster_columns = FALSE,
-               row_split = set_features_ann$Cluster,
+               row_split = combined_features_ann$Cluster,
                row_gap = unit(2, "mm"),
                row_title = " ",
                show_row_names = FALSE,
                row_names_gp = gpar(fontsize = 8),
                column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_set,
+               left_annotation = haRow_combined,
                use_raster = FALSE)
-hm_set
+hm_combined
 
 if(create_pdfs){
-  pdf("MDD_integrated_rr_set_heatmap.pdf") 
-  draw(hm_set)
+  pdf("MDD_integrated_rr_combined_heatmap.pdf") 
+  draw(hm_combined)
   res <- dev.off()
 } 
 #######
@@ -208,21 +210,21 @@ shared_features_dm <- shared_features_dm[!is.nan(shared_features_dm[,1]),]
 if(cluster_method == "kmeans"){
   #seed the kmeans clustering with a fixed, random set of points
 set.seed(42)
-centers <- shared_features_dm[sample(1:nrow(shared_features_dm), size = clust_num, replace = FALSE),]
+centers <- shared_features_dm[sample(1:nrow(shared_features_dm), size = shared_clust_num, replace = FALSE),]
 clusters <- kmeans(x = shared_features_dm, iter.max = 20, centers = centers)$cluster
 } else if(cluster_method == "HA") {
   clust_obj <- hclust(dist(shared_features_dm))
-  clusters <- cutree(clust_obj, k = clust_num)
+  clusters <- cutree(clust_obj, k = shared_clust_num)
 } else if(cluster_method == "pam") {
    set.seed(42)
-medoids <- sample(1:nrow(shared_features_dm), size = clust_num, replace = FALSE)
-  clusters  <- pam(x = shared_features_dm, k = clust_num, medoids = medoids, cluster.only=TRUE)
+medoids <- sample(1:nrow(shared_features_dm), size = shared_clust_num, replace = FALSE)
+  clusters  <- pam(x = shared_features_dm, k = shared_clust_num, medoids = medoids, cluster.only=TRUE, pamonce = 5)
 } else stop("unsupported cluster method chosen")
 
 shared_features_data_ann <-tibble(feature_type = names(clusters),
                  Cluster = clusters) %>%
   right_join(shared_features_data, by = "feature_type") %>%
-  mutate(Cluster = factor(Cluster, levels = 1:clust_num, ordered = TRUE))
+  mutate(Cluster = factor(Cluster, levels = 1:shared_clust_num, ordered = TRUE))
 
 shared_features_ann <-shared_features_data_ann %>%
     select(Cluster, Type) %>%
@@ -393,14 +395,14 @@ selectDerivedFeature <- function(df){
 return(res)
 }
 
-module_features <- set_features_data_ann %>%
+module_features <- combined_features_data_ann %>%
   arrange(Cluster, Type) %>%
   mutate(Cluster = paste0("module_", Cluster),
          Cluster = factor(Cluster, levels = unique(Cluster))) %>%
   split(.$Cluster) 
 
 res <- write_xlsx(module_features,
-                  path = "MDD_int_rr_set_tables.xlsx")
+                  path = "MDD_int_rr_combined_tables.xlsx")
 
 module_features <- shared_features_data_ann %>%
   arrange(Cluster, Type) %>%
@@ -430,24 +432,24 @@ res <- write_xlsx(module_features,
 
 #Create annotation values
 dm <- shared_features_data_ann %>%
-  dplyr::select(-feature, -Cluster, -Type, -feature_type. -Set) %>%
+  dplyr::select(-feature, -Cluster, -Type, -feature_type, -Set) %>%
   as.matrix()
 rownames(dm) <- shared_features_data_ann$feature_type
 
 custom_settings = umap.defaults
 custom_settings$random_state <- 42
-custom_settings$n_epochs = 200
-custom_settings$n_neighbors = 15
+custom_settings$n_epochs = 500
+custom_settings$n_neighbors = 25
 
-if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))){
-  load(paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))
+if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_shared_UMAP.rda"))){
+  load(paste0("../integrated_analysis/MDD_",cluster_method,"_shared_UMAP.rda"))
 } else {
 df_UMAP <- umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
   data.frame(feature_type = rownames(dm)) %>%
   rename(UMAP_1 = X1,
          UMAP_2 = X2) %>%
   left_join(shared_features_data_ann, by = "feature_type") 
-save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))
+save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_shared_UMAP.rda"))
 }
 
 plot_UMAP_3d <- FALSE
@@ -489,7 +491,7 @@ if(plot_UMAP_3d){
   p
   
   if(create_pdfs) {
-    pdf("MDD_conditions_umap_main.pdf")    
+    pdf("MDD_shared_umap_main.pdf")    
     print(p)
     res <- dev.off()
   } 
@@ -519,7 +521,7 @@ p <- p + geom_point(data = df_UMAP[!df_UMAP$Type=="RNA",],size = .8, alpha = .8)
 p
 
 if(create_pdfs) {
-  pdf("MDD_ligands_umap_type.pdf") 
+  pdf("MDD_ligands_shared_umap_type.pdf") 
       print(p)
   res <- dev.off()
 }
@@ -562,7 +564,7 @@ p_list <- lapply(unique(df_UMAP$Type), function(assay){
 res <- map(p_list, print)
 
 if(create_pdfs) {
-  pdf("MDD_ligands_umap_type_highlights.pdf") 
+  pdf("MDD_ligands_shared_umap_type_highlights.pdf") 
   res <- map(p_list, print)
   res <- dev.off()
 }
@@ -603,7 +605,7 @@ p_list <- lapply(df_UMAP_conditions, function(condition){
 })
 res <- map(p_list, print)
 if(create_pdfs) {
-  pdf("MDD_integrated_umap_by_condition.pdf")
+  pdf("MDD_integrated_shared_umap_by_condition.pdf")
   res <- map(p_list, print)
   res <- dev.off()
 }
@@ -653,10 +655,10 @@ rownames(unique_features_data_mean_dm) <- unique_features_data_mean_df$Cluster
 if_module_dm <- rbind(shared_features_data_mean_dm, unique_features_data_mean_dm, if_dm) %>%
   t
   
-cor_dm <- cor(if_module_dm, method ="spearman")
+cor_dm <- cor(if_module_dm, method ="pearson")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "spearman/ncorrelation ",
+                   name = "pearson\ncorrelation ",
                   row_names_gp = gpar(fontsize = 6),
                   column_names_gp = gpar(fontsize = 6),)
 cor_hm
@@ -669,10 +671,10 @@ if(create_pdfs) {
 
 #Reduce phenotype set
 if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|StdIntensity_KRT5|MinIntensity_KRT5|_Negative|_Positive")]
-cor_dm <- cor(if_module_dm_reduced,  method ="spearman")
+cor_dm <- cor(if_module_dm_reduced,  method ="pearson")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "spearman/ncorrelation",
+                   name = "pearson\ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
                   column_names_gp = gpar(fontsize = 10),)
 cor_hm
@@ -687,10 +689,10 @@ if(create_pdfs) {
 
 #Modules only set
 if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative|_Positive")]
-cor_dm <- cor(if_module_dm_reduced,  method = "spearman")
+cor_dm <- cor(if_module_dm_reduced,  method = "pearson")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "spearman/ncorrelation",
+                   name = "pearson\ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
                   column_names_gp = gpar(fontsize = 10),)
 cor_hm
@@ -703,13 +705,13 @@ if(create_pdfs) {
 }
 
 #Modules vs IF  set
-if_modules_dm <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative|_Positive")]
+if_modules_dm <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative$|_Positive$")]
 
 if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|MinIntensity_KRT5")]
-cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="spearman")
+cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="pearson")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "spearman/ncorrelation",
+                   name = "pearson\ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
                   column_names_gp = gpar(fontsize = 10),)
 cor_hm
@@ -786,7 +788,7 @@ plot_gap_custom <- function(x) {
     geom_errorbar(aes(ymax = gap + SE.sim,
                       ymin = gap - SE.sim), width=0.1) +
     geom_point(size = .5, col=  "red") +
-    labs(title = paste("Gap analysis to determine shared-features cluster number,",cluster_method)) +
+    labs(title = paste("Gap analysis to determine cluster number,",cluster_method)) +
      theme_bw()+
   theme(axis.ticks = element_blank(),
         panel.border = element_blank(),
@@ -794,45 +796,44 @@ plot_gap_custom <- function(x) {
   return(p)
 }
 
-hclusCut <- function(x, k, d.meth = "euclidean", ...)
-   list(cluster = cutree(hclust(dist(x, method=d.meth), ...), k=k))
+dm <- combined_features_data %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
 
+if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_combined_B100.rda"))){
+  load(paste0("../integrated_analysis/gss_",cluster_method,"_combined_B100.rda"))
+} else {
+  gss_combined <- clusGap(dm, FUN = pam, pamonce = 5, K.max = 25, B = 100, verbose = FALSE)
+  save(gss_combined, file = paste0("../integrated_analysis/gss_",cluster_method,"_combined.rda"))
+}
+
+  plot_gap_custom(gss_combined)
+if(create_pdfs){
+  pdf("MDD_combined_gap_cluster.pdf")
+  p <- plot_gap_custom(gss_combined)
+  print(p)
+  res <- dev.off()
+}
+
+#Shared gap analysis
 dm <- shared_features_data %>%
     select(all_of(condition_order)) %>%
   as.matrix()
 
-if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))){
-  load(paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))
+if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_shared_B100.rda"))){
+  load(paste0("../integrated_analysis/gss_",cluster_method,"_shared_B100.rda"))
 } else {
-  gss <- clusGap(dm, FUN = pam, K.max = 15, B = 50, verbose = FALSE)
-  save(gss, file = paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))
+  gss_shared <- clusGap(dm, FUN = pam, pamonce = 5, K.max = 25, B = 100, verbose = FALSE)
+  save(gss_shared, file = paste0("../integrated_analysis/gss_",cluster_method,"_shared_B100.rda"))
 }
 
-  plot_gap_custom(gss)
+  plot_gap_custom(gss_shared)
 if(create_pdfs){
-  pdf("MDD_ligands_gap_cluster.pdf")
-  p <- plot_gap_custom(gss)
+  pdf("MDD_shared_gap_cluster.pdf")
+  p <- plot_gap_custom(gss_shared)
   print(p)
   res <- dev.off()
 }
-# 
-# p <- ggplot(integrated_shared, aes(x = as.factor(Cluster), fill = Type)) +
-#   geom_bar() +
-#   scale_fill_manual(values = assay_cols)+
-#   labs(x = "Cluster",
-#        fill = "Assay") +
-#   theme_bw()+
-#   theme(axis.ticks = element_blank(),
-#         panel.border = element_blank(),
-#         panel.grid.major = element_blank(),
-#         panel.grid.minor = element_blank(),
-#         axis.line =element_blank())
-# p
-# if(create_pdfs){
-#   pdf("MDD_ligands_assay_cluster.pdf")
-#   print(p)
-#   res <- dev.off()
-# }
 ```
 
 ```{r assayClusterdistribution, fig.width=8, fig.height=4, eval = TRUE}
@@ -875,7 +876,7 @@ p <- ggplot(df, aes(x = n, fill = Type)) +
 p
 
 if(create_pdfs){
-  pdf("MDD_ligands_cluster_feature_counts.pdf")
+  pdf("MDD_shared_cluster_feature_counts.pdf")
   print(p)
   res <- dev.off()
 } 
@@ -889,12 +890,106 @@ Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it t
 
 The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
 
-The first local maximum is k = 3 and the second one is at 9. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value is less than the local maximum at 9 minus its standard error.  
+#### Combined dataset analysis  
+
+Three of the methods for choosing k using a gap statitistic are:  
+"Tibs2001SEmax": `r maxSE(gss_combined$Tab[,'gap'], SE.f = gss_combined$Tab[,'SE.sim'],
+      method = c("Tibs2001SEmax"),
+      SE.factor = 1) `  
+      
+uses the criterion, Tibshirani et al (2001) proposed: “the smallest k such that f(k) ≥ f(k+1) - s_{k+1}”. Note that this chooses k = 1 when all standard deviations are larger than the differences f(k+1) - f(k).
 
 
-<bksp>
+"firstSEmax": `r maxSE(gss_combined$Tab[,'gap'], SE.f = gss_combined$Tab[,'SE.sim'],
+      method = c("firstSEmax"),
+      SE.factor = 1) `  
+      
+location of the first f() value which is not smaller than the first local maximum minus SE.factor * SE.f[], i.e, within an “f S.E.” range of that maximum (see also SE.factor).
 
-<bksp>
+This, the default, has been proposed by Martin Maechler in 2012, when adding clusGap() to the cluster package, after having seen the "globalSEmax" proposal (in code) and read the "Tibs2001SEmax" proposal.
+
+"globalSEmax": `r maxSE(gss_combined$Tab[,'gap'], SE.f = gss_combined$Tab[,'SE.sim'],
+      method = c("globalSEmax"),
+      SE.factor = 1)`    
+      
+(used in Dudoit and Fridlyand (2002), supposedly following Tibshirani's proposition): location of the first f() value which is not smaller than the global maximum minus SE.factor * SE.f[], i.e, within an “f S.E.” range of that maximum (see also SE.factor).
+
+
+#### Shared dataset analysis  
+
+Three of the methods for choosing k using a gap statitistic are:  
+"Tibs2001SEmax": `r maxSE(gss_shared$Tab[,'gap'], SE.f = gss_shared$Tab[,'SE.sim'],
+      method = c("Tibs2001SEmax"),
+      SE.factor = 1) `  
+      
+uses the criterion, Tibshirani et al (2001) proposed: “the smallest k such that f(k) ≥ f(k+1) - s_{k+1}”. Note that this chooses k = 1 when all standard deviations are larger than the differences f(k+1) - f(k).
+
+
+"firstSEmax": `r maxSE(gss_shared$Tab[,'gap'], SE.f = gss_shared$Tab[,'SE.sim'],
+      method = c("firstSEmax"),
+      SE.factor = 1) `  
+      
+location of the first f() value which is not smaller than the first local maximum minus SE.factor * SE.f[], i.e, within an “f S.E.” range of that maximum (see also SE.factor).
+
+This, the default, has been proposed by Martin Maechler in 2012, when adding clusGap() to the cluster package, after having seen the "globalSEmax" proposal (in code) and read the "Tibs2001SEmax" proposal.
+
+"globalSEmax": `r maxSE(gss_shared$Tab[,'gap'], SE.f = gss_shared$Tab[,'SE.sim'],
+      method = c("globalSEmax"),
+      SE.factor = 1)`    
+      
+(used in Dudoit and Fridlyand (2002), supposedly following Tibshirani's proposition): location of the first f() value which is not smaller than the global maximum minus SE.factor * SE.f[], i.e, within an “f S.E.” range of that maximum (see also SE.factor).
+
+
 
 ###
 
+
+### z score vs DE analysis
+
+```{r compare_to_previous}
+
+path <- "../integrated_analysis/Data/MDD_ligand_module_features.xlsx"
+integrated_data <- lapply(readxl::excel_sheets(path), readxl::read_xlsx, path = path ) %>%
+  bind_rows(.id = "module") %>%
+  mutate(module = readxl::excel_sheets(path)[as.integer(module)])
+
+int_genes <- integrated_data %>%
+  filter(assay == "RNA",
+         time %in% c(24,48)) %>%
+  rename(Cluster = module) %>%
+  select(Cluster, symbol) %>%
+  mutate(Cluster = str_replace(Cluster, "module_","int_")) %>%
+  distinct
+
+set_genes <- combined_features_data_ann %>%
+  filter(Type == "RNAseq") %>%
+  rename(symbol = feature) %>%
+  select(Cluster, symbol) %>%
+  mutate(Cluster = paste0("set_",Cluster)) %>%
+  distinct
+
+genes <- bind_rows(int_genes, set_genes) %>%
+  mutate(member = 1) %>%
+  pivot_wider(names_from = Cluster, values_from = member, values_fill = 0) %>%
+  rename(Name = symbol) %>%
+  mutate(Name = as.factor(Name),
+         across(where(is.numeric), as.integer)) %>%
+  as.data.frame()
+
+upset_obj <- upset(genes, nset = 32)
+
+upset_obj
+
+pdf("combined_comparisons.pdf", width = 10, height = 8)
+upset_obj
+res = dev.off()
+
+```
+
+We want to compare the features identified using set analysis of differentially expressed features to the prior method based on z scores of transformed assay values.  
+
+#### Method  
+
+Filter both matrices to 24 and 48 hour, RNAseq features and perform a set analysis on the 12 modules in each datase.  
+
+###
