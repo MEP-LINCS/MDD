@@ -7,8 +7,11 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
 
 suppressMessages(library(tidyverse))
-library(enrichR)
+#library(enrichR)
 library(readxl)
+library(httr)
+library(jsonlite)
+#library(ReactomeGSA)
 # library(ReactomePA)
 # library(clusterProfiler)
 # library(biomaRt)
@@ -17,13 +20,44 @@ library(readxl)
 
 create_pdfs <- FALSE
 write_csvs <- FALSE
+
+#dotplot filter values 
+fdr_thresh <- .1
+p_value_thresh <- .05
+# min_gene_nbr <- 1
+# max_gene_nbr <- 500
+gene_ratio_thresh <- .1
+keep_gene_nbr <- 5
+pathway_nbr <- 5
+
 ```
 
 Read in the cluster data from the integrated analysis, filter to RNA features and write out the gene symbols.  
 
-```{r read_data_and_metadata}
+```{r enrichr_reactome_pathways, eval = FALSE}
 # Read in module xlsx file
+###scratch code
+# mod3_genes <- read_excel(file_name, sheet = "module_3") %>%
+#     filter(Type == "RNAseq") %>%
+#     select(feature) 
+# write_csv(mod3_genes, "module_3_genes.csv")
+# not_found_3 <- read_csv("not_found.csv") %>%
+#   janitor::clean_names()
+# mod3_genes_found <- mod3_genes %>%
+#   filter(!feature %in% not_found_3$not_found)
+# write_csv(mod3_genes_found, "module_3_genes_found.csv")
+# 
+# mod4_genes <- read_excel(file_name, sheet = "module_4") %>%
+#     filter(Type == "RNAseq") %>%
+#     select(feature) 
+# write_csv(mod4_genes, "module_4_genes.csv")
+# not_found_4 <- read_csv("not_found_4.csv") %>%
+#   janitor::clean_names()
+# mod4_genes_found <- mod4_genes %>%
+#   filter(!feature %in% not_found_4$not_found)
+# write_csv(mod4_genes_found, "module_4_genes_found.csv")
 
+#####
 #Run enrichr to get pathway data
 excel_sheet_to_pathways <- function(sheet, file_name){
   pathways_list <- read_excel(file_name, sheet = sheet) %>%
@@ -31,13 +65,12 @@ excel_sheet_to_pathways <- function(sheet, file_name){
     pull(feature) %>%
     enrichr(databases = "Reactome_2016")
   pathways_df <- pathways_list[[1]] %>%
-    mutate(module = sheet)
+    mutate(module = str_remove(sheet, "module_"))
   return(pathways_df)
 }
 
 if(!file.exists("MDD_enrichr_pathways.rda")){
   file_name <- "MDD_int_rr_combined_tables.xlsx"
-  
   pathways <- map(excel_sheets(file_name), excel_sheet_to_pathways, file_name = file_name)
   
   #combine the module pathways, create geneRatio proportins
@@ -49,7 +82,9 @@ if(!file.exists("MDD_enrichr_pathways.rda")){
            number_entities_total = as.integer(number_entities_total),
            geneRatio = number_entities_found/number_entities_total,
            pathway_identifier = str_extract(Term, "R-HSA.*"),
-           pathway_name = str_remove(Term, " R-HSA.*"))%>%
+           pathway_name = str_remove_all(Term, " R-HSA.*| Homo sapiens"),
+           module = str_remove(module, "module_"),
+           module = fct_inseq(module))%>%
     rename(entities_p_value = Adjusted.P.value)
   
   save(enriched_pathways_enrichr, file = "MDD_enrichr_pathways.rda")
@@ -57,6 +92,12 @@ if(!file.exists("MDD_enrichr_pathways.rda")){
   load("MDD_enrichr_pathways.rda")
 }
 
+selected_pathways_enrichr <- enriched_pathways_enrichr %>%
+  group_by(module) %>%
+  slice_min(order_by = c(entities_p_value), n = keep_gene_nbr, with_ties = FALSE) %>%
+  slice_max(geneRatio, n = keep_gene_nbr, with_ties = FALSE) %>%
+  ungroup() %>%
+  dplyr::select(pathway_identifier)
 
 # get_module_entrezgene_ids <- function(clust_num, write_csvs = FALSE){
 #   data_path <- paste0("Tables/Ligand_clusters/MDD_ligand_cluster_",clust_num,"_features12.csv")
@@ -79,21 +120,136 @@ if(!file.exists("MDD_enrichr_pathways.rda")){
 #   return(gene_ids$entrezgene_id)
 # }
 # 
-# #manually load each file into the website and save the results files
-# #results_<module>_hgnc.csv
+
+```
+
+
+```{r reactome_API_pathways}
+
+ get_pathway_data <- function(genes) {
+   browser()
+   #submit file of gene names to Reactome
+   res <- POST(url = "https://reactome.org/AnalysisService/identifiers/?interactors=false&species=Homo%20sapiens&pageSize=20&page=1&sortBy=ENTITIES_PVALUE&order=ASC&resource=TOTAL&pValue=1&includeDisease=true",
+               body = genes,
+               accept_json(),
+               content_type("text/plain"))
+   
+   if(!status_code(res) == 200) stop("received API code ", status_code(res))
+   
+   #get res token
+   res_token <- fromJSON(rawToChar(res$content))$summary$token
+   
+     #Identify Reactome  not found genes
+     found <- GET(paste0("https://reactome.org/AnalysisService/download/",res_token,"/entities/found/TOTAL/result.csv"),
+                      accept("text/plain"))
+     reactome_genes <- rawToChar(found$content) %>%
+       str_split("\n") %>%
+       unlist() %>%
+       tibble() %>%
+       janitor::clean_names() %>%
+       slice(n =-1) %>%
+       mutate(Submitted_identifier = str_remove(x, ",.*")) %>%
+       pull(Submitted_identifier) %>%
+       unique()
+     #Check that some of the genes are in reactome
+     If()
+      #submit file of found genes to Reactome
+   pathway_res <- POST(url = "https://reactome.org/AnalysisService/identifiers/?interactors=false&species=Homo%20sapiens&pageSize=20&page=1&sortBy=ENTITIES_PVALUE&order=ASC&resource=TOTAL&pValue=1&includeDisease=true",
+               body = reactome_genes,
+               accept_json(),
+               content_type("text/plain"))
+   
+   if(!status_code(pathway_res) == 200) stop("received API code ", status_code(pathway_res))
+   
+   pathways <- fromJSON(rawToChar(pathway_res$content))$pathways 
+   
+   pathway_data <- pathways %>%
+     select(-entities, -reactions, -species) %>%
+     bind_cols(pathways$entities) %>%
+     select(-exp)
+   
+   return(pathway_data)
+ }
+ 
+#make a list with a character vector of gene names from each module
+ 
+ get_genes_from_excel <- function(sheet_name, file_name){
+     genes <- read_excel(file_name, sheet = sheet_name) %>%
+    filter(Type == "RNAseq") %>%
+       mutate(Module = sheet_name) %>%
+       select(Module, feature)
+     return(genes$feature)
+ }
+ 
+ if(!file.exists("MDD_Reactome_pathways_combined.csv")){
+   file_name <- "MDD_int_rr_combined_tables.xlsx"
+   gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
+   names(gene_list) <- excel_sheets(file_name)
+   pathways_combined <- map_dfr(gene_list, get_pathway_data, .id = "Module")
+   write_csv(pathways_combined, "MDD_Reactome_pathways_combined.csv")
+ } else {
+   pathways_combined <- read_csv("MDD_Reactome_pathways_combined.csv")
+ }
+ 
+ get_pathways <- function(dataset_type){
+   browser()
+   if(!file.exists(paste0("MDD_Reactome_pathways_",dataset_type,".csv"))){
+     file_name <- paste0("MDD_int_rr_",dataset_type,"_tables.xlsx")
+     gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
+     names(gene_list) <- excel_sheets(file_name)
+     pathways<- map_dfr(gene_list, get_pathway_data, .id = "Module")
+     write_csv(pathways, paste0("MDD_Reactome_pathways_",dataset_type,".csv"))
+   } else {
+     pathways <- read_csv(paste0("MDD_Reactome_pathways_",dataset_type,".csv"))
+   }
+ }
+ 
+pathways_combined <- get_pathways(dataset_type = "combined")
+pathways_unique <- get_pathways(dataset_type = "unique")
+
+
+```
+
+
+```{r load_manual_website_pathways}
+# #manually load each gene set into Reactome and save  results files
 # 
-# #Read in results files from manually entering in each modules entrez ids
-enriched_pathways_web <- dir("../integrated_analysis/Data",pattern = "result[[:digit:]]{1,2}.csv", full.names = TRUE) %>%
+# Read in results files 
+enriched_pathways_filenames<- dir("../integrated_analysis/Data",pattern = "result[[:digit:]]{1,2}.csv", full.names = TRUE) %>%
   str_sort(numeric = TRUE)
+
+enriched_pathways_web <- map(enriched_pathways_filenames, read_csv,
+                         col_types = cols(
+  `Pathway identifier` = col_character(),
+  `Pathway name` = col_character(),
+  `#Entities found` = col_double(),
+  `#Entities total` = col_double(),
+  `Entities ratio` = col_double(),
+  `Entities pValue` = col_double(),
+  `Entities FDR` = col_double(),
+  `#Reactions found` = col_double(),
+  `#Reactions total` = col_double(),
+  `Reactions ratio` = col_double(),
+  `Species identifier` = col_double(),
+  `Species name` = col_character(),
+  `Submitted entities found` = col_character(),
+  `Mapped entities` = col_logical(),
+  `Found reaction identifiers` = col_character()
+)) %>%
+  bind_rows(.id = "module") %>%
+  janitor::clean_names() %>%
+  mutate(module = fct_inseq(module),
+         geneRatio = number_entities_found/number_entities_total)
+
+res <- write_csv(enriched_pathways_web, "Reactome_web_enriched_pathways_combined.csv")
+
+
+```
+
+```{r null_pathways}
 
 enriched_pathways_web_null <- dir("../integrated_analysis/Null_Data",pattern = "resultn[[:digit:]]{1,2}.csv", full.names = TRUE) %>%
   str_sort(numeric = TRUE)
-
-enriched_pathways <- map(enriched_pathways_web, read_csv) %>%
-  bind_rows(.id = "module") %>%
-  janitor::clean_names() %>%
-  mutate(module = factor(module,levels = 1:length(enriched_pathways_web)),
-         geneRatio = number_entities_found/number_entities_total)
 
 enriched_pathways_null <- map(enriched_pathways_web_null, read_csv) %>%
   bind_rows(.id = "module") %>%
@@ -101,32 +257,31 @@ enriched_pathways_null <- map(enriched_pathways_web_null, read_csv) %>%
   mutate(module = factor(module,levels = 1:length(enriched_pathways_web_null)),
          geneRatio = number_entities_found/number_entities_total)
 
-res <- write_csv(enriched_pathways, "Reactome_web_enriched_pathways_combined.csv")
-#make a dotplot with size for entities FDR 
-#fdr_thresh <- .05
-p_value_thresh <- .05
-# min_gene_nbr <- 1
-# max_gene_nbr <- 500
-gene_ratio_thresh <- .1
-keep_gene_nbr <- 5
+```
 
-selected_pathways <- enriched_pathways_enrichr %>%
+```{r create_dotplots}
+
+make_dotplots <- function(df, p_value_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL){
+ 
+   selected_pathways <- df %>%
   group_by(module) %>%
-  slice_min(order_by = c(entities_p_value), n = keep_gene_nbr, with_ties = FALSE) %>%
-  #slice_max(geneRatio, n = keep_gene_nbr, with_ties = FALSE) %>%
+  slice_min(order_by = c(entities_p_value), n = pathway_nbr) %>%
+  slice_max(geneRatio, n = pathway_nbr) %>%
   ungroup() %>%
-  dplyr::select(pathway_identifier)
+  dplyr::select(pathway_identifier) %>%
+     distinct()
 
-df <- enriched_pathways_enrichr %>%
-  right_join(selected_pathways) %>%
+df_selected <- df %>%
+  right_join(selected_pathways, by = "pathway_identifier") %>%
   filter(entities_p_value <= p_value_thresh,
          geneRatio > gene_ratio_thresh) %>%
   group_by(pathway_name) %>%
+  mutate(mean_p_value = mean(entities_p_value)) %>%
   ungroup() %>%
-  arrange(desc(module), entities_p_value) %>%
+  arrange(desc(module), mean_p_value) %>%
   mutate(pathway_name = fct_inorder(pathway_name))
 
-p <- ggplot(df, aes(x = module,
+p <- ggplot(df_selected, aes(x = module,
                     y = pathway_name,
                     colour = entities_p_value,
                     size = geneRatio)) +
@@ -139,11 +294,16 @@ p <- ggplot(df, aes(x = module,
                                    color = "black"))
 p
 
- pdf(paste0("MDD_reactome_dotplot.pdf"),
+ pdf(paste0("MDD_reactome_dotplot",pathway_method,".pdf"),
      width = 8,
      useDingbats = FALSE)
   print(p)
   dev_off_res <- dev.off()
+}
+
+res <- make_dotplots(enriched_pathways_enrichr, pathway_method = "_enrichR")
+
+res <- make_dotplots(enriched_pathways_web, pathway_method = "_web")
 #   
   
   #####NULL dataset analysis
@@ -185,223 +345,6 @@ p
      useDingbats = FALSE)
   print(p)
   dev_off_res <- dev.off()
-#   
-# ###Horizontal bar plot for ‘enrichment’ of OSM Reactome pathways in the 24H OSM RNA-Seq sample
-# RNAseq_genes <- read_csv("Data/MDD_RNAseq_DEGenesLong.csv") %>%
-# janitor::clean_names()
-# lfc_thresh <- 1.5
-# padj_thresh <- .01
-# 
-# df <- RNAseq_genes%>%
-# filter(experimental_condition == "OSM_24",
-#   padj <= padj_thresh,
-#   log2fold_change > lfc_thresh) %>%
-#    mutate(direction = if_else(log2fold_change < 0 ,"down", "up"))
-# 
-# osm_24_symbols <- df %>%
-#   pull(hgnc_symbol)
-# if(write_csvs) res <- write.csv(osm_24_symbols, paste0("MDD_integrated_ligand_osm_24_genes.csv"),
-#                  row.names = FALSE,
-#                  quote = FALSE,
-#                  col.names = FALSE)
-# #Drop the file above into reactome and download the overrepresentation result file
-# 
-# reactome_osm <- read_csv("reactome_osm_24.csv") %>%
-#   janitor::clean_names()
-# 
-# df <- reactome_osm %>%
-#  slice_min(entities_p_value, n = 20) %>%
-#   arrange(desc(entities_p_value)) %>%
-#   mutate(pathway_name = fct_inorder(pathway_name))
-# 
-# p <- ggplot(df, aes(x = pathway_name, y = -log2(entities_p_value))) +
-#   geom_col() +
-#   coord_flip() +
-#   theme_bw() +
-#       theme(axis.text.y = element_text(size = 6,
-#                                    color = "black"),
-#           axis.ticks = element_blank(),
-#           panel.border = element_blank(),
-#           panel.grid.major = element_blank(),
-#           panel.grid.minor = element_blank())
-# p
-# 
-# if(create_pdfs){
-#   pdf(file = "MDD_OSM_24_Reactome_pathways.pdf",width = 8,height = 4,
-#       useDingbats = FALSE)
-#   print(p)
-#   res <- dev.off()
-# }
-# 
-# ###Horizontal bar plot for ‘enrichment’ of Reactome pathways in the IFNG RNA-Seq sample vs module 12
-# 
-# lfc_thresh <- 1.5
-# padj_thresh <- .01
-# 
-# df <- RNAseq_genes%>%
-#   filter(str_detect(experimental_condition,"IFNG"),
-#          padj <= padj_thresh,
-#          log2fold_change > lfc_thresh) %>%
-#   mutate(direction = if_else(log2fold_change < 0 ,"down", "up"))
-# 
-# ifng_symbols <- df %>%
-#   pull(hgnc_symbol)
-# if(write_csvs) res <- write.csv(ifng_symbols, paste0("MDD_integrated_ligand_ifng_genes.csv"),
-#                  row.names = FALSE,
-#                  quote = FALSE,
-#                  col.names = FALSE)
-# #Drop the file above into reactome and download the overrepresentation result file
-# 
-# reactome_osm <- read_csv("reactome_ifng.csv") %>%
-#   janitor::clean_names()
-# 
-# df <- reactome_osm %>%
-#  slice_min(entities_p_value, n = 20) %>%
-#   arrange(desc(entities_p_value)) %>%
-#   mutate(pathway_name = fct_inorder(pathway_name))
-# 
-# p <- ggplot(df, aes(x = pathway_name, y = -log2(entities_p_value))) +
-#   geom_col() +
-#   coord_flip() +
-#   theme_bw() +
-#       theme(axis.text.y = element_text(size = 6,
-#                                    color = "black"),
-#           axis.ticks = element_blank(),
-#           panel.border = element_blank(),
-#           panel.grid.major = element_blank(),
-#           panel.grid.minor = element_blank())
-# p
-# 
-# if(create_pdfs){
-#   pdf(file = "MDD_IFNG_Reactome_pathways.pdf",width = 8,height = 4,
-#       useDingbats = FALSE)
-#   print(p)
-#   res <- dev.off()
-# }
-# 
-# #get the top 20 pathways from module 12
-# df <- enriched_pathways%>%
-#   filter(module == 12) %>%
-#  slice_min(entities_p_value, n = 20) %>%
-#   arrange(desc(entities_p_value)) %>%
-#   mutate(pathway_name = fct_inorder(pathway_name))
-# 
-# p <- ggplot(df, aes(x = pathway_name, y = -log2(entities_p_value))) +
-#   geom_col() +
-#   coord_flip() +
-#   theme_bw() +
-#       theme(axis.text.y = element_text(size = 6,
-#                                    color = "black"),
-#           axis.ticks = element_blank(),
-#           panel.border = element_blank(),
-#           panel.grid.major = element_blank(),
-#           panel.grid.minor = element_blank())
-# p
-# 
-# if(create_pdfs){
-#   pdf(file = "MDD_module_12_Reactome_pathways.pdf",width = 8,height = 4,
-#       useDingbats = FALSE)
-#   print(p)
-#   res <- dev.off()
-# }
-
-########
-
-#There are differences in results between using the Reactome website and the API
-#Trying to minimize these by using the same inputs for each
-#starting with the hgnc symbols from each cluster, convert them to 
-# #entrezgene ids and put them in a list. 
-# #Each list element is an integer vector
-# module_entrezgene_ids <- map(1:12, get_module_entrezgene_ids, write_csvs = write_csvs)
-# names(module_entrezgene_ids) <- paste0("module_",1:12)
-
-#Write out separate files of the entrez gene ids for each module
-#manually submit each set of module entrex genes to website and save the pathway results
-#https://reactome.org/PathwayBrowser/#/DTAB=AN&TOOL=AT&ANALYSIS=MjAyMDA0MDYxOTU3MzhfMjQy
-#for(i in 1:12){
-  #res <- write.csv(module_entrezgene_ids[i],
-                   # file = paste0("Tables/Ligand_clusters/module_",i,"_en_ids.csv"),
-                                 # row.names = F,
-                                 # col.names = F)
-#}
-# 
-# #create dotplot across clusters
-# pvalue_cutoff <- .05
-# #pvalue_cutoff <- .02
-# fdr_cutoff <- Inf
-# minGSSize = 1
-# 
-# compare_cluster_res_2 <- compareCluster(module_entrezgene_ids,
-# #compare_cluster_res_2 <- compareCluster(foo,
-#                                         fun="enrichPathway",
-#                                         pvalueCutoff = pvalue_cutoff,
-#                                         qvalueCutoff = fdr_cutoff,
-#                                         minGSSize = minGSSize)
-# if(write_csvs) res <- write_csv(compare_cluster_res_2@compareClusterResult, path = "MDD_Integrated_ligand_reactome_clusters.csv")
-# 
-# for(font_size in c(4,8)){
-#   p<- dotplot(compare_cluster_res_2, font.size = font_size)
-#   
-#   #Hack to keep a blank module_4 column
-#   p$data <- p$data %>%
-#     add_row(Cluster = factor("module_4\n(0)"),
-#             GeneRatio = 0.05,
-#             pvalue = 0.01,
-#             p.adjust = 0.02,
-#             qvalue = 0.02,
-#             geneID = "",
-#             Count = 0) %>%
-#     mutate(Cluster = fct_relevel(Cluster,"module_4\n(0)",after = 3))
-#   
-#   if(create_pdf){
-#       pdf(paste0("MDD_integrated_ligand_dotplot_modules_vs_pathways_font",font_size,"_pvalue",pvalue_cutoff,".pdf"),useDingbats = FALSE)       
-#   print(p)
-#   dev_off_res <- dev.off()
-#   }
-# 
-# }
-
-# 
-# enrichedPathways <- map(module_entrezgene_ids, enrichPathway, pvalueCutoff=1, readable=T) 
-# result_cluster_3_pathways <- enrichedPathways[[3]]
-# 
-# dps <- map(enrichedPathways, dotplot, showCategory=15, font.size = 4) 
-# 
-# 
-# manual_cc <- dotplot(result_cluster_3, showCategory=15, font.size = 4)
-# #pdf(paste0("MDD_integrated_ligand_dotplot_modules.pdf"),)
-# for(i in  1:12){
-#   #pdf(paste0("MDD_integrated_ligand_dotplot_module_",i,".pdf"))
-#   print(dps[[i]])
-# #res <- dev.off()
-#   #write_csv(enrichedPathways[[i]]@result, paste0("MDD_integrated_ligand_pathway_table_module_",i,".csv"))
-# }
-# #res <- dev.off()
-# 
-# #Flow: load cluster symbol file into website
-# #download results file and add cluster number to filename
-# #load result files and get unique entities' ids
-# #pass all entity ids to compare cluster and get dotplot
-# 
-# get_website_entities <- function(x){
-#   #Get list of unique entities for each cluster
-#   found_entities <- x$`Submitted entities found` %>%
-#     str_replace_all(";",",") %>%
-#     str_c(collapse = ",") %>%
-#     str_split(pattern = ",", n = Inf) %>%
-#     unlist() %>%
-#     unique()
-# }
-# 
-# cluster_found_entities <- get_website_entities(website_cluster_3)
-# 
-# 
-# 
-# res <- compareCluster(module_entrezgene_ids, fun="enrichPathway")
-# #pdf(paste0("MDD_integrated_ligand_dotplot_modules_vs_pathways_large_font.pdf"))
-# dotplot(res, font.size = 8)
-# #dev_off_res <- dev.off()
-# module_1 <- enrichPathway(gene_ids$entrezgene_id,pvalueCutoff=0.05, readable=T)
 
 ```
 
