@@ -43,7 +43,7 @@ ligand_order <-  c("HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
 condition_order <- paste0(rep(ligand_order, each = length(experimentalTimePoints)), rep(c("_24", "_48"), times = length(ligand_order)))
 
 #create a named vector of color values for the Heatmap clusters
-cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)], names = 1:12), c("13" = "black", "14" = "gray", "15" = "brown", "16" = "gray20", "17" = "gray40", "18" = "gray60", "19" = "gray80"))
+cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)], names = 1:12), c("13" = "#222222", "14" = "#555555", "15" = "#999999", "16" = "#AAAAAA", "17" = "#BBBBBB", "18" = "#CCCCCC", "19" = "#DDDDDD"))
 
 ligand_cols <- c("CTRL" = "#7A4A2A",
                  "PBS" = "#8dd3c7",
@@ -404,6 +404,17 @@ module_features <- combined_features_data_ann %>%
 res <- write_xlsx(module_features,
                   path = "MDD_int_rr_combined_tables.xlsx")
 
+##### Randomized cluster assignments for null set analysis
+module_features_null <- combined_features_data_ann %>%
+    mutate(Cluster = Cluster[sample(nrow(combined_features_data_ann))]) %>%
+  arrange(Cluster, Type) %>%
+  mutate(Cluster = paste0("module_", Cluster),
+         Cluster = factor(Cluster, levels = unique(Cluster))) %>%
+  split(.$Cluster) 
+
+res <- write_xlsx(module_features_null,
+                  path = "MDD_int_rr_combined_tables_null.xlsx")
+#####
 module_features <- shared_features_data_ann %>%
   arrange(Cluster, Type) %>%
   mutate(Cluster = paste0("module_", Cluster),
@@ -431,25 +442,25 @@ res <- write_xlsx(module_features,
 #Generate a 2d scatterplot of the UMAP dimensions and color by clusters, assay type
 
 #Create annotation values
-dm <- shared_features_data_ann %>%
+dm <- combined_features_data_ann %>%
   dplyr::select(-feature, -Cluster, -Type, -feature_type, -Set) %>%
   as.matrix()
-rownames(dm) <- shared_features_data_ann$feature_type
+rownames(dm) <- combined_features_data_ann$feature_type
 
 custom_settings = umap.defaults
 custom_settings$random_state <- 42
 custom_settings$n_epochs = 500
 custom_settings$n_neighbors = 25
 
-if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_shared_UMAP.rda"))){
-  load(paste0("../integrated_analysis/MDD_",cluster_method,"_shared_UMAP.rda"))
+if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_combined_UMAP.rda"))){
+  load(paste0("../integrated_analysis/MDD_",cluster_method,"_combined_UMAP.rda"))
 } else {
 df_UMAP <- umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
   data.frame(feature_type = rownames(dm)) %>%
   rename(UMAP_1 = X1,
          UMAP_2 = X2) %>%
-  left_join(shared_features_data_ann, by = "feature_type") 
-save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_shared_UMAP.rda"))
+  left_join(combined_features_data_ann, by = "feature_type") 
+save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_combined_UMAP.rda"))
 }
 
 plot_UMAP_3d <- FALSE
@@ -491,13 +502,13 @@ if(plot_UMAP_3d){
   p
   
   if(create_pdfs) {
-    pdf("MDD_shared_umap_main.pdf")    
+    pdf("MDD_combined_umap_main.pdf")    
     print(p)
     res <- dev.off()
   } 
 ```
 
-There are `r dim(dm)[1]` dots in the 2d UMAP that represent the significant differentially expressed features relative to T0 in the shared-features integrated matrix.  
+There are `r dim(dm)[1]` dots in the 2d UMAP that represent the significant differentially expressed features relative to T0 in the combined-features integrated matrix.  
 
 
 ```{r UMAPAnalysis2, fig.width=7.5, fig.height=4}
@@ -521,7 +532,7 @@ p <- p + geom_point(data = df_UMAP[!df_UMAP$Type=="RNA",],size = .8, alpha = .8)
 p
 
 if(create_pdfs) {
-  pdf("MDD_ligands_shared_umap_type.pdf") 
+  pdf("MDD_ligands_combined_umap_type.pdf") 
       print(p)
   res <- dev.off()
 }
@@ -564,7 +575,7 @@ p_list <- lapply(unique(df_UMAP$Type), function(assay){
 res <- map(p_list, print)
 
 if(create_pdfs) {
-  pdf("MDD_ligands_shared_umap_type_highlights.pdf") 
+  pdf("MDD_ligands_combined_umap_type_highlights.pdf") 
   res <- map(p_list, print)
   res <- dev.off()
 }
@@ -605,7 +616,7 @@ p_list <- lapply(df_UMAP_conditions, function(condition){
 })
 res <- map(p_list, print)
 if(create_pdfs) {
-  pdf("MDD_integrated_shared_umap_by_condition.pdf")
+  pdf("MDD_integrated_combined_umap_by_condition.pdf")
   res <- map(p_list, print)
   res <- dev.off()
 }
@@ -642,17 +653,17 @@ if_dm <- if_df %>%
   as.matrix()
   rownames(if_dm) <- if_df$feature
   
-unique_features_data_mean_df <- unique_features_data_ann %>%
-  filter(!Direction == "Mixed") %>%
+combined_features_data_mean_df <- combined_features_data_ann %>%
   group_by(Cluster) %>%
       summarise(across(.cols = matches("_24|48"), .fns = mean)) %>%
-    ungroup()
-unique_features_data_mean_dm <- unique_features_data_mean_df %>%
+    ungroup() %>%
+  mutate(Cluster = paste0("Module_",as.integer(Cluster)))
+combined_features_data_mean_dm <- combined_features_data_mean_df %>%
   select(-Cluster) %>%
   as.matrix()
-rownames(unique_features_data_mean_dm) <- unique_features_data_mean_df$Cluster
+rownames(combined_features_data_mean_dm) <- combined_features_data_mean_df$Cluster
   
-if_module_dm <- rbind(shared_features_data_mean_dm, unique_features_data_mean_dm, if_dm) %>%
+if_module_dm <- rbind(combined_features_data_mean_dm, if_dm) %>%
   t
   
 cor_dm <- cor(if_module_dm, method ="pearson")
@@ -664,7 +675,7 @@ cor_hm <- Heatmap(cor_dm,
 cor_hm
 
 if(create_pdfs) {
-  pdf("MDD_integrated_module_IF_correlations.pdf")
+  pdf("MDD_combined_IF_correlations.pdf")
   res <- print(cor_hm)
   res <- dev.off()
 }
@@ -680,7 +691,7 @@ cor_hm <- Heatmap(cor_dm,
 cor_hm
 
 if(create_pdfs) {
-  pdf("MDD_integrated_module_IF_correlations_reduced.pdf",
+  pdf("MDD_combined_IF_correlations_reduced.pdf",
       width = 9, height = 8)
   res <- print(cor_hm)
   res <- dev.off()
@@ -688,7 +699,7 @@ if(create_pdfs) {
 
 
 #Modules only set
-if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative|_Positive")]
+if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module")]
 cor_dm <- cor(if_module_dm_reduced,  method = "pearson")
 
 cor_hm <- Heatmap(cor_dm,
@@ -698,10 +709,14 @@ cor_hm <- Heatmap(cor_dm,
 cor_hm
 
 if(create_pdfs) {
-  pdf("MDD_integrated_module_module_correlations_reduced.pdf",
+  pdf("MDD_combined_module_module_correlations_reduced.pdf",
       width = 9, height = 8)
   res <- print(cor_hm)
   res <- dev.off()
+}
+if(write_csvs) {
+  write.csv(cor_dm, "MDD_combined_module_module_correlations_reduced.csv")
+
 }
 
 #Modules vs IF  set
@@ -717,7 +732,7 @@ cor_hm <- Heatmap(cor_dm,
 cor_hm
 
 if(create_pdfs) {
-  pdf("MDD_integrated_module_phenotype_correlations_reduced.pdf",
+  pdf("MDD_combined_module_phenotype_correlations_reduced.pdf",
       width = 9, height = 8)
   res <- print(cor_hm)
   res <- dev.off()
@@ -781,18 +796,19 @@ if(create_pdfs){
 
 ```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
 
-plot_gap_custom <- function(x) {
+plot_gap_custom <- function(x, dataset_name = "") {
   gstab = data.frame(x$Tab, k = seq_len(nrow(x$Tab)))
   p <- ggplot(gstab, aes(k, gap)) + 
     geom_line() +
     geom_errorbar(aes(ymax = gap + SE.sim,
                       ymin = gap - SE.sim), width=0.1) +
     geom_point(size = .5, col=  "red") +
-    labs(title = paste("Gap analysis to determine cluster number,",cluster_method)) +
+    labs(title = paste("Gap analysis,",cluster_method, dataset_name)) +
      theme_bw()+
   theme(axis.ticks = element_blank(),
         panel.border = element_blank(),
-        axis.line =element_blank())
+        axis.line =element_blank(),
+        title = element_text(size = 8))
   return(p)
 }
 
@@ -800,14 +816,14 @@ dm <- combined_features_data %>%
     select(all_of(condition_order)) %>%
   as.matrix()
 
-if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_combined_B100.rda"))){
-  load(paste0("../integrated_analysis/gss_",cluster_method,"_combined_B100.rda"))
+if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_combined.rda"))){
+  load(paste0("../integrated_analysis/gss_",cluster_method,"_combined.rda"))
 } else {
   gss_combined <- clusGap(dm, FUN = pam, pamonce = 5, K.max = 25, B = 100, verbose = FALSE)
   save(gss_combined, file = paste0("../integrated_analysis/gss_",cluster_method,"_combined.rda"))
 }
 
-  plot_gap_custom(gss_combined)
+  plot_gap_custom(gss_combined, "combined")
 if(create_pdfs){
   pdf("MDD_combined_gap_cluster.pdf")
   p <- plot_gap_custom(gss_combined)
@@ -820,14 +836,14 @@ dm <- shared_features_data %>%
     select(all_of(condition_order)) %>%
   as.matrix()
 
-if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_shared_B100.rda"))){
-  load(paste0("../integrated_analysis/gss_",cluster_method,"_shared_B100.rda"))
+if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_shared.rda"))){
+  load(paste0("../integrated_analysis/gss_",cluster_method,"_shared.rda"))
 } else {
   gss_shared <- clusGap(dm, FUN = pam, pamonce = 5, K.max = 25, B = 100, verbose = FALSE)
-  save(gss_shared, file = paste0("../integrated_analysis/gss_",cluster_method,"_shared_B100.rda"))
+  save(gss_shared, file = paste0("../integrated_analysis/gss_",cluster_method,"_shared.rda"))
 }
 
-  plot_gap_custom(gss_shared)
+  plot_gap_custom(gss_shared, "shared")
 if(create_pdfs){
   pdf("MDD_shared_gap_cluster.pdf")
   p <- plot_gap_custom(gss_shared)
@@ -990,6 +1006,6 @@ We want to compare the features identified using set analysis of differentially 
 
 #### Method  
 
-Filter both matrices to 24 and 48 hour, RNAseq features and perform a set analysis on the 12 modules in each datase.  
+Filter both matrices to 24 and 48 hour, RNAseq features and perform a set analysis on the modules in each dataset.  
 
 ###
