@@ -7,25 +7,19 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
 
 suppressMessages(library(tidyverse))
-#library(enrichR)
 library(readxl)
 library(httr)
 library(jsonlite)
-#library(ReactomeGSA)
-# library(ReactomePA)
-# library(clusterProfiler)
-# library(biomaRt)
-# 
-# ensembl <- useDataset("hsapiens_gene_ensembl", mart = useMart("ensembl"))
 
-create_pdfs <- FALSE
-write_csvs <- FALSE
+
+create_pdfs <- TRUE
+write_csvs <- TRUE
 
 #dotplot filter values 
 fdr_thresh <- .1
 p_value_thresh <- .05
-# min_gene_nbr <- 1
-# max_gene_nbr <- 500
+min_gene_nbr <- 1
+max_gene_nbr <- 500
 gene_ratio_thresh <- .1
 keep_gene_nbr <- 5
 pathway_nbr <- 5
@@ -129,7 +123,7 @@ selected_pathways_enrichr <- enriched_pathways_enrichr %>%
  get_pathway_data <- function(genes) {
    browser()
    #submit file of gene names to Reactome
-   res <- POST(url = "https://reactome.org/AnalysisService/identifiers/?interactors=false&species=Homo%20sapiens&pageSize=20&page=1&sortBy=ENTITIES_PVALUE&order=ASC&resource=TOTAL&pValue=1&includeDisease=true",
+   res <- POST(url = "https://reactome.org/AnalysisService/identifiers/projection/?interactors=false&species=Homo%20sapiens&pageSize=200&page=1&sortBy=ENTITIES_FDR&order=ASC&resource=TOTAL&pValue=1&includeDisease=true",
                body = genes,
                accept_json(),
                content_type("text/plain"))
@@ -152,11 +146,11 @@ selected_pathways_enrichr <- enriched_pathways_enrichr %>%
        pull(Submitted_identifier) %>%
        unique()
      #Check that some of the genes are in reactome
-     If()
-      #submit file of found genes to Reactome
-   pathway_res <- POST(url = "https://reactome.org/AnalysisService/identifiers/?interactors=false&species=Homo%20sapiens&pageSize=20&page=1&sortBy=ENTITIES_PVALUE&order=ASC&resource=TOTAL&pValue=1&includeDisease=true",
-               body = reactome_genes,
-               accept_json(),
+     if(!identical(reactome_genes, "")){
+        #submit file of found genes to Reactome
+   pathway_res <- POST(url = "https://reactome.org/AnalysisService/identifiers/projection/?interactors=false&species=Homo%20sapiens&pageSize=200&page=1&sortBy=ENTITIES_FDR&order=ASC&resource=TOTAL&pValue=1&includeDisease=true",
+             body = reactome_genes,
+           accept_json(),
                content_type("text/plain"))
    
    if(!status_code(pathway_res) == 200) stop("received API code ", status_code(pathway_res))
@@ -166,52 +160,130 @@ selected_pathways_enrichr <- enriched_pathways_enrichr %>%
    pathway_data <- pathways %>%
      select(-entities, -reactions, -species) %>%
      bind_cols(pathways$entities) %>%
-     select(-exp)
-   
+     select(-exp) %>%
+     mutate(geneRatio = found/total)
+     } else {
+       pathway_data <- NULL
+     }
+  
    return(pathway_data)
  }
  
 #make a list with a character vector of gene names from each module
- 
  get_genes_from_excel <- function(sheet_name, file_name){
      genes <- read_excel(file_name, sheet = sheet_name) %>%
     filter(Type == "RNAseq") %>%
-       mutate(Module = sheet_name) %>%
-       select(Module, feature)
+       mutate(module = sheet_name) %>%
+       select(module, feature)
+     if(nrow(genes) == 0) return(NULL)
      return(genes$feature)
+ }
+ 
+ #make a list with a character vector of gene names from each module
+ get_genes_from_previous_excel <- function(sheet_name, file_name){
+     genes <- read_excel(file_name, sheet = sheet_name) %>%
+    filter(assay == "RNA") %>%
+       mutate(module = sheet_name) %>%
+       select(module, symbol)
+     return(genes$symbol)
  }
  
  if(!file.exists("MDD_Reactome_pathways_combined.csv")){
    file_name <- "MDD_int_rr_combined_tables.xlsx"
    gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
    names(gene_list) <- excel_sheets(file_name)
-   pathways_combined <- map_dfr(gene_list, get_pathway_data, .id = "Module")
+       gene_list <- compact(gene_list)
+   pathways_combined <- map_dfr(gene_list, get_pathway_data, .id = "module") %>%
+         mutate(module = fct_inorder(module,ordered = TRUE))
    write_csv(pathways_combined, "MDD_Reactome_pathways_combined.csv")
  } else {
-   pathways_combined <- read_csv("MDD_Reactome_pathways_combined.csv")
+   pathways_combined <- read_csv("MDD_Reactome_pathways_combined.csv") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+
  }
  
- get_pathways <- function(dataset_type){
-   browser()
-   if(!file.exists(paste0("MDD_Reactome_pathways_",dataset_type,".csv"))){
-     file_name <- paste0("MDD_int_rr_",dataset_type,"_tables.xlsx")
-     gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
-     names(gene_list) <- excel_sheets(file_name)
-     pathways<- map_dfr(gene_list, get_pathway_data, .id = "Module")
-     write_csv(pathways, paste0("MDD_Reactome_pathways_",dataset_type,".csv"))
-   } else {
-     pathways <- read_csv(paste0("MDD_Reactome_pathways_",dataset_type,".csv"))
-   }
+ #manually combine some modules based on biological review
+  if(!file.exists("MDD_Reactome_pathways_combined_manual.csv")){
+    file_name <- "MDD_int_rr_combined_tables.xlsx"
+    gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
+    names(gene_list) <- excel_sheets(file_name)
+    gene_list[["module_3+4"]] <- c(gene_list[[3]], gene_list[[4]])
+    gene_list[["module_8+17"]] <- c(gene_list[[8]], gene_list[[17]])
+    gene_list[["module_10+15"]] <- c(gene_list[[10]], gene_list[[15]])
+    gene_list[c("module_3", "module_4", "module_8", "module_17", "module_10", "module_15")] <- NULL
+          gene_list <- compact(gene_list)
+   pathways_combined_manual <- map_dfr(gene_list, get_pathway_data, .id = "module") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+   write_csv(pathways_combined_manual, "MDD_Reactome_pathways_combined_manual.csv")
+ } else {
+   pathways_combined_manual <- read_csv("MDD_Reactome_pathways_combined_manual.csv") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
  }
  
-pathways_combined <- get_pathways(dataset_type = "combined")
-pathways_unique <- get_pathways(dataset_type = "unique")
+ 
+ #create API-based dotplot for unique modules
+  if(!file.exists("MDD_Reactome_pathways_unique.csv")){
+    file_name <- "MDD_int_rr_unique_tables.xlsx"
+    gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
+    names(gene_list) <- excel_sheets(file_name)
+    gene_list <- compact(gene_list)
+   pathways_unique <- map_dfr(gene_list, get_pathway_data, .id = "module")
+   write_csv(pathways_unique, "MDD_Reactome_pathways_unique.csv") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+ } else {
+   pathways_unique <- read_csv("MDD_Reactome_pathways_unique.csv") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+ }
+ 
+ #create API-based pathways for shared modules
+  if(!file.exists("MDD_Reactome_pathways_shared.csv")){
+    file_name <- "MDD_int_rr_shared_tables.xlsx"
+    gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
+    names(gene_list) <- excel_sheets(file_name)
+       gene_list <- compact(gene_list)
+   pathways_shared <- map_dfr(gene_list, get_pathway_data, .id = "module")
+   write_csv(pathways_shared, "MDD_Reactome_pathways_shared.csv")
+ } else {
+   pathways_shared <- read_csv("MDD_Reactome_pathways_shared.csv") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+ }
+ 
+  #get API-based pathways for previous modules
+  if(!file.exists("MDD_Reactome_pathways_previous.csv")){
+    file_name <- "MDD_int_rr_previous_tables.xlsx"
+    gene_list <- map(excel_sheets(file_name), get_genes_from_previous_excel, file_name = file_name)
+    names(gene_list) <- excel_sheets(file_name)
+       gene_list <- compact(gene_list)
+   pathways_previous <- map_dfr(gene_list, get_pathway_data, .id = "module")
+   write_csv(pathways_previous, "MDD_Reactome_pathways_previous.csv")
+ } else {
+   pathways_previous <- read_csv("MDD_Reactome_pathways_previous.csv") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+ }
+ 
+ 
+ # 
+ # get_pathways <- function(dataset_type){
+ #   browser()
+ #   if(!file.exists(paste0("MDD_Reactome_pathways_",dataset_type,".csv"))){
+ #     file_name <- paste0("MDD_int_rr_",dataset_type,"_tables.xlsx")
+ #     gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
+ #     names(gene_list) <- excel_sheets(file_name)
+ #     pathways<- map_dfr(gene_list, get_pathway_data, .id = "module")
+ #     write_csv(pathways, paste0("MDD_Reactome_pathways_",dataset_type,".csv"))
+ #   } else {
+ #     pathways <- read_csv(paste0("MDD_Reactome_pathways_",dataset_type,".csv"))
+ #   }
+ # }
+ # 
+
+#pathways_unique <- get_pathways(dataset_type = "unique")
 
 
 ```
 
 
-```{r load_manual_website_pathways}
+```{r load_manual_website_pathways, eval = FALSE}
 # #manually load each gene set into Reactome and save  results files
 # 
 # Read in results files 
@@ -246,7 +318,7 @@ res <- write_csv(enriched_pathways_web, "Reactome_web_enriched_pathways_combined
 
 ```
 
-```{r null_pathways}
+```{r null_pathways, eval = FALSE}
 
 enriched_pathways_web_null <- dir("../integrated_analysis/Null_Data",pattern = "resultn[[:digit:]]{1,2}.csv", full.names = TRUE) %>%
   str_sort(numeric = TRUE)
@@ -261,8 +333,8 @@ enriched_pathways_null <- map(enriched_pathways_web_null, read_csv) %>%
 
 ```{r create_dotplots}
 
-make_dotplots <- function(df, p_value_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL){
- 
+make_dotplots <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL){
+ #browser()
    selected_pathways <- df %>%
   group_by(module) %>%
   slice_min(order_by = c(entities_p_value), n = pathway_nbr) %>%
@@ -273,17 +345,17 @@ make_dotplots <- function(df, p_value_thresh = .2, gene_ratio_thresh = 0.1, path
 
 df_selected <- df %>%
   right_join(selected_pathways, by = "pathway_identifier") %>%
-  filter(entities_p_value <= p_value_thresh,
+  filter(entities_fdr <= fdr_thresh,
          geneRatio > gene_ratio_thresh) %>%
   group_by(pathway_name) %>%
-  mutate(mean_p_value = mean(entities_p_value)) %>%
+  mutate(mean_fdr = mean(entities_fdr)) %>%
   ungroup() %>%
-  arrange(desc(module), mean_p_value) %>%
+  arrange(desc(module), mean_fdr) %>%
   mutate(pathway_name = fct_inorder(pathway_name))
 
 p <- ggplot(df_selected, aes(x = module,
                     y = pathway_name,
-                    colour = entities_p_value,
+                    colour = entities_fdr,
                     size = geneRatio)) +
   geom_point() +
   scale_x_discrete(drop = FALSE) +
@@ -301,50 +373,120 @@ p
   dev_off_res <- dev.off()
 }
 
-res <- make_dotplots(enriched_pathways_enrichr, pathway_method = "_enrichR")
-
-res <- make_dotplots(enriched_pathways_web, pathway_method = "_web")
-#   
+make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL){
+  #browser()
+  selected_pathways <- df %>%
+    group_by(module) %>%
+    filter(fdr <= fdr_thresh,
+           geneRatio >= gene_ratio_thresh) %>%
+    slice_min(order_by = c(fdr), n = pathway_nbr) %>%
+    slice_max(geneRatio, n = pathway_nbr) %>%
+    ungroup() %>%
+    dplyr::select(name) %>%
+    distinct()
   
-  #####NULL dataset analysis
+  df_selected <- df %>%
+    right_join(selected_pathways, by = "name") %>%
+    filter(fdr <= fdr_thresh,
+           geneRatio >= gene_ratio_thresh) %>%
+    group_by(name) %>%
+    mutate(mean_fdr = mean(fdr),
+           module = str_remove(module, "module_")) %>%
+    ungroup() %>%
+    mutate(module = fct_inorder(module, ordered = TRUE)) %>%
+    arrange(desc(module), mean_fdr) %>%
+    mutate(name = fct_inorder(name, ordered = TRUE))
   
-  selected_pathways_null <- enriched_pathways_null %>%
-  group_by(module) %>%
-  slice_min(order_by = c(entities_p_value), n = keep_gene_nbr) %>%
-  slice_max(geneRatio, n = keep_gene_nbr) %>%
-  ungroup() %>%
-  dplyr::select(pathway_identifier)
-
-df <- enriched_pathways_null %>%
-  right_join(selected_pathways_null) %>%
-  filter(entities_p_value <= p_value_thresh,
-         geneRatio > gene_ratio_thresh) %>%
-  group_by(pathway_name) %>%
-  mutate(mean_fdr = mean(entities_fdr),
-         mean_p_value = mean(entities_p_value)) %>%
-  ungroup() %>%
-  arrange(desc(module), mean_p_value) %>%
-  mutate(pathway_name = fct_inorder(pathway_name))
-
-p <- ggplot(df, aes(x = module,
-                    y = pathway_name,
-                    colour = entities_p_value,
-                    size = geneRatio)) +
-  geom_point() +
-  scale_x_discrete(drop = FALSE) +
-  scale_color_gradient(low = "red",high = "blue") +
-  scale_size(range = c(0,4))+
-  labs(title = "Null dataset") +
-  theme_bw() +
-  theme(axis.text.y = element_text(size = 6,
-                                   color = "black"))
-p
-
- pdf(paste0("MDD_null_dataset_reactome_dotplot.pdf"),
-     width = 8,
-     useDingbats = FALSE)
+  p <- ggplot(df_selected, aes(x = module,
+                               y = name,
+                               colour = fdr,
+                               size = geneRatio)) +
+    geom_point() +
+    #scale_x_discrete(drop = FALSE) +
+    scale_color_gradient(low = "red",high = "blue") +
+    scale_size(range = c(0,4))+
+    theme_bw() +
+    theme(axis.text.y = element_text(size = 6,
+                                     color = "black"),
+          axis.text.x = element_text(angle = 90))
+  p
+  
+  pdf(paste0("MDD_reactome_dotplot",pathway_method,".pdf"),
+      width = 8,
+      useDingbats = FALSE)
   print(p)
   dev_off_res <- dev.off()
+}
+
+
+# res <- make_dotplots(enriched_pathways_enrichr, pathway_method = "_enrichR")
+
+# res <- make_dotplots(enriched_pathways_web, pathway_method = "_web")
+
+
+res <- make_dotplots_API(pathways_combined, pathway_method = "_combined_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
+
+res <- make_dotplots_API(pathways_combined_manual, pathway_method = "_combined_manual_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
+
+res <- make_dotplots_API(pathways_unique, pathway_method = "_unique_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
+
+  res <- make_dotplots_API(pathways_shared, pathway_method = "_shared_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
+
+  res <- make_dotplots_API(pathways_previous, pathway_method = "_previous_API",fdr_thresh = 0.2, gene_ratio_thresh = 0.1)
+  ##previous dataset analysis
+#   
+# path <- "../integrated_analysis/Data/MDD_ligand_module_features.xlsx"
+# integrated_data <- lapply(readxl::excel_sheets(path), readxl::read_xlsx, path = path ) %>%
+#   bind_rows(.id = "module") %>%
+#   mutate(module = readxl::excel_sheets(path)[as.integer(module)])
+# 
+# int_genes <- integrated_data %>%
+#   filter(assay == "RNA",
+#          time %in% c(24,48)) %>%
+#   rename(Cluster = module) %>%
+#   select(Cluster, symbol) %>%
+#   #mutate(Cluster = str_replace(Cluster, "module_","int_")) %>%
+#   distinct
+###
+#   #####NULL dataset analysis
+#   
+#   selected_pathways_null <- enriched_pathways_null %>%
+#   group_by(module) %>%
+#   slice_min(order_by = c(entities_p_value), n = keep_gene_nbr) %>%
+#   slice_max(geneRatio, n = keep_gene_nbr) %>%
+#   ungroup() %>%
+#   dplyr::select(pathway_identifier)
+# 
+# df <- enriched_pathways_null %>%
+#   right_join(selected_pathways_null) %>%
+#   filter(entities_p_value <= p_value_thresh,
+#          geneRatio > gene_ratio_thresh) %>%
+#   group_by(pathway_name) %>%
+#   mutate(mean_fdr = mean(entities_fdr),
+#          mean_p_value = mean(entities_p_value)) %>%
+#   ungroup() %>%
+#   arrange(desc(module), mean_p_value) %>%
+#   mutate(pathway_name = fct_inorder(pathway_name))
+# 
+# p <- ggplot(df, aes(x = module,
+#                     y = pathway_name,
+#                     colour = entities_p_value,
+#                     size = geneRatio)) +
+#   geom_point() +
+#   scale_x_discrete(drop = FALSE) +
+#   scale_color_gradient(low = "red",high = "blue") +
+#   scale_size(range = c(0,4))+
+#   labs(title = "Null dataset") +
+#   theme_bw() +
+#   theme(axis.text.y = element_text(size = 6,
+#                                    color = "black"))
+# p
+# 
+#  pdf(paste0("MDD_null_dataset_reactome_dotplot.pdf"),
+#      width = 8,
+#      useDingbats = FALSE)
+#   print(p)
+#   dev_off_res <- dev.off()
 
 ```
 
