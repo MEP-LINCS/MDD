@@ -38,8 +38,13 @@ combined_clust_num <- 18
 cluster_method <- "pam"
 
 experimentalTimePoints <- c("_24", "_48")
-ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
-ligand_order <-  c("HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+if(keep_PBS) {
+  ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+} else {
+  ligand_order <-  c("HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+}
+
+
 condition_order <- paste0(rep(ligand_order, each = length(experimentalTimePoints)), rep(c("_24", "_48"), times = length(ligand_order)))
 
 #create a named vector of color values for the Heatmap clusters
@@ -164,6 +169,36 @@ combined_features_ann <- combined_features_data_ann %>%
   select(Cluster, Type, Set) %>%
   as.data.frame()
 
+#Create a matrix and heatmap of the mean combined values
+ combined_features_data_mean <- combined_features_data_ann %>%
+  group_by(Cluster) %>%
+  summarise(across(.cols = matches("_24|48"), .fns = mean))
+
+  combined_features_count <- combined_features_data_ann %>%
+  group_by(Cluster) %>%
+ count()
+  
+combined_features_data_mean_dm <- combined_features_data_mean %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(combined_features_data_mean_dm) <- paste0("Module_",combined_features_data_mean$Cluster,"_", combined_features_count$n)
+
+hm_combined_mean <- Heatmap(combined_features_data_mean_dm,
+               name = "lfc ",
+               column_title = "Combined cluster means",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               use_raster = FALSE)
+
+#Make heatmap with annotations
 haRow_combined <- HeatmapAnnotation(df = combined_features_ann,
                                which = "row",
                                col = list(Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE),
@@ -193,6 +228,22 @@ if(create_pdfs){
   draw(hm_combined)
   res <- dev.off()
 } 
+
+hm_combined_mean <- Heatmap(combined_features_data_mean_dm,
+               name = "lfc ",
+               column_title = "Combined cluster means",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = TRUE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               use_raster = FALSE)
+
 #######
 #Shared features
 
@@ -258,7 +309,7 @@ if(create_pdfs){
   res <- dev.off()
 } 
 
-# #Create a matrix and heatmap of the mean cluster values by condition
+#Create a matrix and heatmap of the mean shared cluster values
  shared_features_data_mean <- shared_features_data_ann %>%
   group_by(Cluster) %>%
   summarise(across(.cols = matches("_24|48"), .fns = mean))
@@ -274,10 +325,10 @@ rownames(shared_features_data_mean_dm) <- paste0("Module_",shared_features_data_
 
 hm_shared_mean <- Heatmap(shared_features_data_mean_dm,
                name = "lfc ",
-               column_title = "Shared cluster averages",
+               column_title = "Shared cluster means",
                column_title_gp = gpar(fontsize = 12),
                col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = FALSE,
+               cluster_rows = TRUE,
                cluster_row_slices = FALSE,
                cluster_columns = FALSE,
                row_gap = unit(2, "mm"),
@@ -313,7 +364,7 @@ unique_features_data_dm<- unique_features_data_ann %>%
 
 hm_unique <- Heatmap(unique_features_data_dm,
                name = "lfc rr",
-               column_title = "Ligand-unique features",
+               column_title = "Unique features",
                column_title_gp = gpar(fontsize = 12),
                col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
                cluster_rows = FALSE,
@@ -335,8 +386,7 @@ if(create_pdfs){
   res <- dev.off()
 } 
 
-
-# #Create a matrix and heatmap of the mean cluster values by condition
+#Create a matrix and heatmap of the mean unique cluster values
  unique_features_data_mean <- unique_features_data_ann %>%
   group_by(Cluster) %>%
   summarise(across(.cols = matches("_24|48"), .fns = mean))
@@ -355,7 +405,7 @@ hm_unique_mean <- Heatmap(unique_features_data_mean_dm,
                column_title = "Unique cluster averages",
                column_title_gp = gpar(fontsize = 12),
                col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = FALSE,
+               cluster_rows = TRUE,
                cluster_row_slices = FALSE,
                cluster_columns = FALSE,
                row_gap = unit(2, "mm"),
@@ -365,11 +415,13 @@ hm_unique_mean <- Heatmap(unique_features_data_mean_dm,
                column_names_gp = gpar(fontsize = 10),
                use_raster = FALSE)
 
+hm_combined_mean
 hm_shared_mean
 hm_unique_mean
 
 if(create_pdfs){
   pdf("MDD_mean_heatmaps.pdf") 
+  draw(hm_combined_mean)
   draw(hm_shared_mean)
   draw(hm_unique_mean)
   res <- dev.off()
@@ -488,7 +540,7 @@ if(plot_UMAP_3d){
                            colour = factor(Cluster))) +
     geom_point(size = 1, alpha = .6, shape = 16) +
     scale_color_manual(values = cluster_cols) +
-    labs(title = paste("UMAP embedding colored by cluster"),
+    labs(title = paste("UMAP embedding colored by cluster, combined"),
          colour = "Cluster") +
     guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
     theme_bw()+
@@ -517,7 +569,7 @@ p <- ggplot(data = df_UMAP[df_UMAP$Type=="RNA",], aes(x = UMAP_1,
                                                       colour = factor(Type))) +
   geom_point(size = .8, alpha = .6) +
   scale_colour_manual(values = assay_cols)+
-  labs(title = paste("UMAP embedding colored by assay"),
+  labs(title = paste("UMAP embedding colored by assay, combined"),
        colour = "Assay") +
   guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
   theme_bw()+
@@ -653,15 +705,15 @@ if_dm <- if_df %>%
   as.matrix()
   rownames(if_dm) <- if_df$feature
   
-combined_features_data_mean_df <- combined_features_data_ann %>%
-  group_by(Cluster) %>%
-      summarise(across(.cols = matches("_24|48"), .fns = mean)) %>%
-    ungroup() %>%
-  mutate(Cluster = paste0("Module_",as.integer(Cluster)))
-combined_features_data_mean_dm <- combined_features_data_mean_df %>%
-  select(-Cluster) %>%
-  as.matrix()
-rownames(combined_features_data_mean_dm) <- combined_features_data_mean_df$Cluster
+# combined_features_data_mean_df <- combined_features_data_ann %>%
+#   group_by(Cluster) %>%
+#       summarise(across(.cols = matches("_24|48"), .fns = mean)) %>%
+#     ungroup() %>%
+#   mutate(Cluster = paste0("Module_",as.integer(Cluster)))
+# combined_features_data_mean_dm <- combined_features_data_mean_df %>%
+#   select(-Cluster) %>%
+#   as.matrix()
+# rownames(combined_features_data_mean_dm) <- combined_features_data_mean_df$Cluster
   
 if_module_dm <- rbind(combined_features_data_mean_dm, if_dm) %>%
   t
@@ -745,7 +797,7 @@ if(create_pdfs) {
 
 
 ```{r featureTypes, fig.width=8, fig.height=4}
-#create a bar chart of the feature types
+#create a bar chart of the shared feature types
 df <- shared_features_data %>%
   #drop_na() %>%
   select(feature, Type) %>%
@@ -783,10 +835,56 @@ p_log <- ggplot(df, aes(x = Type, fill = Type)) +
 
 p_log
 if(create_pdfs){
-  pdf("MDD_ligands_feature_type_distribution.pdf")
+  pdf("MDD_shared_feature_type_distribution.pdf")
   print(p)  
   res <- dev.off()
-  pdf("MDD_ligands_feature_type_distribution_log_scale.pdf")
+  pdf("MDD_shared_feature_type_distribution_log_scale.pdf")
+  print(p_log)
+  res <- dev.off()
+} 
+
+#create a bar chart of the combined feature types
+df <- combined_features_data %>%
+  #drop_na() %>%
+  select(feature, Type) %>%
+  distinct()
+
+p <- ggplot(df, aes(x = Type, fill = Type)) +
+  geom_bar() +
+  coord_cartesian(ylim = c(0, 10000)) +
+  scale_fill_manual(values = assay_cols)+
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the combined-features MDD integrated dataset"),
+       x ="Feature type") +
+  theme_bw()+
+  theme(axis.text.x =  element_text(angle = 90),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+
+p
+
+p_log <- ggplot(df, aes(x = Type, fill = Type)) +
+  geom_bar() +
+  scale_y_log10() +
+  scale_fill_manual(values = assay_cols)+
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "combined features at unique timepoints in the MDD integrated dataset"),
+       x ="Feature type") +
+  theme_bw()+
+  theme(axis.text.x =  element_text(angle = 90),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+
+p_log
+if(create_pdfs){
+  pdf("MDD_combined_feature_type_distribution.pdf")
+  print(p)  
+  res <- dev.off()
+  pdf("MDD_combined_feature_type_distribution_log_scale.pdf")
   print(p_log)
   res <- dev.off()
 } 
@@ -854,10 +952,12 @@ if(create_pdfs){
 
 ```{r assayClusterdistribution, fig.width=8, fig.height=4, eval = TRUE}
 
+#Shared cluster analysis
 p <- ggplot(shared_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) +
   geom_bar(position = "dodge") +  
   scale_fill_manual(values = assay_cols) +
-  labs(x = "Cluster",
+  labs(title = "Shared cluster analysis",
+       x = "Cluster",
        fill = "Assay") +
   facet_wrap(~Type, scales = "free_y") +
   theme_bw()+
@@ -878,7 +978,8 @@ df <- shared_features_data_ann %>%
 p <- ggplot(df, aes(x = n, fill = Type)) +
   geom_density() +  
   scale_fill_manual(values = assay_cols) +
-  labs(x = "feature count",
+  labs(title = "Shared cluster analysis",
+       x = "feature count",
        fill = "Assay") +
   facet_wrap(~Type, scales = "free") +
   theme_bw()+
@@ -893,6 +994,52 @@ p
 
 if(create_pdfs){
   pdf("MDD_shared_cluster_feature_counts.pdf")
+  print(p)
+  res <- dev.off()
+} 
+
+#Combined cluster analysis
+p <- ggplot(combined_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) +
+  geom_bar(position = "dodge") +  
+  scale_fill_manual(values = assay_cols) +
+  labs(title = "Combined cluster analysis",
+       x = "Cluster",
+       fill = "Assay") +
+  facet_wrap(~Type, scales = "free_y") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    #axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p
+
+df <- combined_features_data_ann %>%
+  group_by(Type, Cluster) %>%
+  count() %>%
+  ungroup()
+
+p <- ggplot(df, aes(x = n, fill = Type)) +
+  geom_density() +  
+  scale_fill_manual(values = assay_cols) +
+  labs(title = "Combined cluster analysis",
+       x = "feature count",
+       fill = "Assay") +
+  facet_wrap(~Type, scales = "free") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    #axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p
+
+if(create_pdfs){
+  pdf("MDD_combined_cluster_feature_counts.pdf")
   print(p)
   res <- dev.off()
 } 
