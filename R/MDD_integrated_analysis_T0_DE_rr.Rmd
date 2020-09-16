@@ -31,7 +31,7 @@ if(keep_PBS) PBS_pointer <- ""
 data_path <- paste0("../integrated_analysis/integrated_matrix_lfc_rr",PBS_pointer, ".csv")
 p_values_path <- paste0("../integrated_analysis/integrated_adj_p_values", PBS_pointer, ".csv") 
 shared_features_path <- paste0("../integrated_analysis/integrated_shared_features_rr", PBS_pointer, ".csv") 
-unique_features_path <- paste0("../integrated_analysis/integrated_unique_features_rr", PBS_pointer, ".csv") 
+unique_features_path <- paste0("../integrated_analysis/integrated_unique_features_rr", PBS_pointer, "_absDir.csv") 
 
 shared_clust_num <- 12
 combined_clust_num <- 18
@@ -43,7 +43,6 @@ if(keep_PBS) {
 } else {
   ligand_order <-  c("HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
 }
-
 
 condition_order <- paste0(rep(ligand_order, each = length(experimentalTimePoints)), rep(c("_24", "_48"), times = length(ligand_order)))
 
@@ -97,7 +96,8 @@ unique_features_data <- unique_features%>%
          ligand = str_replace(ligand, "TGFB","TGFB+EGF"),
          feature_type =  paste(feature, Type, sep = "_"),
          Set = ligand) %>%
-  select(ligand, feature_type, Direction, Set) %>%
+  select(ligand, feature_type, Abs_Direction, Set) %>%
+  rename(Direction = Abs_Direction) %>%
   left_join(all_features_data, by = "feature_type") %>%
   rename(Cluster = ligand) %>%
   mutate(Cluster = paste(Cluster, Direction, sep = "_")) %>%
@@ -679,11 +679,12 @@ if(create_pdfs) {
 
 ```{r correlate_to_phenotypes}
 
+#start with level 3 IF data from synapse
 level3File <- paste0("../IF/Data/MDD_IF_Level3.csv")
-
 raw_df <- read_csv(level3File)
 colnames(raw_df) <- raw_df[raw_df$X1 == "specimenName",]
 
+#filter to 24 and 48 hour
 if_df <- raw_df %>%
   select(matches("specimenName|24_C2|48_C2")) %>%
   rename(feature = specimenName) %>%
@@ -700,10 +701,22 @@ if_df <- raw_df %>%
   pivot_wider(names_from = condition, values_from = value) %>%
   select(feature, all_of(condition_order))
 
-if_dm <- if_df %>%
+#Add migration data in the same format
+migration <- read_csv("../integrated_analysis/Data/MDD_migration_distance_lineage_T0.csv") %>%
+  filter(thour %in%c(24, 48),
+         !treatment == "PBS") %>%
+    mutate(condition = paste0(treatment,"_",thour),
+           feature = "migration_distance")  %>%
+  select(-treatment, -thour) %>%
+  pivot_wider(names_from = condition, values_from = lineage_length_mean)
+
+if_df_migration <- if_df %>%
+  bind_rows(migration) 
+
+if_dm <- if_df_migration %>%
   select(-feature) %>%
   as.matrix()
-  rownames(if_dm) <- if_df$feature
+  rownames(if_dm) <- if_df_migration$feature
   
 # combined_features_data_mean_df <- combined_features_data_ann %>%
 #   group_by(Cluster) %>%
@@ -733,7 +746,7 @@ if(create_pdfs) {
 }
 
 #Reduce phenotype set
-if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|StdIntensity_KRT5|MinIntensity_KRT5|_Negative|_Positive")]
+if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|StdIntensity_KRT5|MinIntensity_KRT5|_Negative|_Positive|migration_distance")]
 cor_dm <- cor(if_module_dm_reduced,  method ="pearson")
 
 cor_hm <- Heatmap(cor_dm,
@@ -774,7 +787,7 @@ if(write_csvs) {
 #Modules vs IF  set
 if_modules_dm <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative$|_Positive$")]
 
-if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|MinIntensity_KRT5")]
+if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|MinIntensity_KRT5|migration_distance")]
 cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="pearson")
 
 cor_hm <- Heatmap(cor_dm,
@@ -953,7 +966,7 @@ if(create_pdfs){
 ```{r assayClusterdistribution, fig.width=8, fig.height=4, eval = TRUE}
 
 #Shared cluster analysis
-p <- ggplot(shared_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) +
+p_hist <- ggplot(shared_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) +
   geom_bar(position = "dodge") +  
   scale_fill_manual(values = assay_cols) +
   labs(title = "Shared cluster analysis",
@@ -968,7 +981,7 @@ p <- ggplot(shared_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) 
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.line =element_blank())
-p
+p_hist
 
 df <- shared_features_data_ann %>%
   group_by(Type, Cluster) %>%
@@ -994,12 +1007,82 @@ p
 
 if(create_pdfs){
   pdf("MDD_shared_cluster_feature_counts.pdf")
-  print(p)
+   print(p_hist)
+   print(p)
+  res <- dev.off()
+} 
+
+#unique cluster analysis
+p_hist <- ggplot(unique_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) +
+  geom_bar(position = "dodge") +  
+  scale_fill_manual(values = assay_cols) +
+  labs(title = "Unique cluster analysis",
+       x = "Cluster",
+       fill = "Assay") +
+  facet_wrap(~Type, scales = "free_y") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    axis.text.x = element_text(angle = 90),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p_hist
+
+#color bars by ligand 
+df <- unique_features_data_ann %>%
+  mutate(ligand = str_remove(Cluster, "_.*"))
+p_ligand <- ggplot(df, aes(x = as.factor(Cluster), fill = ligand)) +
+  geom_bar(position = "dodge") +  
+  scale_fill_manual(values = ligand_cols) +
+  labs(title = "Unique cluster analysis",
+       x = "Cluster",
+       fill = "Ligand") +
+  facet_wrap(~Type, scales = "free_y") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    axis.text.x = element_text(angle = 90),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p_ligand
+
+####
+df <- unique_features_data_ann %>%
+  group_by(Type, Cluster) %>%
+  count() %>%
+  ungroup()
+
+p <- ggplot(df, aes(x = n, fill = Type)) +
+  geom_density() +  
+  scale_fill_manual(values = assay_cols) +
+  labs(title = "Unique cluster analysis",
+       x = "feature count",
+       fill = "Assay") +
+  facet_wrap(~Type, scales = "free") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    axis.text.x = element_text(angle = 0),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p
+
+if(create_pdfs){
+  pdf("MDD_unique_cluster_feature_counts.pdf")
+   print(p_hist)
+   print(p_ligand)
+   print(p)
   res <- dev.off()
 } 
 
 #Combined cluster analysis
-p <- ggplot(combined_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) +
+p_hist <- ggplot(combined_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) +
   geom_bar(position = "dodge") +  
   scale_fill_manual(values = assay_cols) +
   labs(title = "Combined cluster analysis",
@@ -1014,7 +1097,7 @@ p <- ggplot(combined_features_data_ann, aes(x = as.factor(Cluster), fill = Type)
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.line =element_blank())
-p
+p_hist
 
 df <- combined_features_data_ann %>%
   group_by(Type, Cluster) %>%
@@ -1040,7 +1123,8 @@ p
 
 if(create_pdfs){
   pdf("MDD_combined_cluster_feature_counts.pdf")
-  print(p)
+     print(p_hist)
+     print(p)
   res <- dev.off()
 } 
 
