@@ -88,8 +88,8 @@ if(!file.exists("MDD_enrichr_pathways.rda")){
 
 selected_pathways_enrichr <- enriched_pathways_enrichr %>%
   group_by(module) %>%
-  slice_min(order_by = c(entities_p_value), n = keep_gene_nbr, with_ties = FALSE) %>%
-  slice_max(geneRatio, n = keep_gene_nbr, with_ties = FALSE) %>%
+  slice_min(order_by = c(entities_p_value), n = keep_gene_nbr, with_ties = TRUE) %>%
+  slice_max(geneRatio, n = keep_gene_nbr, with_ties = TRUE) %>%
   ungroup() %>%
   dplyr::select(pathway_identifier)
 
@@ -121,7 +121,7 @@ selected_pathways_enrichr <- enriched_pathways_enrichr %>%
 ```{r reactome_API_pathways}
 
  get_pathway_data <- function(genes) {
-   browser()
+   #browser()
    #submit file of gene names to Reactome
    res <- POST(url = "https://reactome.org/AnalysisService/identifiers/projection/?interactors=false&species=Homo%20sapiens&pageSize=200&page=1&sortBy=ENTITIES_FDR&order=ASC&resource=TOTAL&pValue=1&includeDisease=true",
                body = genes,
@@ -333,54 +333,55 @@ enriched_pathways_null <- map(enriched_pathways_web_null, read_csv) %>%
 
 ```{r create_dotplots}
 
-make_dotplots <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL){
- #browser()
-   selected_pathways <- df %>%
-  group_by(module) %>%
-  slice_min(order_by = c(entities_p_value), n = pathway_nbr) %>%
-  slice_max(geneRatio, n = pathway_nbr) %>%
-  ungroup() %>%
-  dplyr::select(pathway_identifier) %>%
-     distinct()
+# make_dotplots <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL){
+#  #browser()
+#    selected_pathways <- df %>%
+#   group_by(module) %>%
+#   slice_min(order_by = c(entities_p_value), n = pathway_nbr, with_ties = TRUE) %>%
+#   slice_max(geneRatio, n = pathway_nbr, with_ties = TRUE) %>%
+#   ungroup() %>%
+#   dplyr::select(pathway_identifier) %>%
+#      distinct()
+# 
+# df_selected <- df %>%
+#   right_join(selected_pathways, by = "pathway_identifier") %>%
+#   filter(entities_fdr <= fdr_thresh,
+#          geneRatio > gene_ratio_thresh) %>%
+#   group_by(pathway_name) %>%
+#   mutate(mean_fdr = mean(entities_fdr)) %>%
+#   ungroup() %>%
+#   arrange(desc(module), mean_fdr) %>%
+#   mutate(pathway_name = fct_inorder(pathway_name))
+# 
+# p <- ggplot(df_selected, aes(x = module,
+#                     y = pathway_name,
+#                     colour = entities_fdr,
+#                     size = geneRatio)) +
+#   geom_point() +
+#   scale_x_discrete(drop = FALSE) +
+#   scale_color_gradient(low = "red",high = "blue") +
+#   scale_size(range = c(0,4))+
+#   theme_bw() +
+#   theme(axis.text.y = element_text(size = 6,
+#                                    color = "black"),
+#         axis.text.x = element_text(angle = 90))
+# draw(p)
+# 
+#  pdf(paste0("MDD_reactome_dotplot",pathway_method,".pdf"),
+#      width = 8,
+#      useDingbats = FALSE)
+#   print(p)
+#   dev_off_res <- dev.off()
+# }
 
-df_selected <- df %>%
-  right_join(selected_pathways, by = "pathway_identifier") %>%
-  filter(entities_fdr <= fdr_thresh,
-         geneRatio > gene_ratio_thresh) %>%
-  group_by(pathway_name) %>%
-  mutate(mean_fdr = mean(entities_fdr)) %>%
-  ungroup() %>%
-  arrange(desc(module), mean_fdr) %>%
-  mutate(pathway_name = fct_inorder(pathway_name))
-
-p <- ggplot(df_selected, aes(x = module,
-                    y = pathway_name,
-                    colour = entities_fdr,
-                    size = geneRatio)) +
-  geom_point() +
-  scale_x_discrete(drop = FALSE) +
-  scale_color_gradient(low = "red",high = "blue") +
-  scale_size(range = c(0,4))+
-  theme_bw() +
-  theme(axis.text.y = element_text(size = 6,
-                                   color = "black"))
-p
-
- pdf(paste0("MDD_reactome_dotplot",pathway_method,".pdf"),
-     width = 8,
-     useDingbats = FALSE)
-  print(p)
-  dev_off_res <- dev.off()
-}
-
-make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL){
+make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL, axis.text.x.angle = 0){
   #browser()
   selected_pathways <- df %>%
     group_by(module) %>%
     filter(fdr <= fdr_thresh,
            geneRatio >= gene_ratio_thresh) %>%
-    slice_min(order_by = c(fdr), n = pathway_nbr) %>%
-    slice_max(geneRatio, n = pathway_nbr) %>%
+    slice_min(order_by = c(fdr), n = pathway_nbr, with_ties = TRUE) %>%
+    slice_max(geneRatio, n = pathway_nbr, with_ties = TRUE) %>%
     ungroup() %>%
     dplyr::select(name) %>%
     distinct()
@@ -405,11 +406,12 @@ make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, path
     #scale_x_discrete(drop = FALSE) +
     scale_color_gradient(low = "red",high = "blue") +
     scale_size(range = c(0,4))+
+    labs(title = paste(str_replace_all(pathway_method, "_|_API", " "), "dataset pathways")) +
     theme_bw() +
     theme(axis.text.y = element_text(size = 6,
                                      color = "black"),
-          axis.text.x = element_text(angle = 90))
-  p
+          axis.text.x = element_text(angle = axis.text.x.angle))
+  print(p)
   
   pdf(paste0("MDD_reactome_dotplot",pathway_method,".pdf"),
       width = 8,
@@ -426,9 +428,9 @@ make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, path
 
 res <- make_dotplots_API(pathways_combined, pathway_method = "_combined_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
 
-res <- make_dotplots_API(pathways_combined_manual, pathway_method = "_combined_manual_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
+res <- make_dotplots_API(pathways_combined_manual, pathway_method = "_combined_manual_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1, axis.text.x.angle = 90)
 
-res <- make_dotplots_API(pathways_unique, pathway_method = "_unique_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
+res <- make_dotplots_API(pathways_unique, pathway_method = "_unique_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1, axis.text.x.angle = 90)
 
   res <- make_dotplots_API(pathways_shared, pathway_method = "_shared_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
 
