@@ -1615,7 +1615,6 @@ haRow_T0 <- HeatmapAnnotation(df = assay_pk_data_T0_norm_ann,
                               col = list(Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE),
                                          Type = assay_cols))
 
-
 hm_T0 <- Heatmap(assay_pk_data_T0_norm_dm,
         name = "fc ",
         column_title = "T0 Normalized",
@@ -1635,11 +1634,63 @@ hm_T0 <- Heatmap(assay_pk_data_T0_norm_dm,
 
 hm_T0
 
+#Make a heatmap of the mean values
+assay_pk_data_T0_norm_mean <- assay_pk_data_T0_norm %>%
+  pivot_longer(cols = matches("_0|24|48"), names_to = "condition") %>%
+  group_by(condition, Cluster) %>%
+  summarise(value_mean =mean(value)) %>%
+  pivot_wider(names_from = condition, values_from = value_mean)
+  
+#create heatmap of T0 data using DE cluster assignments
+#create a numeric matrix with feature row names
+assay_pk_data_T0_norm_mean_dm <- assay_pk_data_T0_norm_mean %>%
+  select(-Cluster) %>%
+  as.matrix() 
+
+rownames(assay_pk_data_T0_norm_mean_dm) <- assay_pk_data_T0_norm_mean$Cluster
+
+hm_T0_mean <- Heatmap(assay_pk_data_T0_norm_mean_dm,
+        name = "value ",
+        column_title = "T0 Normalized means",
+        column_title_gp = gpar(fontsize = 12),
+        col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
+        cluster_rows = TRUE,
+        cluster_row_slices = FALSE,
+        cluster_columns = FALSE,
+        #row_gap = unit(2, "mm"),
+        row_title = " ",
+        show_row_names = TRUE,
+        row_names_gp = gpar(fontsize = 8),
+        column_names_gp = gpar(fontsize = 10),
+        use_raster = FALSE)
+
+#barplots with clusters on x axis, mean values on y axis, facetted by condition
+df <- assay_pk_data_T0_norm_mean %>%
+  select(-ctrl_0) %>%
+  pivot_longer(cols = matches("_0|24|48"), names_to = "condition")
+
+p <- ggplot(df, aes(x = Cluster, y = value)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_wrap(~condition, ncol = 2)
+p
+
 if(create_pdfs){
-  pdf("MDD_T0_normed_in_combined_manual_clusters.pdf")
-     draw(hm_T0)
+  pdf("MDD_T0_normed_in_combined_manual_clusters.pdf",height = 10)
+  p
+  draw(hm_T0)
+  draw(hm_T0_mean)
   res <- dev.off()
 } 
+
+module_features <- assay_pk_data_T0_norm %>%
+  arrange(Cluster) %>%
+  mutate(Cluster = paste0("module_", Cluster),
+         Cluster = factor(Cluster, levels = unique(Cluster))) %>%
+  split(.$Cluster) 
+
+res <- write_xlsx(module_features,
+                  path = "MDD_T0_norm_combined_tables.xlsx")
 
 ```
 
