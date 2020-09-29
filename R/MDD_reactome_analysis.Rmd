@@ -28,95 +28,6 @@ pathway_nbr <- 5
 
 Read in the cluster data from the integrated analysis, filter to RNA features and write out the gene symbols.  
 
-```{r enrichr_reactome_pathways, eval = FALSE}
-# Read in module xlsx file
-###scratch code
-# mod3_genes <- read_excel(file_name, sheet = "module_3") %>%
-#     filter(Type == "RNAseq") %>%
-#     select(feature) 
-# write_csv(mod3_genes, "module_3_genes.csv")
-# not_found_3 <- read_csv("not_found.csv") %>%
-#   janitor::clean_names()
-# mod3_genes_found <- mod3_genes %>%
-#   filter(!feature %in% not_found_3$not_found)
-# write_csv(mod3_genes_found, "module_3_genes_found.csv")
-# 
-# mod4_genes <- read_excel(file_name, sheet = "module_4") %>%
-#     filter(Type == "RNAseq") %>%
-#     select(feature) 
-# write_csv(mod4_genes, "module_4_genes.csv")
-# not_found_4 <- read_csv("not_found_4.csv") %>%
-#   janitor::clean_names()
-# mod4_genes_found <- mod4_genes %>%
-#   filter(!feature %in% not_found_4$not_found)
-# write_csv(mod4_genes_found, "module_4_genes_found.csv")
-
-#####
-#Run enrichr to get pathway data
-excel_sheet_to_pathways <- function(sheet, file_name){
-  pathways_list <- read_excel(file_name, sheet = sheet) %>%
-    filter(Type == "RNAseq") %>%
-    pull(feature) %>%
-    enrichr(databases = "Reactome_2016")
-  pathways_df <- pathways_list[[1]] %>%
-    mutate(module = str_remove(sheet, "module_"))
-  return(pathways_df)
-}
-
-if(!file.exists("MDD_enrichr_pathways.rda")){
-  file_name <- "MDD_int_rr_combined_tables.xlsx"
-  pathways <- map(excel_sheets(file_name), excel_sheet_to_pathways, file_name = file_name)
-  
-  #combine the module pathways, create geneRatio proportins
-  #format pathway identifier and name
-  enriched_pathways_enrichr <- bind_rows(pathways) %>%
-    mutate(number_entities_found = str_remove(Overlap, "/.*"),
-           number_entities_found = as.integer(number_entities_found),
-           number_entities_total = str_remove(Overlap, ".*/"),
-           number_entities_total = as.integer(number_entities_total),
-           geneRatio = number_entities_found/number_entities_total,
-           pathway_identifier = str_extract(Term, "R-HSA.*"),
-           pathway_name = str_remove_all(Term, " R-HSA.*| Homo sapiens"),
-           module = str_remove(module, "module_"),
-           module = fct_inseq(module))%>%
-    rename(entities_p_value = Adjusted.P.value)
-  
-  save(enriched_pathways_enrichr, file = "MDD_enrichr_pathways.rda")
-} else {
-  load("MDD_enrichr_pathways.rda")
-}
-
-selected_pathways_enrichr <- enriched_pathways_enrichr %>%
-  group_by(module) %>%
-  slice_min(order_by = c(entities_p_value), n = keep_gene_nbr, with_ties = TRUE) %>%
-  slice_max(geneRatio, n = keep_gene_nbr, with_ties = TRUE) %>%
-  ungroup() %>%
-  dplyr::select(pathway_identifier)
-
-# get_module_entrezgene_ids <- function(clust_num, write_csvs = FALSE){
-#   data_path <- paste0("Tables/Ligand_clusters/MDD_ligand_cluster_",clust_num,"_features12.csv")
-#   if(!file.exists(data_path)) stop("cannot load ",data_path)
-#   gene_symbols <- read_csv(data_path) %>%
-#     filter(Type == "RNA") %>%
-#     pull(symbol) %>%
-#     unique()
-#   if(write_csvs){
-#   write.table(gene_symbols,row.names = FALSE,sep = ",",
-#               col.names = FALSE,quote = FALSE,
-#               paste0("Tables/Ligand_clusters/MDD_ligand_cluster_",clust_num,"_symbols.csv"))
-#   }
-#   gene_ids <-getBM(attributes = c("hgnc_symbol", "entrezgene_id"),
-#                       filters = "hgnc_symbol",
-#                       values = gene_symbols,
-#                       mart = ensembl) %>%
-#   drop_na() %>%
-#   dplyr::select(entrezgene_id)
-#   return(gene_ids$entrezgene_id)
-# }
-# 
-
-```
-
 
 ```{r reactome_API_pathways}
 
@@ -221,159 +132,56 @@ selected_pathways_enrichr <- enriched_pathways_enrichr %>%
          mutate(module = fct_inorder(module, ordered = TRUE))
  }
  
- 
- # #create API-based dotplot for unique modules
- #  if(!file.exists("MDD_Reactome_pathways_unique.csv")){
- #    file_name <- "MDD_int_rr_unique_tables.xlsx"
- #    gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
- #    names(gene_list) <- excel_sheets(file_name)
- #    gene_list <- compact(gene_list)
- #   pathways_unique <- map_dfr(gene_list, get_pathway_data, .id = "module")
- #   write_csv(pathways_unique, "MDD_Reactome_pathways_unique.csv") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- # } else {
- #   pathways_unique <- read_csv("MDD_Reactome_pathways_unique.csv") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- # }
- # 
- # #create API-based pathways for shared modules
- #  if(!file.exists("MDD_Reactome_pathways_shared.csv")){
- #    file_name <- "MDD_int_rr_shared_tables.xlsx"
- #    gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
- #    names(gene_list) <- excel_sheets(file_name)
- #       gene_list <- compact(gene_list)
- #   pathways_shared <- map_dfr(gene_list, get_pathway_data, .id = "module")
- #   write_csv(pathways_shared, "MDD_Reactome_pathways_shared.csv")
- # } else {
- #   pathways_shared <- read_csv("MDD_Reactome_pathways_shared.csv") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- # }
- # 
- #  #get API-based pathways for previous modules
- #  if(!file.exists("MDD_Reactome_pathways_previous.csv")){
- #    file_name <- "MDD_int_rr_previous_tables.xlsx"
- #    gene_list <- map(excel_sheets(file_name), get_genes_from_previous_excel, file_name = file_name)
- #    names(gene_list) <- excel_sheets(file_name)
- #       gene_list <- compact(gene_list)
- #   pathways_previous <- map_dfr(gene_list, get_pathway_data, .id = "module")
- #   write_csv(pathways_previous, "MDD_Reactome_pathways_previous.csv")
- # } else {
- #   pathways_previous <- read_csv("MDD_Reactome_pathways_previous.csv") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- # }
- # 
- # 
- # 
- # get_pathways <- function(dataset_type){
- #   browser()
- #   if(!file.exists(paste0("MDD_Reactome_pathways_",dataset_type,".csv"))){
- #     file_name <- paste0("MDD_int_rr_",dataset_type,"_tables.xlsx")
- #     gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
- #     names(gene_list) <- excel_sheets(file_name)
- #     pathways<- map_dfr(gene_list, get_pathway_data, .id = "module")
- #     write_csv(pathways, paste0("MDD_Reactome_pathways_",dataset_type,".csv"))
- #   } else {
- #     pathways <- read_csv(paste0("MDD_Reactome_pathways_",dataset_type,".csv"))
- #   }
- # }
- # 
-
-#pathways_unique <- get_pathways(dataset_type = "unique")
-
-
+ #Get pathways of newly induced gene sets
+   if(!file.exists("MDD_Reactome_pathways_newly_induced_genes_ligands.csv")){
+    file_name <- "MDD_RNAseq_inducedGeneList_ligands.csv"
+    newly_induced_genes_ligands_df <- read_csv(paste0("../integrated_analysis/Data/",file_name)) %>%
+      group_by(Ligand) %>%
+      select(hgnc_symbol)
+    
+    newly_induced_genes_ligands <- newly_induced_genes_ligands_df %>%
+      group_split()
+    newly_induced_genes_ligands_list <- map(newly_induced_genes_ligands, function(x){
+      return(x$hgnc_symbol)
+      })
+    names(newly_induced_genes_ligands_list)<- newly_induced_genes_ligands_df %>%
+      group_keys() %>%
+      unlist()
+    
+   pathways_newly_induced_genes_ligands <- map_dfr(newly_induced_genes_ligands_list, get_pathway_data, .id = "module") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+   write_csv(pathways_newly_induced_genes_ligands, "MDD_Reactome_pathways_newly_induced_genes_ligands.csv")
+ } else {
+   pathways_newly_induced_genes_ligands <- read_csv("MDD_Reactome_pathways_newly_induced_genes_ligands.csv") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+ }
+ #Pathway analaysis of newly induced genes by condition
+   if(!file.exists("MDD_Reactome_pathways_newly_induced_genes_conditions.csv")){
+    file_name <- "MDD_RNAseq_inducedGeneList_experimentalConditions.csv"
+    newly_induced_genes_conditions_df <- read_csv(paste0("../integrated_analysis/Data/",file_name)) %>%
+      group_by(experimentalCondition) %>%
+      select(hgnc_symbol)
+    
+    newly_induced_genes_conditions <- newly_induced_genes_conditions_df %>%
+      group_split()
+    newly_induced_genes_conditions_list <- map(newly_induced_genes_conditions, function(x){
+      return(x$hgnc_symbol)
+      })
+    names(newly_induced_genes_conditions_list)<- newly_induced_genes_conditions_df %>%
+      group_keys() %>%
+      unlist()
+    
+   pathways_newly_induced_genes_conditions <- map_dfr(newly_induced_genes_conditions_list, get_pathway_data, .id = "module") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+   write_csv(pathways_newly_induced_genes_conditions, "MDD_Reactome_pathways_newly_induced_genes_conditions.csv")
+ } else {
+   pathways_newly_induced_genes_conditions <- read_csv("MDD_Reactome_pathways_newly_induced_genes_conditions.csv") %>%
+         mutate(module = fct_inorder(module, ordered = TRUE))
+ }
 ```
 
-
-```{r load_manual_website_pathways, eval = FALSE}
-# #manually load each gene set into Reactome and save  results files
-# 
-# Read in results files 
-enriched_pathways_filenames<- dir("../integrated_analysis/Data",pattern = "result[[:digit:]]{1,2}.csv", full.names = TRUE) %>%
-  str_sort(numeric = TRUE)
-
-enriched_pathways_web <- map(enriched_pathways_filenames, read_csv,
-                         col_types = cols(
-  `Pathway identifier` = col_character(),
-  `Pathway name` = col_character(),
-  `#Entities found` = col_double(),
-  `#Entities total` = col_double(),
-  `Entities ratio` = col_double(),
-  `Entities pValue` = col_double(),
-  `Entities FDR` = col_double(),
-  `#Reactions found` = col_double(),
-  `#Reactions total` = col_double(),
-  `Reactions ratio` = col_double(),
-  `Species identifier` = col_double(),
-  `Species name` = col_character(),
-  `Submitted entities found` = col_character(),
-  `Mapped entities` = col_logical(),
-  `Found reaction identifiers` = col_character()
-)) %>%
-  bind_rows(.id = "module") %>%
-  janitor::clean_names() %>%
-  mutate(module = fct_inseq(module),
-         geneRatio = number_entities_found/number_entities_total)
-
-res <- write_csv(enriched_pathways_web, "Reactome_web_enriched_pathways_combined.csv")
-
-
-```
-
-```{r null_pathways, eval = FALSE}
-
-enriched_pathways_web_null <- dir("../integrated_analysis/Null_Data",pattern = "resultn[[:digit:]]{1,2}.csv", full.names = TRUE) %>%
-  str_sort(numeric = TRUE)
-
-enriched_pathways_null <- map(enriched_pathways_web_null, read_csv) %>%
-  bind_rows(.id = "module") %>%
-  janitor::clean_names() %>%
-  mutate(module = factor(module,levels = 1:length(enriched_pathways_web_null)),
-         geneRatio = number_entities_found/number_entities_total)
-
-```
 
 ```{r create_dotplots}
-
-# make_dotplots <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL){
-#  #browser()
-#    selected_pathways <- df %>%
-#   group_by(module) %>%
-#   slice_min(order_by = c(entities_p_value), n = pathway_nbr, with_ties = TRUE) %>%
-#   slice_max(geneRatio, n = pathway_nbr, with_ties = TRUE) %>%
-#   ungroup() %>%
-#   dplyr::select(pathway_identifier) %>%
-#      distinct()
-# 
-# df_selected <- df %>%
-#   right_join(selected_pathways, by = "pathway_identifier") %>%
-#   filter(entities_fdr <= fdr_thresh,
-#          geneRatio > gene_ratio_thresh) %>%
-#   group_by(pathway_name) %>%
-#   mutate(mean_fdr = mean(entities_fdr)) %>%
-#   ungroup() %>%
-#   arrange(desc(module), mean_fdr) %>%
-#   mutate(pathway_name = fct_inorder(pathway_name))
-# 
-# p <- ggplot(df_selected, aes(x = module,
-#                     y = pathway_name,
-#                     colour = entities_fdr,
-#                     size = geneRatio)) +
-#   geom_point() +
-#   scale_x_discrete(drop = FALSE) +
-#   scale_color_gradient(low = "red",high = "blue") +
-#   scale_size(range = c(0,4))+
-#   theme_bw() +
-#   theme(axis.text.y = element_text(size = 6,
-#                                    color = "black"),
-#         axis.text.x = element_text(angle = 90))
-# draw(p)
-# 
-#  pdf(paste0("MDD_reactome_dotplot",pathway_method,".pdf"),
-#      width = 8,
-#      useDingbats = FALSE)
-#   print(p)
-#   dev_off_res <- dev.off()
-# }
 
 make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL, axis.text.x.angle = 0){
   #browser()
@@ -421,35 +229,13 @@ make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, path
   dev_off_res <- dev.off()
 }
 
+res <- make_dotplots_API(pathways_integrated14, pathway_method = "_integrated14_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.0, axis.text.x.angle = 90)
 
-# res <- make_dotplots(enriched_pathways_enrichr, pathway_method = "_enrichR")
+res <- make_dotplots_API(pathways_newly_induced_genes_ligands, pathway_method = "_newly_induced_genes_ligands_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
 
-# res <- make_dotplots(enriched_pathways_web, pathway_method = "_web")
+res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method = "_newly_induced_genes_conditions_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
 
 # 
-# res <- make_dotplots_API(pathways_combined, pathway_method = "_combined_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
-
-res <- make_dotplots_API(pathways_integrated14, pathway_method = "_integrated14_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1, axis.text.x.angle = 90)
-# 
-# res <- make_dotplots_API(pathways_unique, pathway_method = "_unique_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1, axis.text.x.angle = 90)
-# 
-#   res <- make_dotplots_API(pathways_shared, pathway_method = "_shared_API",fdr_thresh = 0.05, gene_ratio_thresh = 0.1)
-# 
-#   res <- make_dotplots_API(pathways_previous, pathway_method = "_previous_API",fdr_thresh = 0.2, gene_ratio_thresh = 0.1)
-  ##previous dataset analysis
-#   
-# path <- "../integrated_analysis/Data/MDD_ligand_module_features.xlsx"
-# integrated_data <- lapply(readxl::excel_sheets(path), readxl::read_xlsx, path = path ) %>%
-#   bind_rows(.id = "module") %>%
-#   mutate(module = readxl::excel_sheets(path)[as.integer(module)])
-# 
-# int_genes <- integrated_data %>%
-#   filter(assay == "RNA",
-#          time %in% c(24,48)) %>%
-#   rename(Cluster = module) %>%
-#   select(Cluster, symbol) %>%
-#   #mutate(Cluster = str_replace(Cluster, "module_","int_")) %>%
-#   distinct
 ###
 #   #####NULL dataset analysis
 #   
