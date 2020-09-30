@@ -76,6 +76,8 @@ Input files are `r data_path`, `r shared_features_path` and `r unique_features_p
 
 
 ```{r prepData}
+#load the raw data asay_pk_data for future processing
+load("~/Documents/MDD_Integrated/Data/assay_pk_data.rda")
 
 #Read in the integrated data, add EGF to some names, set order
 if(!file.exists(data_path)) stop("cannot read ",data_path)
@@ -343,7 +345,7 @@ hm_combined14_mean
 
 #####
 if(create_pdfs){
-  pdf("MDD_integrated_rr_combined18_heatmap.pdf") 
+  pdf("MDD_integrated_rr_combined_heatmaps.pdf") 
   draw(hm_combined18)
   draw(hm_combined18_mean)
   draw(hm_combined14)
@@ -860,6 +862,97 @@ if(create_pdfs){
   draw(hm_unique_mean)
   res <- dev.off()
 } 
+
+# Heatmap of ligand-specific cycIF, RPPA, GCP features: plotted with all timepoints and sorted by ligand, direction, type. Annotate with key call-outs: EGF=FoxM1; IFNG=E-cadherin, IRF1, cycIF-stat1-nuc-mean, pdl1; OSM=Myt1, TAZ, Connexin-43, Stat3-pY705, IGFRb, P-cadherin; TGFB=cycIFp21(ask Sean about which compartment), Gab2, b-Actin, Chk2-pT68; HGF=eEF2K
+
+direction_df <- unique_features_data_ann %>%
+  select(feature_type, Direction, Ligand, Type) %>%
+  filter(str_detect(feature_type, "_cycIF|_GCP|_RPPA"),
+         !Ligand == "PBS")
+
+
+cycIF_directions <- direction_df %>%
+  filter(str_detect(feature_type, "int"),
+         !str_detect(feature_type, "nfkbp65|p21waf1cip1_3_af647cy5_int_mean_nuc_")) %>%
+  mutate(biomarker = str_remove(feature_type, "_.*"),
+         feature_type = paste0(biomarker, "_cycIF")) %>%
+  select(feature_type, Direction, Ligand, Type)
+
+corrected_directions <- direction_df %>%
+  filter(!str_detect(feature_type, "cycIF")) %>%
+  bind_rows(cycIF_directions)
+
+cycIF_GCP_RPPA_raw <- assay_pk_data %>%
+  filter(Type %in% c("cycIF", "GCP", "RPPA"),
+         !ligand == "PBS") %>%
+    mutate(ligand = case_when(ligand == "BMP2" ~"BMP2+EGF",
+                              ligand == "IFNG" ~"IFNG+EGF",
+                              ligand == "TGFB" ~"TGFB+EGF",
+                              TRUE ~ ligand),
+           feature_type = feature,
+           feature = str_remove(feature, "_RPPA|_cycIF|_GCP"),
+           condition = paste0(ligand,"_", experimentalTimePoint)) %>%
+  select(-ligand, -feature, -Type, -experimentalTimePoint)
+
+cycIF_GCP_RPPA_T0_norm <- cycIF_GCP_RPPA_raw %>%
+  filter(condition == "ctrl_0") %>%
+  rename(ctrl_0_value = value) %>%
+  select(-condition) %>%
+  right_join(cycIF_GCP_RPPA_raw, by = "feature_type") %>%
+  mutate(value_T0_norm = value-ctrl_0_value) %>%
+  select(-ctrl_0_value, -value) %>%
+pivot_wider(names_from = condition, values_from = value_T0_norm, values_fn = mean) %>%
+  right_join(corrected_directions, by = "feature_type")  %>%
+arrange(Ligand, Direction, Type) %>%
+  select(ctrl_0, everything())
+###DEBUG
+#### need to reconcile that assay_pk_data cycIF contains the average intensity values while the T0_DE contains individual cycIF values.
+# 
+# df <- unique_features_data_ann %>%
+#   filter(!Type %in% c("RNAseq", "motifs")) %>%
+#   arrange(Set, Direction)
+# 
+df_dm<- cycIF_GCP_RPPA_T0_norm %>%
+    select(where(is.numeric)) %>%
+  as.matrix() %>%
+  t() %>%
+  scale() %>%
+  t()
+rownames(df_dm) <- cycIF_GCP_RPPA_T0_norm$feature_type
+
+df_ann <- cycIF_GCP_RPPA_T0_norm %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+# 
+hm_T0 <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific features of cycIF, GCP, RPPA",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 7),
+               column_names_gp = gpar(fontsize = 7),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_T0
+
+if(create_pdfs){
+  pdf("MDD_integrated_T0_cycIF_GCP_RPPA_heatmap.pdf")
+  draw(hm_T0)
+  res <- dev.off()
+}
 
 ```
 
@@ -1640,11 +1733,10 @@ res = dev.off()
 ### Compare T0 normalized
 
 ```{r compare_to_T0_normed, eval = TRUE}
-#method - load original data
+#method -use original data assay_pk_data
 #filter to assays and features in DE data
 #T0 normalize
 #use combined18 cluster assignemnt in heatmap
-load("~/Documents/MDD_Integrated/Data/assay_pk_data.rda")
 
 cluster_assignments <- combined18_features_data_ann %>%
   select(Cluster, feature_type)
