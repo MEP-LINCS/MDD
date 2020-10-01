@@ -538,4 +538,42 @@ combinedTableToCHEA3(combinedTableFileName = "../RNAseq/misc/MDD_RNAseq_combined
                      min_set_size = 30,
                      FDR_THRESHOLD = 0.20)
 
+FEATURE = "combined14Module_CHEA3"
+FEATURENAME = "combined module RNAseq features"
+FET_THRESHOLD = .05
+outDir <- "../RNAseq/Data/Enrichment/combined14Module_CHEA3/binaryHeatmaps"
+CHEA3_in  <- read.csv("../RNAseq/Data/Enrichment/combined14Module_CHEA3/ReMap/MDD_combined14Module_CHEA3_ReMap.csv",
+                      stringsAsFactors = FALSE) %>% 
+  mutate(significant = FET.p.value < FET_THRESHOLD) %>% 
+  dplyr::rename(Module = Query.Name) %>% 
+  mutate(Module = as.factor(Module)) %>% 
+  mutate(Module = fct_inorder(Module))
+size_for_allSig = 20
+if(!dir.exists(outDir)) {dir.create(outDir)}
+rmarkdown::render("MDD_RNAseq_TF_Enrichment_binaryHeatmaps.Rmd", 
+                  output_file = sprintf("%s/MDD_%s_binaryHeatmaps.html", outDir, FEATURE))
+
+
+
+FEATURE = "ligandUniqueFeatures_CHEA3"
+FEATURETYPE = "ligand"
+FEATURENAME = "ligand-unique RNAseq features from integrated modules"
+FET_THRESHOLD = .05
+outDir <- "../RNAseq/Data/Enrichment/ligandUniqueFeatures_CHEA3/binaryHeatmaps"
+CHEA3_in  <- read.csv("../RNAseq/Data/Enrichment/ligandUniqueFeatures_CHEA3/ReMap/MDD_ligandUniqueFeatures_CHEA3_ReMap.csv",
+                      stringsAsFactors = FALSE) %>% 
+  mutate(significant = FET.p.value < FET_THRESHOLD) %>% 
+  dplyr::rename(Module = Query.Name) %>% 
+  mutate(Module = as.factor(Module)) %>% 
+  mutate(Module = fct_inorder(Module)) %>% 
+  mutate(Direction = str_extract(Module, "_[:alnum:]+$")) %>% 
+  mutate(Direction = str_remove(Direction, "_")) %>% 
+  mutate(Ligand = str_remove(Module, "_[:alnum:]+$")) %>% 
+  mutate(annotation = case_when(significant & Direction == "Negative" ~ "Negative",
+                                significant & Direction == "Positive" ~ "Positive",
+                                !significant ~ ""))
+size_for_allSig = 20
+if(!dir.exists(outDir)) {dir.create(outDir)}
+rmarkdown::render("MDD_RNAseq_TF_Enrichment_binaryHeatmaps_multiDirection.Rmd", 
+                  output_file = sprintf("%s/MDD_%s_binaryHeatmaps.html", outDir, FEATURE))
 
