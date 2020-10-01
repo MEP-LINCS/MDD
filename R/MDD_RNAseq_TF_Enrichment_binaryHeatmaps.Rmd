@@ -1,0 +1,153 @@
+---
+title: "`r FEATURENAME` CHEA3 Enrichment Binary Heatmaps"
+author: "Daniel Derrick"
+date: "9/30/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup0, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DT)
+```
+
+This script is for binary heatmaps of TF enrichments from `r FEATURENAME`.
+
+# Summary of significant TFs per module
+
+```{r}
+CHEA3_in %>% 
+  filter(significant) %>% 
+  dplyr::select(TF, Module, significant) %>%
+  group_by(Module) %>% 
+  summarize(n = n())
+
+sigTFs <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  pull(TF) %>% 
+  unique()
+```
+
+
+# Binary Heatmap: Top 5 TFs per condition
+
+```{r, fig.height = 10}
+n <- 5
+sigTFs_top <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  filter(Rank <= n) %>% 
+  pull(TF) %>% 
+  unique
+
+topPlot <-
+  CHEA3_in %>% 
+  filter(TF %in% sigTFs_top) %>%
+  dplyr::select(TF, Module, significant) %>%
+  mutate(significant2 = case_when(significant ~ "significant",
+                           !significant ~ "")) %>% 
+  dplyr::select(-significant) %>% 
+  pivot_wider(names_from = "Module", values_from = "significant2") %>% 
+  column_to_rownames("TF") %>% 
+  oncoPrint(show_column_names = TRUE,
+            column_order = colnames(.))
+
+topPlot
+
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 7)
+topPlot
+dev.off()
+```
+
+# Binary Heatmap: Top 10 TFs per condition
+
+```{r, fig.height = 10}
+n <- 10
+sigTFs_top <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  filter(Rank <= n) %>% 
+  pull(TF) %>% 
+  unique
+
+topPlot <-
+  CHEA3_in %>% 
+  filter(TF %in% sigTFs_top) %>%
+  dplyr::select(TF, Module, significant) %>%
+  mutate(significant2 = case_when(significant ~ "significant",
+                           !significant ~ "")) %>% 
+  dplyr::select(-significant) %>% 
+  pivot_wider(names_from = "Module", values_from = "significant2") %>% 
+  column_to_rownames("TF") %>% 
+  oncoPrint(show_column_names = TRUE,
+            column_order = colnames(.))
+
+topPlot
+
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 10)
+topPlot
+dev.off()
+```
+
+
+# Binary Heatmap: Top 20 TFs per condition
+
+```{r, fig.height = 20}
+n <- 20
+sigTFs_top <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  filter(Rank <= n) %>% 
+  pull(TF) %>% 
+  unique
+
+topPlot <-
+  CHEA3_in %>% 
+  filter(TF %in% sigTFs_top) %>%
+  dplyr::select(TF, Module, significant) %>%
+  mutate(significant2 = case_when(significant ~ "significant",
+                           !significant ~ "")) %>% 
+  dplyr::select(-significant) %>% 
+  pivot_wider(names_from = "Module", values_from = "significant2") %>% 
+  column_to_rownames("TF") %>% 
+  oncoPrint(show_column_names = TRUE,
+            column_order = colnames(.))
+
+topPlot
+
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 20 )
+topPlot
+dev.off()
+```
+
+# Binary Heatmap: All Significant
+
+```{r, fig.height = 40}
+topPlot <-
+  CHEA3_in %>% 
+  filter(TF %in% sigTFs) %>%
+  dplyr::select(TF, Module, significant) %>%
+  mutate(significant2 = case_when(significant ~ "significant",
+                           !significant ~ "")) %>% 
+  dplyr::select(-significant) %>% 
+  pivot_wider(names_from = "Module", values_from = "significant2") %>% 
+  column_to_rownames("TF") %>% 
+  oncoPrint(show_column_names = TRUE,
+            column_order = colnames(.))
+
+topPlot
+
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_allSig.pdf", outDir, FEATURE), height = size_for_allSig)
+topPlot
+dev.off()
+```
