@@ -15,8 +15,8 @@ output:
 ---
 
 ```{r setup0, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(ComplexHeatmap)
 library(DT)
 ```
 
@@ -38,10 +38,34 @@ sigTFs <-
   unique()
 ```
 
+```{r, fig.height = 10}
+# setup for figs
+colDirection = c(Significant = "red", 
+                 background = "gray80")
+
+posNegW <- .95
+posNegH <- .9
+grayW <- .95
+grayH <- .8
+edgeCol <- NA
+
+aFun <- list(
+  background = function(x, y, w, h) {
+    grid.rect(x, y, w*grayW, h*grayH,
+              gp = gpar(fill = colDirection["background"],
+                        col = edgeCol))
+    },
+    Significant = function(x, y, w, h) {
+      grid.rect(x, y, w*posNegW, h*posNegH,
+                gp = gpar(fill = colDirection["Significant"],
+                          col = edgeCol))
+    }
+)
+```
 
 # Binary Heatmap: Top 5 TFs per condition
 
-```{r, fig.height = 10}
+```{r, fig.height = 7}
 n <- 5
 sigTFs_top <- 
   CHEA3_in %>% 
@@ -54,13 +78,17 @@ topPlot <-
   CHEA3_in %>% 
   filter(TF %in% sigTFs_top) %>%
   dplyr::select(TF, Module, significant) %>%
-  mutate(significant2 = case_when(significant ~ "significant",
+  mutate(significant = case_when(significant ~ "Significant",
                            !significant ~ "")) %>% 
-  dplyr::select(-significant) %>% 
-  pivot_wider(names_from = "Module", values_from = "significant2") %>% 
+  # dplyr::select(-significant) %>% 
+  pivot_wider(names_from = "Module", values_from = "significant") %>%
   column_to_rownames("TF") %>% 
+  as.matrix %>% 
   oncoPrint(show_column_names = TRUE,
-            column_order = colnames(.))
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            heatmap_legend_param = list(title = "Enrichment"))
 
 topPlot
 
@@ -84,13 +112,17 @@ topPlot <-
   CHEA3_in %>% 
   filter(TF %in% sigTFs_top) %>%
   dplyr::select(TF, Module, significant) %>%
-  mutate(significant2 = case_when(significant ~ "significant",
+  mutate(significant = case_when(significant ~ "Significant",
                            !significant ~ "")) %>% 
-  dplyr::select(-significant) %>% 
-  pivot_wider(names_from = "Module", values_from = "significant2") %>% 
+  # dplyr::select(-significant) %>% 
+  pivot_wider(names_from = "Module", values_from = "significant") %>%
   column_to_rownames("TF") %>% 
+  as.matrix %>% 
   oncoPrint(show_column_names = TRUE,
-            column_order = colnames(.))
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            heatmap_legend_param = list(title = "Enrichment"))
 
 topPlot
 
@@ -102,7 +134,7 @@ dev.off()
 
 # Binary Heatmap: Top 20 TFs per condition
 
-```{r, fig.height = 20}
+```{r, fig.height = 18}
 n <- 20
 sigTFs_top <- 
   CHEA3_in %>% 
@@ -115,17 +147,21 @@ topPlot <-
   CHEA3_in %>% 
   filter(TF %in% sigTFs_top) %>%
   dplyr::select(TF, Module, significant) %>%
-  mutate(significant2 = case_when(significant ~ "significant",
+  mutate(significant = case_when(significant ~ "Significant",
                            !significant ~ "")) %>% 
-  dplyr::select(-significant) %>% 
-  pivot_wider(names_from = "Module", values_from = "significant2") %>% 
+  # dplyr::select(-significant) %>% 
+  pivot_wider(names_from = "Module", values_from = "significant") %>%
   column_to_rownames("TF") %>% 
+  as.matrix %>% 
   oncoPrint(show_column_names = TRUE,
-            column_order = colnames(.))
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            heatmap_legend_param = list(title = "Enrichment"))
 
 topPlot
 
-pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 20 )
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 18)
 topPlot
 dev.off()
 ```
@@ -133,21 +169,31 @@ dev.off()
 # Binary Heatmap: All Significant
 
 ```{r, fig.height = 40}
+sigTFs_top <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  pull(TF) %>% 
+  unique
+
 topPlot <-
   CHEA3_in %>% 
-  filter(TF %in% sigTFs) %>%
+  filter(TF %in% sigTFs_top) %>%
   dplyr::select(TF, Module, significant) %>%
-  mutate(significant2 = case_when(significant ~ "significant",
+  mutate(significant = case_when(significant ~ "Significant",
                            !significant ~ "")) %>% 
-  dplyr::select(-significant) %>% 
-  pivot_wider(names_from = "Module", values_from = "significant2") %>% 
+  # dplyr::select(-significant) %>% 
+  pivot_wider(names_from = "Module", values_from = "significant") %>%
   column_to_rownames("TF") %>% 
+  as.matrix %>% 
   oncoPrint(show_column_names = TRUE,
-            column_order = colnames(.))
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            heatmap_legend_param = list(title = "Enrichment"))
 
 topPlot
 
-pdf(sprintf("%s/MDD_%s_binaryHeatmap_allSig.pdf", outDir, FEATURE), height = size_for_allSig)
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 40)
 topPlot
 dev.off()
 ```

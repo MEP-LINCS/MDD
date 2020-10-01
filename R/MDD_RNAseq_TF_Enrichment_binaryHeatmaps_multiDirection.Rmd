@@ -1,0 +1,246 @@
+---
+title: "`r FEATURENAME` CHEA3 Enrichment Binary Heatmaps (Ligand-specific)"
+author: "Daniel Derrick"
+date: "9/30/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup0, include=FALSE}
+# Complex Heatmap annotations are also created from the sample annotations.
+library(tidyverse)
+library(ComplexHeatmap)
+library(biomaRt)
+library(DT)
+
+colScript          <- "MDD_importColors_pretty.R"
+RNAseqMetadataFile <- "../RNAseq/Metadata/MDD_RNAseq_sampleMetadata.csv"
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script is for binary heatmaps of TF enrichments from `r FEATURENAME`.
+
+# Summary of significant TFs per module
+
+```{r}
+CHEA3_in %>% 
+  filter(significant) %>% 
+  dplyr::select(TF, Module, significant) %>%
+  group_by(Module) %>% 
+  summarize(n = n())
+
+sigTFs <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  pull(TF) %>% 
+  unique()
+```
+
+
+# Binary Heatmap: Top 5 TFs per condition
+
+```{r, fig.height = 10}
+source(colScript)
+
+sa.RNA.L3 <-
+  read.csv(RNAseqMetadataFile, 
+           stringsAsFactors = FALSE) %>% 
+  mutate(ligand = fct_inorder(ligand),
+         experimentalTimePoint = fct_inorder(as.factor(experimentalTimePoint)),
+         experimentalCondition = fct_inorder(as.factor(experimentalCondition))) %>% 
+  filter(RNAseq_QCpass) %>% 
+  dplyr::select(-contains("RNA")) %>% 
+  dplyr::select(-contains("sequencing")) %>% 
+  dplyr::select(-contains("File")) %>% 
+  dplyr::rename(Time = experimentalTimePoint,
+                Ligand = ligand) %>% 
+  # mutate(experimentalCondition = fct_relevel(as.factor(experimentalCondition),
+  #                                            c("ctrl_0", "EGF_48", "IFNG_48"))) %>% 
+  arrange(experimentalCondition) %>% 
+  mutate(experimentalCondition = as.character(experimentalCondition)) %>% 
+  mutate(Ligand = fct_recode(Ligand, 
+                             "CTRL" = "ctrl",
+                             "BMP2+EGF" = "BMP2",
+                             "IFNG+EGF" = "IFNG",
+                             "TGFB+EGF" = "TGFB"),
+         experimentalCondition = fct_recode(experimentalCondition,
+                                            "CTRL_0" = "ctrl_0")) %>% 
+  mutate(Ligand = fct_relevel(Ligand, "CTRL", "PBS",
+                              "HGF", "OSM", "EGF",
+                              "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")) %>% 
+  arrange(Ligand, Time) %>% 
+  mutate(experimentalCondition = fct_inorder(experimentalCondition))
+
+col$Ligand <- col$Ligand[unique(as.character(sa.RNA.L3$Ligand))]
+
+colDirection = c(Positive = "red", 
+                 Negative = "blue", 
+                 background = "gray80")
+
+posNegW <- .95
+posNegH <- .9
+grayW <- .95
+grayH <- .8
+edgeCol <- NA
+# edgeCol <- "black"
+
+aFun <- function(x, y, w, h, v) {
+  if(v["Positive"]) {
+    grid.rect(x, y, w*posNegW, h*posNegH, # v["snv"] is a logical value
+              gp = gpar(fill = colDirection["Positive"], col = edgeCol))
+  } else if (v["Negative"]) {
+    grid.rect(x, y, w*posNegW, h*posNegH, # v["indel"] is a logical value
+                           gp = gpar(fill = colDirection["Negative"], col = edgeCol))
+  } else {
+    grid.rect(x, y, w*grayW, h*grayH, gp = gpar(fill = colDirection["background"], col = edgeCol))
+  }
+}
+
+ha.toplot <- HeatmapAnnotation(df = sa.RNA.L3 %>% 
+                                 distinct(Ligand) %>% 
+                                 filter(Ligand != c("CTRL", "PBS")) %>% 
+                                 mutate(Ligand = fct_drop(Ligand)),
+                               col = col)
+```
+
+
+```{r, fig.height = 10}
+n <- 5
+sigTFs_top <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  filter(Rank <= n) %>% 
+  pull(TF) %>% 
+  unique
+
+topPlot <-
+  CHEA3_in %>% 
+  mutate(Ligand = fct_expand(Ligand, "BMP2+EGF", "EGF")) %>% 
+  mutate(Ligand = fct_relevel(Ligand, "HGF", "OSM", "EGF", "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")) %>% 
+  filter(TF %in% sigTFs_top) %>%
+  dplyr::select(TF, Ligand, annotation) %>%
+  group_by(TF, Ligand, .drop = FALSE) %>% 
+  summarize(annotation = paste(unique(annotation), collapse = "")) %>% 
+  ungroup %>% 
+  pivot_wider(names_from = "Ligand", values_from = "annotation") %>% 
+  column_to_rownames("TF") %>% 
+  oncoPrint(show_column_names = TRUE, alter_fun = aFun,
+            column_order = colnames(.), 
+            bottom_annotation = ha.toplot, col = colDirection,
+            heatmap_legend_param = list(title = "Direction"))
+
+topPlot
+
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 6)
+topPlot
+dev.off()
+```
+
+# Binary Heatmap: Top 10 TFs per condition
+
+```{r, fig.height = 10}
+n <- 10
+sigTFs_top <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  filter(Rank <= n) %>% 
+  pull(TF) %>% 
+  unique
+
+topPlot <-
+  CHEA3_in %>% 
+  mutate(Ligand = fct_expand(Ligand, "BMP2+EGF", "EGF")) %>% 
+  mutate(Ligand = fct_relevel(Ligand, "HGF", "OSM", "EGF", "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")) %>% 
+  filter(TF %in% sigTFs_top) %>%
+  dplyr::select(TF, Ligand, annotation) %>%
+  group_by(TF, Ligand, .drop = FALSE) %>% 
+  summarize(annotation = paste(unique(annotation), collapse = "")) %>% 
+  ungroup %>% 
+  pivot_wider(names_from = "Ligand", values_from = "annotation") %>% 
+  column_to_rownames("TF") %>% 
+  oncoPrint(show_column_names = TRUE, alter_fun = aFun,
+            column_order = colnames(.), 
+            bottom_annotation = ha.toplot, col = colDirection,
+            heatmap_legend_param = list(title = "Direction"))
+
+topPlot
+
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 7)
+topPlot
+dev.off()
+```
+
+
+# Binary Heatmap: Top 20 TFs per condition
+
+```{r, fig.height = 20}
+n <- 20
+sigTFs_top <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  filter(Rank <= n) %>% 
+  pull(TF) %>% 
+  unique
+
+topPlot <-
+  CHEA3_in %>% 
+  mutate(Ligand = fct_expand(Ligand, "BMP2+EGF", "EGF")) %>% 
+  mutate(Ligand = fct_relevel(Ligand, "HGF", "OSM", "EGF", "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")) %>% 
+  filter(TF %in% sigTFs_top) %>%
+  dplyr::select(TF, Ligand, annotation) %>%
+  group_by(TF, Ligand, .drop = FALSE) %>% 
+  summarize(annotation = paste(unique(annotation), collapse = "")) %>% 
+  ungroup %>% 
+  pivot_wider(names_from = "Ligand", values_from = "annotation") %>% 
+  column_to_rownames("TF") %>% 
+  oncoPrint(show_column_names = TRUE, alter_fun = aFun,
+            column_order = colnames(.), 
+            bottom_annotation = ha.toplot, col = colDirection,
+            heatmap_legend_param = list(title = "Direction"))
+
+topPlot
+
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_top%s.pdf", outDir, FEATURE, n), height = 9)
+topPlot
+dev.off()
+```
+
+# Binary Heatmap: All Significant
+
+```{r, fig.height = 40}
+sigTFs_top <- 
+  CHEA3_in %>% 
+  filter(significant) %>% 
+  pull(TF) %>% 
+  unique
+
+topPlot <-
+  CHEA3_in %>% 
+  mutate(Ligand = fct_expand(Ligand, "BMP2+EGF", "EGF")) %>% 
+  mutate(Ligand = fct_relevel(Ligand, "HGF", "OSM", "EGF", "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")) %>% 
+  filter(TF %in% sigTFs_top) %>%
+  dplyr::select(TF, Ligand, annotation) %>%
+  group_by(TF, Ligand, .drop = FALSE) %>% 
+  summarize(annotation = paste(unique(annotation), collapse = "")) %>% 
+  ungroup %>% 
+  pivot_wider(names_from = "Ligand", values_from = "annotation") %>% 
+  column_to_rownames("TF") %>% 
+  oncoPrint(show_column_names = TRUE, alter_fun = aFun,
+            column_order = colnames(.), 
+            bottom_annotation = ha.toplot, col = colDirection,
+            heatmap_legend_param = list(title = "Direction"))
+
+topPlot
+
+pdf(sprintf("%s/MDD_%s_binaryHeatmap_allSig.pdf", outDir, FEATURE, n), height = 11)
+topPlot
+dev.off()
+```
