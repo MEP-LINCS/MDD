@@ -272,7 +272,7 @@ combined14_features_data_ann <- combined18_features_data_ann %>%
       Cluster = factor(Cluster, levels = combined14_clusters, ordered = TRUE)) %>%
   as.data.frame()
 
-#Remove the cluster assignemnts to keep the code similar to the 
+#Remove the cluster assignements to keep the code similar to the 
 #other dataset processing
 combined14_features_data <- combined14_features_data_ann %>%
   select(-Cluster)
@@ -344,12 +344,59 @@ hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
 hm_combined14_mean
 
 #####
+
+#Remove the cluster assignments to keep the code similar to the 
+#other dataset processing
+#Remove RNAseq and label rows
+combined14_noRNA_features_data <- combined14_features_data_ann %>%
+  select(-Cluster) %>%
+  filter(!Type == "RNAseq")
+
+#create a numeric matrix with feature row names
+combined14_noRNA_features_dm <- combined14_noRNA_features_data %>%
+  select(all_of(condition_order)) %>%
+  as.matrix() 
+rownames(combined14_noRNA_features_dm) <- combined14_noRNA_features_data$feature_type
+combined14_noRNA_features_dm <- combined14_noRNA_features_dm[!is.nan(combined14_noRNA_features_dm[,1]),]
+
+combined14_noRNA_features_ann <- combined14_features_data_ann %>%
+  select(Cluster, Type, Set)  %>%
+  filter(!Type == "RNAseq")%>%
+  as.data.frame()
+
+#Make heatmap with annotations
+haRow_noRNA_combined14 <- HeatmapAnnotation(df = combined14_noRNA_features_ann,
+                                    which = "row",
+                                    col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
+                                               Type = assay_cols,
+                                               Set = c("shared" = "black", ligand_cols)))
+#####
+hm_combined14_noRNA <- Heatmap(combined14_noRNA_features_dm,
+                       name = "lfc rr",
+                       column_title = "combined14 features, no RNAseq",
+                       column_title_gp = gpar(fontsize = 12),
+                       col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = FALSE,
+                       cluster_row_slices = FALSE, 
+                       cluster_columns = FALSE,
+                       row_split = combined14_noRNA_features_ann$Cluster,
+                       row_gap = unit(2, "mm"),
+                       row_title = " ",
+                       show_row_names = TRUE,
+                       row_names_gp = gpar(fontsize = 2.5),
+                       column_names_gp = gpar(fontsize = 10),
+                       left_annotation = haRow_noRNA_combined14,
+                       use_raster = FALSE)
+hm_combined14_noRNA
+
+#####
 if(create_pdfs){
-  pdf("MDD_integrated_rr_combined_heatmaps.pdf") 
+  pdf("MDD_integrated_rr_combined_heatmaps.pdf",height = 10) 
   draw(hm_combined18)
   draw(hm_combined18_mean)
   draw(hm_combined14)
   draw(hm_combined14_mean)
+  draw(hm_combined14_noRNA)
   res <- dev.off()
 } 
 # 
@@ -869,7 +916,6 @@ direction_df <- unique_features_data_ann %>%
   select(feature_type, Direction, Ligand, Type) %>%
   filter(str_detect(feature_type, "_cycIF|_GCP|_RPPA"),
          !Ligand == "PBS")
-
 
 cycIF_directions <- direction_df %>%
   filter(str_detect(feature_type, "int"),
@@ -1736,11 +1782,35 @@ res = dev.off()
 #method -use original data assay_pk_data
 #filter to assays and features in DE data
 #T0 normalize
-#use combined18 cluster assignemnt in heatmap
+#use combined18 cluster assignment in heatmap
+
+# cycIF_directions <- direction_df %>%
+#   filter(str_detect(feature_type, "int"),
+#          !str_detect(feature_type, "nfkbp65|p21waf1cip1_3_af647cy5_int_mean_nuc_")) %>%
+#   mutate(biomarker = str_remove(feature_type, "_.*"),
+#          feature_type = paste0(biomarker, "_cycIF")) %>%
+#   select(feature_type, Direction, Ligand, Type)
 
 cluster_assignments <- combined18_features_data_ann %>%
   select(Cluster, feature_type)
 
+#convert cycIF features to the average cell intensity values
+cycIF_combined18_features_int <- combined18_features_data_ann %>%
+  filter(Type == "cycIF",
+         str_detect(feature, "_int_mean")) %>%
+  mutate(feature = str_remove(feature, "_.*")) %>%
+  group_by(feature) %>%
+  summarise(across(where(is.numeric), mean)) %>%
+  mutate(feature_type = paste(feature, "cycIF", sep = "_")) %>%
+  pivot_longer(cols = where(is.numeric), names_to = "condition")
+###DEBUG problem in this section
+#T0 cycIF features were average of intenisty values in nuc and cytoplasm
+#The T0 DE cycIF values are indivdual compartment intensities with assigned clusters
+#the T0 values don't map to the DE features so clusters can not be assigned
+#some cyto vs nuc are in different clusers
+combined18_features_with_cycIF_int <- c(combined18_features_data_ann$feature_type, cycIF_combined18_features_int$feature_type)
+  
+#reformat raw assay metadata to match T0_DE
 matched_features_types <- assay_pk_data %>%
     mutate(Type = case_when(Type == "RNA" ~"RNAseq",
                             TRUE ~ Type),
@@ -1752,8 +1822,7 @@ matched_features_types <- assay_pk_data %>%
            feature_type =  paste0(feature, "_", Type),
            condition = paste0(ligand,"_", experimentalTimePoint)) %>%
   select(-ligand, -feature, -Type, -experimentalTimePoint) %>%
-  filter(feature_type %in% combined18_features_data_ann$feature_type,
-         str_detect(condition, "_0|_24|_48")) 
+  filter(feature_type %in% combined18_features_with_cycIF_int)
 
 assay_pk_data_T0_norm <- matched_features_types %>%
   filter(condition == "ctrl_0") %>%
@@ -1763,17 +1832,21 @@ assay_pk_data_T0_norm <- matched_features_types %>%
   mutate(value_T0_norm = value-ctrl_0_value) %>%
   select(-ctrl_0_value, -value) %>%
 pivot_wider(names_from = condition, values_from = value_T0_norm, values_fn = mean) %>%
-  left_join(cluster_assignments, by = "feature_type")
+  left_join(cluster_assignments, by = "feature_type") %>%
+  select(-ctrl_0, -contains("PBS"))
+
+assay_pk_data_T0_norm_24_48 <- assay_pk_data_T0_norm %>%
+  select(-matches("_1$|_4$|_8$"))
 
 #create heatmap of T0 data using DE cluster assignments
 #create a numeric matrix with feature row names
-assay_pk_data_T0_norm_dm <- assay_pk_data_T0_norm %>%
+assay_pk_data_T0_norm_dm <- assay_pk_data_T0_norm_24_48 %>%
   select(-feature_type, -Cluster) %>%
   as.matrix() 
 
-rownames(assay_pk_data_T0_norm_dm) <- assay_pk_data_T0_norm$feature_type
+rownames(assay_pk_data_T0_norm_dm) <- assay_pk_data_T0_norm_24_48$feature_type
 # combined18_features_dm <- combined18_features_dm[!is.nan(combined18_features_dm[,1]),]
-assay_pk_data_T0_norm_ann <- assay_pk_data_T0_norm %>%
+assay_pk_data_T0_norm_ann <- assay_pk_data_T0_norm_24_48 %>%
   select(feature_type, Cluster) %>%
   mutate(Type = str_remove(feature_type, ".*_")) %>%
   select(-feature_type) %>%
@@ -1792,7 +1865,7 @@ hm_T0 <- Heatmap(assay_pk_data_T0_norm_dm,
         cluster_rows = FALSE,
         cluster_row_slices = FALSE,
         cluster_columns = FALSE,
-        row_split = assay_pk_data_T0_norm$Cluster,
+        row_split = assay_pk_data_T0_norm_24_48$Cluster,
         #row_gap = unit(2, "mm"),
         row_title = " ",
         left_annotation = haRow_T0,
@@ -1804,7 +1877,7 @@ hm_T0 <- Heatmap(assay_pk_data_T0_norm_dm,
 hm_T0
 
 #Make a heatmap of the mean values
-assay_pk_data_T0_norm_mean <- assay_pk_data_T0_norm %>%
+assay_pk_data_T0_norm_mean <- assay_pk_data_T0_norm_24_48 %>%
   pivot_longer(cols = matches("_0|24|48"), names_to = "condition") %>%
   group_by(condition, Cluster) %>%
   summarise(value_mean =mean(value)) %>%
@@ -1835,11 +1908,11 @@ hm_T0_mean <- Heatmap(assay_pk_data_T0_norm_mean_dm,
 
 #barplots with clusters on x axis, mean values on y axis, facetted by condition
 df <- assay_pk_data_T0_norm_mean %>%
-  select(-ctrl_0) %>%
   pivot_longer(cols = matches("_0|24|48"), names_to = "condition")
 
 p <- ggplot(df, aes(x = Cluster, y = value)) +
   geom_col() +
+  theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
   facet_wrap(~condition, ncol = 2)
 p
@@ -1852,7 +1925,7 @@ if(create_pdfs){
   res <- dev.off()
 } 
 
-module_features <- assay_pk_data_T0_norm %>%
+module_features <- assay_pk_data_T0_norm_24_48 %>%
   arrange(Cluster) %>%
   mutate(Cluster = paste0("module_", Cluster),
          Cluster = factor(Cluster, levels = unique(Cluster))) %>%
@@ -1860,6 +1933,129 @@ module_features <- assay_pk_data_T0_norm %>%
 
 res <- write_xlsx(module_features,
                   path = "MDD_T0_norm_combined18_tables.xlsx")
+
+
+#Cluster the T0 data according to the combined14 structure
+#and drop RNAseq
+cluster14_assignments <- combined14_features_data_ann %>%
+  select(Cluster, feature_type)
+
+ligand_order_all_times <- paste(rep(ligand_order, each = 5), rep(c(1,4,8,24,48), times = 6), sep = "_")
+  ligand_order_all_times <- factor(ligand_order_all_times, levels = ligand_order_all_times, ordered = TRUE)
+  
+assay_pk_data_T0_norm14 <- assay_pk_data_T0_norm %>%
+  select(-Cluster) %>%
+  left_join(cluster14_assignments, by = "feature_type") %>%
+  filter(!str_detect(feature_type, "RNAseq")) %>%
+  select(ligand_order_all_times,feature_type, Cluster)
+
+#create heatmap of T0 data using DE cluster assignments
+#create a numeric matrix with feature row names
+assay_pk_data_T0_norm14_dm <- assay_pk_data_T0_norm14 %>%
+  select(-feature_type, -Cluster) %>%
+  as.matrix() %>%
+  t %>%
+  scale %>%
+  t
+rownames(assay_pk_data_T0_norm14_dm) <- assay_pk_data_T0_norm14$feature_type
+
+assay_pk_data_T0_norm14_ann <- assay_pk_data_T0_norm14 %>%
+  select(feature_type, Cluster) %>%
+  mutate(Type = str_remove(feature_type, ".*_")) %>%
+  select(-feature_type) %>%
+  as.data.frame()
+
+haRow_T0_14 <- HeatmapAnnotation(df = assay_pk_data_T0_norm14_ann,
+                              which = "row",
+                              col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
+                                         Type = assay_cols))
+
+hm_T0_14 <- Heatmap(assay_pk_data_T0_norm14_dm,
+        name = "fc ",
+        column_title = "T0 Normalized, combined14 structure",
+        column_title_gp = gpar(fontsize = 12),
+        col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
+        cluster_rows = FALSE,
+        cluster_row_slices = FALSE,
+        cluster_columns = FALSE,
+        row_split = assay_pk_data_T0_norm14$Cluster,
+        #row_gap = unit(2, "mm"),
+        row_title = " ",
+        left_annotation = haRow_T0_14,
+        show_row_names = TRUE,
+        row_names_gp = gpar(fontsize = 4),
+        column_names_gp = gpar(fontsize = 10),
+        use_raster = FALSE)
+
+hm_T0_14
+
+#Make a heatmap of the mean values
+all_conditions_without_1 <- str_remove_all(ligand_order_all_times, ".*_1") %>% stringi::stri_remove_empty()
+
+assay_pk_data_T0_norm14_mean <- assay_pk_data_T0_norm14 %>%
+  filter(!str_detect(feature_type, "RNAseq|motifs")) %>%
+  pivot_longer(cols = where(is.numeric), names_to = "condition") %>%
+  group_by(condition, Cluster) %>%
+  summarise(value_mean =mean(value)) %>%
+  pivot_wider(names_from = condition, values_from = value_mean) %>%
+  select(all_conditions_without_1, Cluster)
+  
+#create heatmap of T0 data using DE cluster assignments
+#create a numeric matrix with feature row names
+assay_pk_data_T0_norm14_mean_dm <- assay_pk_data_T0_norm14_mean %>%
+  select(-Cluster) %>%
+  as.matrix()  %>%
+  t %>%
+  scale %>%
+  t
+
+rownames(assay_pk_data_T0_norm14_mean_dm) <- assay_pk_data_T0_norm14_mean$Cluster
+
+hm_T0_norm14_mean <- Heatmap(assay_pk_data_T0_norm14_mean_dm,
+        name = "value ",
+        column_title = "T0 Normalized means, combined14 structure",
+        column_title_gp = gpar(fontsize = 12),
+        col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
+        cluster_rows = TRUE,
+        cluster_row_slices = FALSE,
+        cluster_columns = FALSE,
+        #row_gap = unit(2, "mm"),
+        row_title = " ",
+        show_row_names = TRUE,
+        row_names_gp = gpar(fontsize = 8),
+        column_names_gp = gpar(fontsize = 10),
+        use_raster = FALSE)
+
+#barplots with clusters on x axis, mean values on y axis, facetted by condition
+df <- assay_pk_data_T0_norm14_mean %>%
+  pivot_longer(cols = where(is.numeric), names_to = "condition") %>%
+  drop_na()
+
+p <- ggplot(df, aes(x = Cluster, y = value)) +
+  geom_col() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_wrap(~condition, ncol = 2)
+p
+
+if(create_pdfs){
+  pdf("MDD_T0_normed_combined14.pdf",height = 10)
+  draw(hm_T0_14)
+  draw(hm_T0_norm14_mean)
+  print(p)
+  res <- dev.off()
+} 
+
+
+
+if(create_pdfs){
+  pdf("MDD_T0_normed_in_combined18_manual_clusters.pdf",height = 10)
+  p
+  draw(hm_T0)
+  draw(hm_T0_mean)
+  draw(hm_T0_module14)
+  res <- dev.off()
+} 
 
 ```
 
