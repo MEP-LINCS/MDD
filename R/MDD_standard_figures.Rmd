@@ -173,8 +173,12 @@ plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name){
      t() %>%
   as.matrix()
   colnames(df_mat) <- df$feature
+custom_settings = umap.defaults
+custom_settings$random_state <- 42
+custom_settings$n_epochs = 500
+custom_settings$n_neighbors = 25
 
-  df_UMAP <- umap(df_mat, na.rm = TRUE)$layout %>%
+  df_UMAP <- umap(df_mat,config = custom_settings, na.rm = TRUE)$layout %>%
     data.frame() %>%
     rename(UMAP_1 = X1,
            UMAP_2 = X2) %>%
@@ -188,7 +192,7 @@ plot_umap <- function(df, md, ligand_cols = ligand_cols, assay_name){
                            size = Time,
                            colour = Ligand,
                            fill = Ligand)) +
-    geom_point(shape = 21, alpha = .8) +
+    geom_point(shape = 21, alpha = .9) +
     scale_color_manual(values = ligand_EGF_cols) +
     scale_fill_manual(values = ligand_cols) +
     scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(2, 6)) +
