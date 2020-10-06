@@ -615,6 +615,123 @@ hm_unique <- Heatmap(unique_features_data_dm,
                      use_raster = FALSE)
 hm_unique
 
+###Heatmap of ligand-specific RPPA48 hour features with rownames
+unique_features_RPPA_48 <- unique_features_data_ann %>%
+  filter(Type == "RPPA") %>%
+  select(-contains("_24"))
+
+unique_features_RPPA_48_dm <- unique_features_RPPA_48 %>%
+  select(where(is.numeric)) %>%
+  as.matrix()
+rownames(unique_features_RPPA_48_dm) <- unique_features_RPPA_48$feature
+
+unique_features_RPPA_48_ann <- unique_features_RPPA_48 %>%
+  select(Ligand, Type, Direction) %>%
+  data.frame()
+
+haRow_unique_RPPA_48 <- HeatmapAnnotation(df = unique_features_RPPA_48_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_unique_RPPA_48 <- Heatmap(unique_features_RPPA_48_dm,
+                     name = "lfc rr",
+                     column_title = "Ligand-specific RPPA 48H",
+                     column_title_gp = gpar(fontsize = 12),
+                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                     cluster_rows = FALSE,
+                     cluster_row_slices = FALSE, 
+                     cluster_columns = FALSE,
+                     row_split = unique_features_RPPA_48$Cluster,
+                     row_gap = unit(2, "mm"),
+                     row_title = " ",
+                     show_row_names = TRUE,
+                     row_names_gp = gpar(fontsize = 7),
+                     column_names_gp = gpar(fontsize = 10),
+                     left_annotation = haRow_unique_RPPA_48,
+                     use_raster = FALSE)
+hm_unique_RPPA_48
+
+###48 hour motifs
+
+###Heatmap of ligand-specific motifs48 hour features with rownames
+unique_features_motifs_48 <- unique_features_data_ann %>%
+  filter(Type == "motifs") %>%
+  select(-contains("_24"))
+
+unique_features_motifs_48_dm <- unique_features_motifs_48 %>%
+  select(where(is.numeric)) %>%
+  as.matrix()
+rownames(unique_features_motifs_48_dm) <- unique_features_motifs_48$feature
+
+unique_features_motifs_48_ann <- unique_features_motifs_48 %>%
+  select(Ligand, Type, Direction) %>%
+  data.frame()
+
+haRow_unique_motifs_48 <- HeatmapAnnotation(df = unique_features_motifs_48_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_unique_motifs_48 <- Heatmap(unique_features_motifs_48_dm,
+                     name = "lfc rr",
+                     column_title = "Ligand-specific motifs 48H",
+                     column_title_gp = gpar(fontsize = 12),
+                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                     cluster_rows = FALSE,
+                     cluster_row_slices = FALSE, 
+                     cluster_columns = FALSE,
+                     row_split = unique_features_motifs_48$Cluster,
+                     row_gap = unit(2, "mm"),
+                     row_title = " ",
+                     show_row_names = TRUE,
+                     row_names_gp = gpar(fontsize = 7),
+                     column_names_gp = gpar(fontsize = 10),
+                     left_annotation = haRow_unique_motifs_48,
+                     use_raster = FALSE)
+hm_unique_motifs_48
+
+###48 hour cycIF
+###Heatmap of ligand-specific cycIF48 hour features with rownames
+unique_features_cycIF_48 <- unique_features_data_ann %>%
+  filter(Type == "cycIF") %>%
+  select(-contains("_24"))
+
+unique_features_cycIF_48_dm <- unique_features_cycIF_48 %>%
+  select(where(is.numeric)) %>%
+  as.matrix()
+rownames(unique_features_cycIF_48_dm) <- unique_features_cycIF_48$feature
+
+unique_features_cycIF_48_ann <- unique_features_cycIF_48 %>%
+  select(Ligand, Type, Direction) %>%
+  data.frame()
+
+haRow_unique_cycIF_48 <- HeatmapAnnotation(df = unique_features_cycIF_48_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_unique_cycIF_48 <- Heatmap(unique_features_cycIF_48_dm,
+                     name = "lfc rr",
+                     column_title = "Ligand-specific cycIF 48H",
+                     column_title_gp = gpar(fontsize = 12),
+                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                     cluster_rows = FALSE,
+                     cluster_row_slices = FALSE, 
+                     cluster_columns = FALSE,
+                     row_split = unique_features_cycIF_48$Cluster,
+                     row_gap = unit(2, "mm"),
+                     row_title = " ",
+                     show_row_names = TRUE,
+                     row_names_gp = gpar(fontsize = 7),
+                     column_names_gp = gpar(fontsize = 10),
+                     left_annotation = haRow_unique_cycIF_48,
+                     use_raster = FALSE)
+hm_unique_cycIF_48
+###
 hm_unique_mean <- Heatmap(unique_features_data_mean_dm,
                           name = "lfc ",
                           column_title = "Ligand-specific averages",
@@ -783,7 +900,10 @@ hm_RPPA
 if(create_pdfs){
   pdf("../plots/MDD_integrated_rr_unique_heatmap.pdf")
   draw(hm_unique)
-  draw(hm_noRNAseq)
+  draw(hm_unique_RPPA_48)
+   draw(hm_unique_motifs_48)
+     draw(hm_unique_cycIF_48)
+     draw(hm_noRNAseq)
   draw(hm_GCP)
   draw(hm_cycIF)
   draw(hm_RPPA)
@@ -1422,6 +1542,47 @@ if(create_pdfs) {
   pdf("../plots/MDD_combined14_module_phenotype_correlations_reduced.pdf",
       width = 9, height = 8)
   res <- print(cor_hm)
+  res <- dev.off()
+}
+
+###
+# Scatterplots of module activity vs. phenotype--ie, the data underlying the heat map. We are principally interested in Module9 vs. proliferation metrics, but it would be good to have for all comparisons
+#format data DE data for cluster+condition mean vs phenotype value with
+#module~phenotype facets, color by ligand, size by time
+module_mean_data_ann <- combined14_features_data_mean %>%
+  pivot_longer(cols = -Cluster, names_to = "condition", values_to = "module_value") %>%
+  mutate(ligand = str_remove(condition, "_.*"),
+         time = str_remove(condition, ".*_") %>% as.integer) %>%
+  rename(module = Cluster)
+
+phenotype_data_ann <- if_df_migration %>%
+  filter(str_detect(feature, "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|migration_distance")) %>%
+ pivot_longer(cols = -feature, names_to = "condition", values_to = "phenotype_value") %>%
+  group_by(feature) %>%
+  mutate(phenotype_value = scale(phenotype_value)) %>%
+  ungroup()
+
+module_phenotype_data_ann <- inner_join(module_mean_data_ann, phenotype_data_ann, by = "condition")
+
+p <- ggplot(module_phenotype_data_ann, aes(x = module_value, y = phenotype_value, color = ligand, size = time)) +
+  geom_point(alpha = .8) +
+    scale_color_manual(values = ligand_cols) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(2, 4)) +
+  facet_grid(module~feature) + 
+   guides(colour = guide_legend(override.aes = list(size = 4)),
+           size = guide_legend(override.aes = list(shape = 19))) +
+    theme_bw() +
+    theme(axis.title = element_blank(),
+          #axis.ticks = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          strip.text.x = element_text(size = 3.5))
+p
+
+if(create_pdfs) {
+  pdf("../plots/MDD_combined14_module_phenotype_scatterplots.pdf",
+      width =8, height = 14)
+  res <- print(p)
   res <- dev.off()
 }
 
