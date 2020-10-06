@@ -72,7 +72,13 @@ collapseReps <- function(x, sA) {
   return(mat_medians)
 }
 
+getJasparMotifs
+
 jaspar <- function (...) 
+  # This function is edited from the getJasparMotifs function in 
+  # the R package chromVAR.
+  # It hasbeen changed to retrieve JASPAR 2018 motifs, rather than
+  # the JASPAR 2016 motifs retrieved by the function in chromVAR
 {
   opts <- list()
   opts["species"] <- "Homo sapiens"

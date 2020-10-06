@@ -12,18 +12,17 @@ set.seed(2019)
 
 rdata     <- "/Users/derrickd/workspace/mcf10a_common_project/mcf10a_atacseq/archive/Data/rdata/dob_new.Rdata"
 annoFile  <- "../ATACseq/Metadata/MDD_ATACseq_sampleMetadata.csv"
-RNAfile <- "../RNAseq/Data/MDD_RNAseq_Level3.csv"
 
 # out
 motifFamilies_out <- "../ATACseq/Data/motif/MDD_ATACseq_MotifFamilyScores.csv"
 motifFamilies_out_L4 <- "../ATACseq/Data/motif/MDD_ATACseq_MotifFamilyScores_summarized.csv"
 motifScores_out   <- "../ATACseq/Data/motif/MDD_ATACseq_MotifScores.csv"
-motifAnno_out     <- "../ATACseq/Data/motif/MDD_ATACseq_MotifAnno_orig.csv"
+motifAnno_out     <- "../ATACseq/Data/motif/MDD_ATACseq_MotifAnno.csv"
 
 ###############################################################################
 if( str_extract(getwd(), "[:alnum:]+$") != "R" ) {setwd("R")}
-
 source("MDD_ATACseq_motifFunctions.R")
+
 ###############################################################################
 # Loading ATACseq data
 load(rdata)
@@ -40,7 +39,8 @@ sampleAnno <-
 
 # annotation table to map uniprot ids to ensembl gene ids/hugo symbols
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
-                dataset = "hsapiens_gene_ensembl", host = "uswest.ensembl.org")
+                dataset = "hsapiens_gene_ensembl", 
+                host = "apr2020.archive.ensembl.org")
 
 annoTable <-
   getBM(attributes = c("ensembl_gene_id", 
@@ -122,6 +122,7 @@ motif_families <-
 
 motif_families <- motif_families[, 
                                  c("family", sampleAnno %>% filter(ATACseq_QCpass) %>% pull(specimenID))]
+
 write_csv(motif_families, path = motifFamilies_out)
 
 # Summarizing to experimental conditions
