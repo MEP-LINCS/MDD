@@ -74,6 +74,17 @@ This analysis is run with keep_PBS flag set to `r keep_PBS`.
 The cluster method is `r cluster_method`.  
 Input files are `r data_path`, `r shared_features_path` and `r unique_features_path`.  
 
+Method summary:
+
+Use replicates to perform differential (DE) analysis between conditons and ctrl_0 for RNAseq, RPPA, GCP and cycIF assays. Use family z scores for motifs.  
+rrscale the DE values within each assay  
+Use set analysis to select features that are significantly expressed by a single ligand (ligand-specific) or multiple ligands (shared)  
+Perform Gap analysis with pam clustering on the shared and ligand-specific values as a single dataset  
+Combine 4 similar cluster/module pairs to yield a combined14 dataset  Evaluate the combined14 dataset with UMAP  
+Correlate the combined14 modules with IF and cell tracking phenotypes  
+Get enriched Reactome pathways for the RNAseq genes each combined14 module  
+Evaluate the modules/assay content and distributions  
+Evaluate T0 centered versions of the assay values using the combined14 structure  
 
 ```{r prepData}
 #load the raw data asay_pk_data for future processing
@@ -247,14 +258,14 @@ cor_hm <- Heatmap(cor_dm,
 cor_hm
 
 if(create_pdfs) {
-  pdf("MDD_combined18_module_module_correlations_reduced.pdf",
+  pdf("../plots/MDD_combined18_module_module_correlations_reduced.pdf",
       width = 9, height = 8)
   res <- print(cor_hm)
   res <- dev.off()
 }
 
 if(write_csvs) {
-  write.csv(cor_dm, "MDD_combined18_module_module_correlations.csv")
+  write.csv(cor_dm, "../tables/MDD_combined18_module_module_correlations.csv")
 
 }
 
@@ -343,6 +354,45 @@ hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
                             use_raster = FALSE)
 hm_combined14_mean
 
+hm_combined14_mean_clustered_obj <- Heatmap(combined14_features_data_mean_dm,
+                            name = "lfc ",
+                            column_title = "combined14 cluster means",
+                            column_title_gp = gpar(fontsize = 12),
+                            col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                            cluster_rows = TRUE,
+                            cluster_row_slices = FALSE,
+                            cluster_columns = FALSE,
+                            row_gap = unit(2, "mm"),
+                            row_title = " ",
+                            show_row_names = TRUE,
+                            row_names_gp = gpar(fontsize = 8),
+                            column_names_gp = gpar(fontsize = 10),
+                            use_raster = FALSE)
+hm_combined14_mean_clustered <- draw(hm_combined14_mean_clustered_obj)
+combined14_cluster_order <- row_order(hm_combined14_mean_clustered)
+
+#Order the combined14 heatmap by the clustering of the mean values
+#reorder the levels in combined14_features ann that are used in  row_split
+dm_ordered <- combined14_features_data_ann %>%
+  mutate(Cluster = fct_relevel(Cluster, (rownames(combined14_features_data_mean_dm)[combined14_cluster_order])))
+
+hm_combined14_ordered <- Heatmap(combined14_features_dm,
+                       name = "lfc rr",
+                       column_title = "combined14 features",
+                       column_title_gp = gpar(fontsize = 12),
+                       col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = FALSE,
+                       cluster_row_slices = FALSE, 
+                       cluster_columns = FALSE,
+                       row_split = dm_ordered$Cluster,
+                       row_gap = unit(2, "mm"),
+                       row_title = " ",
+                       show_row_names = FALSE,
+                       row_names_gp = gpar(fontsize = 8),
+                       column_names_gp = gpar(fontsize = 10),
+          #             left_annotation = haRow_combined14,
+                       use_raster = FALSE)
+hm_combined14_ordered
 #####
 
 #Remove the cluster assignments to keep the code similar to the 
@@ -391,9 +441,10 @@ hm_combined14_noRNA
 
 #####
 if(create_pdfs){
-  pdf("MDD_integrated_rr_combined_heatmaps.pdf",height = 10) 
+  pdf("../plots/MDD_integrated_rr_combined_heatmaps.pdf",height = 10) 
   draw(hm_combined18)
   draw(hm_combined18_mean)
+  draw(hm_combined14_mean_clustered)
   draw(hm_combined14)
   draw(hm_combined14_mean)
   draw(hm_combined14_noRNA)
@@ -475,7 +526,7 @@ if(create_pdfs){
 # #                use_raster = FALSE)
 # # hm_shared
 # # if(create_pdfs){
-# #   pdf("MDD_integrated_rr_shared_heatmap.pdf") 
+# #   pdf("../plots/MDD_integrated_rr_shared_heatmap.pdf") 
 # #   draw(hm_shared)
 # #   res <- dev.off()
 # # } 
@@ -730,7 +781,7 @@ hm_RPPA
 # 
 # ####
 if(create_pdfs){
-  pdf("MDD_integrated_rr_unique_heatmap.pdf")
+  pdf("../plots/MDD_integrated_rr_unique_heatmap.pdf")
   draw(hm_unique)
   draw(hm_noRNAseq)
   draw(hm_GCP)
@@ -892,7 +943,7 @@ hm_RPPA
 # 
 # ####
 if(create_pdfs){
-  pdf("MDD_integrated_rr_unique_heatmap_ordered.pdf")
+  pdf("../plots/../plots/MDD_integrated_rr_unique_heatmap_ordered.pdf")
   draw(hm_noRNAseq)
   draw(hm_GCP)
   draw(hm_cycIF)
@@ -904,7 +955,7 @@ if(create_pdfs){
 #Create a matrix and heatmap of the mean Ligand-specific values
 
 if(create_pdfs){
-  pdf("MDD_unique_heatmaps.pdf") 
+  pdf("../plots/../plots/MDD_unique_heatmaps.pdf") 
   draw(hm_unique)
   draw(hm_unique_mean)
   res <- dev.off()
@@ -995,7 +1046,7 @@ hm_T0 <- Heatmap(df_dm,
 hm_T0
 
 if(create_pdfs){
-  pdf("MDD_integrated_T0_cycIF_GCP_RPPA_heatmap.pdf")
+  pdf("../plots/MDD_integrated_T0_cycIF_GCP_RPPA_heatmap.pdf")
   draw(hm_T0)
   res <- dev.off()
 }
@@ -1027,7 +1078,7 @@ module_features <- combined18_features_data_ann %>%
   split(.$Cluster) 
 
 res <- write_xlsx(module_features,
-                  path = "MDD_int_rr_combined18_tables.xlsx")
+                  path = "../tables/MDD_int_rr_combined18_tables.xlsx")
 
 combined14_features <- combined14_features_data_ann %>%
   arrange(Cluster, Type) %>%
@@ -1036,7 +1087,7 @@ combined14_features <- combined14_features_data_ann %>%
   split(.$Cluster) 
 
 res <- write_xlsx(combined14_features,
-                  path = "MDD_int_rr_combined14_tables.xlsx")
+                  path = "../tables/MDD_int_rr_combined14_tables.xlsx")
 
 ##### Randomized cluster assignments for null set analysis
 module_features_null <- combined18_features_data_ann %>%
@@ -1047,7 +1098,7 @@ module_features_null <- combined18_features_data_ann %>%
   split(.$Cluster) 
 
 res <- write_xlsx(module_features_null,
-                  path = "MDD_int_rr_combined18_tables_null.xlsx")
+                  path = "../tables/MDD_int_rr_combined18_tables_null.xlsx")
 # #####
 # module_features <- shared_features_data_ann %>%
 #   arrange(Cluster, Type) %>%
@@ -1065,7 +1116,7 @@ module_features <- unique_features_data %>%
   split(.$Cluster) 
 
 res <- write_xlsx(module_features,
-                  path = "MDD_int_rr_unique_tables.xlsx")
+                  path = "../tables/MDD_int_rr_unique_tables.xlsx")
 ```
 
 
@@ -1136,7 +1187,7 @@ save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_combi
   p
   
   if(create_pdfs) {
-    pdf("MDD_combined14_umap_main.pdf")    
+    pdf("../plots/MDD_combined14_umap_main.pdf")    
     print(p)
     res <- dev.off()
   } 
@@ -1166,7 +1217,7 @@ p <- p + geom_point(data = df_UMAP[!df_UMAP$Type=="RNA",],size = .8, alpha = .8)
 p
 
 if(create_pdfs) {
-  pdf("MDD_ligands_combined14_umap_type.pdf") 
+  pdf("../plots/MDD_ligands_combined14_umap_type.pdf") 
       print(p)
   res <- dev.off()
 }
@@ -1209,7 +1260,7 @@ p_list <- lapply(unique(df_UMAP$Type), function(assay){
 res <- map(p_list, print)
 
 if(create_pdfs) {
-  pdf("MDD_ligands_combined14_umap_type_highlights.pdf") 
+  pdf("../plots/MDD_ligands_combined14_umap_type_highlights.pdf") 
   res <- map(p_list, print)
   res <- dev.off()
 }
@@ -1230,10 +1281,17 @@ df_UMAP_conditions <- colnames(df)[str_detect(colnames(df_UMAP),"PBS|HGF|OSM|EGF
   str_replace("[+]","_")
 
 p_list <- lapply(df_UMAP_conditions, function(condition){
-  p <- ggplot(df, aes_string(x = "UMAP_1",
+  ligand <- str_remove(condition, "_[[:digit:]]*$") %>%
+    str_replace("_", "+")
+
+  highlights <- df %>%
+    filter(Set == ligand,
+           feature_type %in% c("Stat3_pY705_RPPA")) 
+  
+  p_base <- ggplot(df, aes_string(x = "UMAP_1",
                              y = "UMAP_2",
                              colour = condition)) +
-    geom_point(size = 1.5, alpha = .8, shape = 16) +
+    geom_point(size = 2, alpha = .8, shape = 16) +
     annotate("text",x = -2, y = -6, label = condition)+
     scale_color_gradientn(colours = colorRampPalette(rev(brewer.pal(n = 7, name =
                                                                       "RdBu")))(100)) +
@@ -1246,11 +1304,14 @@ p_list <- lapply(df_UMAP_conditions, function(condition){
           panel.grid.major = element_blank(),
           panel.grid.minor = element_blank(),
           axis.line = element_line(colour = "black"))
+
+  p <- p_base + geom_text(data = highlights, aes(label = feature_type), color = "black") +
+    geom_point(data = highlights, color = "black")
   return(p)
 })
 res <- map(p_list, print)
 if(create_pdfs) {
-  pdf("MDD_integrated_combined14_umap_by_condition.pdf")
+  pdf("../plots/MDD_integrated_combined14_umap_by_condition.pdf")
   res <- map(p_list, print)
   res <- dev.off()
 }
@@ -1322,7 +1383,7 @@ cor_hm <- Heatmap(cor_dm,
 cor_hm
 
 if(create_pdfs) {
-  pdf("MDD_combined14_IF_correlations.pdf")
+  pdf("../plots/MDD_combined14_IF_correlations.pdf")
   res <- print(cor_hm)
   res <- dev.off()
 }
@@ -1338,7 +1399,7 @@ cor_hm <- Heatmap(cor_dm,
 cor_hm
 
 if(create_pdfs) {
-  pdf("MDD_combined14_IF_correlations_reduced.pdf",
+  pdf("../plots/MDD_combined14_IF_correlations_reduced.pdf",
       width = 9, height = 8)
   res <- print(cor_hm)
   res <- dev.off()
@@ -1358,7 +1419,7 @@ cor_hm <- Heatmap(cor_dm,
 cor_hm
 
 if(create_pdfs) {
-  pdf("MDD_combined14_module_phenotype_correlations_reduced.pdf",
+  pdf("../plots/MDD_combined14_module_phenotype_correlations_reduced.pdf",
       width = 9, height = 8)
   res <- print(cor_hm)
   res <- dev.off()
@@ -1409,10 +1470,10 @@ if(create_pdfs) {
 # 
 # p_log
 # if(create_pdfs){
-#   pdf("MDD_shared_feature_type_distribution.pdf")
+#   pdf("../plots/MDD_shared_feature_type_distribution.pdf")
 #   print(p)  
 #   res <- dev.off()
-#   pdf("MDD_shared_feature_type_distribution_log_scale.pdf")
+#   pdf("../plots/MDD_shared_feature_type_distribution_log_scale.pdf")
 #   print(p_log)
 #   res <- dev.off()
 # } 
@@ -1455,10 +1516,10 @@ p_log <- ggplot(df, aes(x = Type, fill = Type)) +
 
 p_log
 if(create_pdfs){
-  pdf("MDD_combined14_feature_type_distribution.pdf")
+  pdf("../plots/MDD_combined14_feature_type_distribution.pdf")
   print(p)  
   res <- dev.off()
-  pdf("MDD_combined14_feature_type_distribution_log_scale.pdf")
+  pdf("../plots/MDD_combined14_feature_type_distribution_log_scale.pdf")
   print(p_log)
   res <- dev.off()
 } 
@@ -1497,7 +1558,7 @@ if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_combined18.
 
   plot_gap_custom(gss_combined18, "combined18")
 if(create_pdfs){
-  pdf("MDD_combined18_gap_cluster.pdf")
+  pdf("../plots/MDD_combined18_gap_cluster.pdf")
   p <- plot_gap_custom(gss_combined18)
   print(p)
   res <- dev.off()
@@ -1517,7 +1578,7 @@ if(create_pdfs){
 # 
 #   plot_gap_custom(gss_shared, "shared")
 # if(create_pdfs){
-#   pdf("MDD_shared_gap_cluster.pdf")
+#   pdf("../plots/MDD_shared_gap_cluster.pdf")
 #   p <- plot_gap_custom(gss_shared)
 #   print(p)
 #   res <- dev.off()
@@ -1567,7 +1628,7 @@ if(create_pdfs){
 # p
 # 
 # if(create_pdfs){
-#   pdf("MDD_shared_cluster_feature_counts.pdf")
+#   pdf("../plots/MDD_shared_cluster_feature_counts.pdf")
 #    print(p_hist)
 #    print(p)
 #   res <- dev.off()
@@ -1635,7 +1696,7 @@ p <- ggplot(df, aes(x = n, fill = Type)) +
 p
 
 if(create_pdfs){
-  pdf("MDD_unique_cluster_feature_counts.pdf")
+  pdf("../plots/MDD_unique_cluster_feature_counts.pdf")
    print(p_hist)
    print(p_ligand)
    print(p)
@@ -1683,7 +1744,7 @@ p <- ggplot(df, aes(x = n, fill = Type)) +
 p
 
 if(create_pdfs){
-  pdf("MDD_combined14_cluster_feature_counts.pdf")
+  pdf("../plots/MDD_combined14_cluster_feature_counts.pdf")
      print(p_hist)
      print(p)
   res <- dev.off()
@@ -1763,7 +1824,7 @@ upset_obj <- upset(genes, nset = 32)
 
 upset_obj
 
-pdf("combined18_comparisons.pdf", width = 10, height = 8)
+pdf("../plots/combined18_comparisons.pdf", width = 10, height = 8)
 upset_obj
 res = dev.off()
 #######```
@@ -1918,7 +1979,7 @@ p <- ggplot(df, aes(x = Cluster, y = value)) +
 p
 
 if(create_pdfs){
-  pdf("MDD_T0_normed_in_combined18_manual_clusters.pdf",height = 10)
+  pdf("../plots/MDD_T0_normed_in_combined18_manual_clusters.pdf",height = 10)
   p
   draw(hm_T0)
   draw(hm_T0_mean)
@@ -1932,7 +1993,7 @@ module_features <- assay_pk_data_T0_norm_24_48 %>%
   split(.$Cluster) 
 
 res <- write_xlsx(module_features,
-                  path = "MDD_T0_norm_combined18_tables.xlsx")
+                  path = "../tables/MDD_T0_norm_combined18_tables.xlsx")
 
 
 #Cluster the T0 data according to the combined14 structure
@@ -2039,7 +2100,7 @@ p <- ggplot(df, aes(x = Cluster, y = value)) +
 p
 
 if(create_pdfs){
-  pdf("MDD_T0_normed_combined14.pdf",height = 10)
+  pdf("../../plots/MDD_T0_normed_combined14.pdf",height = 10)
   draw(hm_T0_14)
   draw(hm_T0_norm14_mean)
   print(p)
@@ -2049,11 +2110,10 @@ if(create_pdfs){
 
 
 if(create_pdfs){
-  pdf("MDD_T0_normed_in_combined18_manual_clusters.pdf",height = 10)
+  pdf("../plots/MDD_T0_normed_in_combined18_manual_clusters.pdf",height = 10)
   p
   draw(hm_T0)
   draw(hm_T0_mean)
-  draw(hm_T0_module14)
   res <- dev.off()
 } 
 
