@@ -1,5 +1,5 @@
 ---
-title: "Reactome analysis of the MDD integrated14 dataset"
+title: "Reactome analysis of the MDD combined14 dataset"
 output: html_document
 ---
 
@@ -114,8 +114,8 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
  # }
  
  #manually combine some modules based on biological review
-  if(!file.exists("MDD_Reactome_pathways_integrated14.csv")){
-    file_name <- "MDD_int_rr_combined18_tables.xlsx"
+  if(!file.exists("../tables/MDD_Reactome_pathways_combined14.csv")){
+    file_name <- "../tables/MDD_int_rr_combined18_tables.xlsx"
     gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
     names(gene_list) <- excel_sheets(file_name)
     gene_list[["module_3+4"]] <- c(gene_list[[3]], gene_list[[4]])
@@ -124,11 +124,11 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
     gene_list[["module_6+16"]] <- c(gene_list[[6]], gene_list[[16]])
     gene_list[c("module_3", "module_4", "module_6","module_8", "module_10", "module_15", "module_16", "module_17")] <- NULL
           gene_list <- compact(gene_list)
-   pathways_integrated14 <- map_dfr(gene_list, get_pathway_data, .id = "module") %>%
+   pathways_combined14 <- map_dfr(gene_list, get_pathway_data, .id = "module") %>%
          mutate(module = fct_inorder(module, ordered = TRUE))
-   write_csv(pathways_integrated14, "MDD_Reactome_pathways_integrated14.csv")
+   write_csv(pathways_combined14, "../tables/MDD_Reactome_pathways_combined14.csv")
  } else {
-   pathways_integrated14 <- read_csv("MDD_Reactome_pathways_integrated14.csv") %>%
+   pathways_combined14 <- read_csv("../tables/MDD_Reactome_pathways_combined14.csv") %>%
          mutate(module = fct_inorder(module, ordered = TRUE))
  }
  
@@ -150,7 +150,7 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
     
    pathways_newly_induced_genes_ligands <- map_dfr(newly_induced_genes_ligands_list, get_pathway_data, .id = "module") %>%
          mutate(module = fct_inorder(module, ordered = TRUE))
-   write_csv(pathways_newly_induced_genes_ligands, "MDD_Reactome_pathways_newly_induced_genes_ligands.csv")
+   write_csv(pathways_newly_induced_genes_ligands, "../tables/MDD_Reactome_pathways_newly_induced_genes_ligands.csv")
  } else {
    pathways_newly_induced_genes_ligands <- read_csv("MDD_Reactome_pathways_newly_induced_genes_ligands.csv") %>%
          mutate(module = fct_inorder(module, ordered = TRUE))
@@ -173,7 +173,7 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
     
    pathways_newly_induced_genes_conditions <- map_dfr(newly_induced_genes_conditions_list, get_pathway_data, .id = "module") %>%
          mutate(module = fct_inorder(module, ordered = TRUE))
-   write_csv(pathways_newly_induced_genes_conditions, "MDD_Reactome_pathways_newly_induced_genes_conditions.csv")
+   write_csv(pathways_newly_induced_genes_conditions, "../tables/MDD_Reactome_pathways_newly_induced_genes_conditions.csv")
  } else {
    pathways_newly_induced_genes_conditions <- read_csv("MDD_Reactome_pathways_newly_induced_genes_conditions.csv") %>%
          mutate(module = fct_inorder(module, ordered = TRUE))
@@ -183,12 +183,14 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
 
 ```{r create_dotplots}
 
-make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 5, pathway_method = NULL, axis.text.x.angle = 0){
+make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 3, min_pathway_genes = 15, max_pathway_genes = 500, pathway_method = NULL, axis.text.x.angle = 0){
   #browser()
   selected_pathways <- df %>%
     group_by(module) %>%
     filter(fdr <= fdr_thresh,
-           geneRatio >= gene_ratio_thresh) %>%
+           geneRatio >= gene_ratio_thresh,
+           total >= min_pathway_genes,
+           total <= max_pathway_genes) %>%
     slice_min(order_by = c(fdr), n = pathway_nbr, with_ties = TRUE) %>%
     slice_max(geneRatio, n = pathway_nbr, with_ties = TRUE) %>%
     ungroup() %>%
@@ -222,19 +224,26 @@ make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, path
           axis.text.x = element_text(angle = axis.text.x.angle))
   print(p)
   
-  pdf(paste0("MDD_reactome_dotplot",pathway_method,".pdf"),
+  pdf(paste0("../plots/MDD_reactome_dotplot",pathway_method,".pdf"),
       width = 8,
-      useDingbats = FALSE)
+      useDingbats = FALSE,)
   print(p)
   dev_off_res <- dev.off()
 }
 
-res <- make_dotplots_API(pathways_integrated14, pathway_method = "_integrated14_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.0, axis.text.x.angle = 90)
+res <- make_dotplots_API(pathways_combined14, pathway_method = "_combined14_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.1, axis.text.x.angle = 90)
 
 res <- make_dotplots_API(pathways_newly_induced_genes_ligands, pathway_method = "_newly_induced_genes_ligands_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
 
 res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method = "_newly_induced_genes_conditions_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
+####
+# Create bubble plot of Reactome enrichments for combined14 modules with the following filters (Mark: let's brainstorm this a bit):
+# Remove gene sets with > 500 features or < 15 features
+# Require FDR < 0.1
+# Require GeneRatio > 0.1
+# Plot: 1) up to the top 5 pathways for each module that meet these thresholds; 2) up to the top 3 pathways for each module that meet these threshold
 
+####
 # 
 ###
 #   #####NULL dataset analysis
