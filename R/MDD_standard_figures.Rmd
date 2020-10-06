@@ -149,7 +149,7 @@ windsorize_probs <- quantile(df_as_matrix, probs = c(.02, .98), na.rm = TRUE)
           cluster_rows = cluster_rows,
           col = colorRamp2(c(windsorize_probs[1], 0, windsorize_probs[2]), c("blue", "white", "red")),
           na_col = "grey")
-  pdf(paste0("MDD_standard_heatmap_",assay_name, ".pdf"))
+  pdf(paste0("../plots/MDD_standard_heatmap_",assay_name, ".pdf"))
   draw(hm)
   res <- dev.off()
   draw(hm)
@@ -205,7 +205,7 @@ custom_settings$n_neighbors = 25
           panel.grid.major = element_blank(),
           panel.grid.minor = element_blank())
 
-  pdf(paste0("MDD_standard_UMAP_",assay_name, ".pdf"), width = 6, height = 5)
+  pdf(paste0("../plots/MDD_standard_UMAP_",assay_name, ".pdf"), width = 6, height = 5)
   print(p)
   res <- dev.off()
   print(p)
