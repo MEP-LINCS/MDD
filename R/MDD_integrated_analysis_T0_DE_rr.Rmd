@@ -311,7 +311,8 @@ combined14_features_count <- combined14_features_data_ann %>%
 combined14_features_data_mean_dm <- combined14_features_data_mean %>%
   select(-Cluster) %>%
   as.matrix()
-rownames(combined14_features_data_mean_dm) <- paste0("Module_",combined14_features_data_mean$Cluster,"_", combined14_features_count$n)
+# rownames(combined14_features_data_mean_dm) <- paste0("Module_",combined14_features_data_mean$Cluster,"_", combined14_features_count$n)
+rownames(combined14_features_data_mean_dm) <-combined14_features_data_mean$Cluster
 
 #Make heatmap with annotations
 haRow_combined14 <- HeatmapAnnotation(df = combined14_features_ann,
@@ -339,6 +340,23 @@ hm_combined14 <- Heatmap(combined14_features_dm,
 hm_combined14
 
 hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
+                              name = "lfc ",
+                              column_title = "combined14 cluster means",
+                              column_title_gp = gpar(fontsize = 12),
+                              col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                              cluster_rows = FALSE,
+                              cluster_row_slices = FALSE,
+                              cluster_columns = FALSE,
+                              row_gap = unit(2, "mm"),
+                              row_names_side = "left",
+                              row_title = " ",
+                              show_row_names = TRUE,
+                              row_names_gp = gpar(fontsize = 12),
+                              column_names_gp = gpar(fontsize = 10),
+                              use_raster = FALSE)
+draw(hm_combined14_mean, heatmap_legend_side = "left")
+
+hm_combined14_mean_clustered_obj <- Heatmap(combined14_features_data_mean_dm,
                             name = "lfc ",
                             column_title = "combined14 cluster means",
                             column_title_gp = gpar(fontsize = 12),
@@ -347,23 +365,6 @@ hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
                             cluster_row_slices = FALSE,
                             cluster_columns = FALSE,
                             row_gap = unit(2, "mm"),
-                            row_title = " ",
-                            show_row_names = TRUE,
-                            row_names_gp = gpar(fontsize = 8),
-                            column_names_gp = gpar(fontsize = 10),
-                            use_raster = FALSE)
-hm_combined14_mean
-
-hm_combined14_mean_clustered_obj <- Heatmap(combined14_features_data_mean_dm,
-                            name = "lfc ",
-                            column_title = "combined14 cluster means",
-                            column_title_gp = gpar(fontsize = 12),
-                            col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                            cluster_rows = TRUE,
-                            cluster_row_slices = FALSE,
-                            cluster_columns = FALSE,
-                            row_gap = unit(2, "mm"),
-                            row_title = " ",
                             show_row_names = TRUE,
                             row_names_gp = gpar(fontsize = 8),
                             column_names_gp = gpar(fontsize = 10),
@@ -448,6 +449,12 @@ if(create_pdfs){
   draw(hm_combined14)
   draw(hm_combined14_mean)
   draw(hm_combined14_noRNA)
+  res <- dev.off()
+} 
+
+if(create_pdfs){
+  pdf("../plots/MDD_integrated_combined14_mean_heatmap.pdf",height = 8, width = 5) 
+  draw(hm_combined14_mean, heatmap_legend_side = "left")
   res <- dev.off()
 } 
 # 
