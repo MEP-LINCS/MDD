@@ -125,11 +125,11 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
     gene_list[c("module_3", "module_4", "module_6","module_8", "module_10", "module_15", "module_16", "module_17")] <- NULL
           gene_list <- compact(gene_list)
    pathways_combined14 <- map_dfr(gene_list, get_pathway_data, .id = "module") %>%
-         mutate(module = fct_inorder(module, ordered = TRUE))
+         mutate(module = factor(module, ordered = TRUE, levels = gtools::mixedsort(unique(module))))
    write_csv(pathways_combined14, "../tables/MDD_Reactome_pathways_combined14.csv")
  } else {
    pathways_combined14 <- read_csv("../tables/MDD_Reactome_pathways_combined14.csv") %>%
-         mutate(module = fct_inorder(module, ordered = TRUE))
+         mutate(module = factor(module, ordered = TRUE, levels = gtools::mixedsort(unique(module))))
  }
  
  #Get pathways of newly induced gene sets
@@ -197,31 +197,39 @@ make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, path
     dplyr::select(name) %>%
     distinct()
   
+  silence_pathway_names <- c("ATF6 (ATF6-alpha) activates chaperone genes")
+  
+  df_shortened_names <- df %>%
+    mutate(name = case_when(dbId == 983170 ~ "Antigen Presentation",
+                            TRUE ~ name))
+  
   df_selected <- df %>%
+    mutate(module = str_remove(module, "module_"),
+           module = factor(module, ordered = TRUE, levels = gtools::mixedsort(decreasing = TRUE,unique(module)))) %>%
     right_join(selected_pathways, by = "name") %>%
     filter(fdr <= fdr_thresh,
            geneRatio >= gene_ratio_thresh) %>%
     group_by(name) %>%
-    mutate(mean_fdr = mean(fdr),
-           module = str_remove(module, "module_")) %>%
+    mutate(mean_fdr = mean(fdr)) %>%
     ungroup() %>%
-    mutate(module = fct_inorder(module, ordered = TRUE)) %>%
-    arrange(desc(module), mean_fdr) %>%
+    arrange(module, mean_fdr) %>%
     mutate(name = fct_inorder(name, ordered = TRUE))
-  
-  p <- ggplot(df_selected, aes(x = module,
-                               y = name,
+  #df_selected$name[df_selected$name %in% silence_pathway_names] <- ""
+  p <- ggplot(df_selected, aes(x = str_wrap(name, 32),
+                               y = module,
                                colour = fdr,
                                size = geneRatio)) +
     geom_point() +
-    #scale_x_discrete(drop = FALSE) +
     scale_color_gradient(low = "red",high = "blue") +
     scale_size(range = c(0,4))+
-    labs(title = paste(str_replace_all(pathway_method, "_|_API", " "), "dataset pathways")) +
+    scale_x_discrete(drop = FALSE) +
+    scale_y_discrete(drop = FALSE) +
+    labs(title = paste(str_replace_all(pathway_method, "_|_API", " "), "dataset pathways"),
+          x = "") +
     theme_bw() +
     theme(axis.text.y = element_text(size = 6,
                                      color = "black"),
-          axis.text.x = element_text(angle = axis.text.x.angle))
+          axis.text.x = element_text(size = 4, angle = axis.text.x.angle))
   print(p)
   
   pdf(paste0("../plots/MDD_reactome_dotplot",pathway_method,".pdf"),
@@ -231,7 +239,7 @@ make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, path
   dev_off_res <- dev.off()
 }
 
-res <- make_dotplots_API(pathways_combined14, pathway_method = "_combined14_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.1, axis.text.x.angle = 90)
+res <- make_dotplots_API(pathways_combined14, pathway_method = "_combined14_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.1, axis.text.x.angle = 90, pathway_nbr = 5)
 
 res <- make_dotplots_API(pathways_newly_induced_genes_ligands, pathway_method = "_newly_induced_genes_ligands_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
 
@@ -285,6 +293,15 @@ res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method
 #      useDingbats = FALSE)
 #   print(p)
 #   dev_off_res <- dev.off()
+
+foo <- tibble(a = factor(c(1,3,4), levels = 1:4, ordered = TRUE),
+              b = factor(letters[c(2,3,5)], levels = letters[1:6], ordered = TRUE),
+              c = 1:3)
+
+p <-  ggplot(foo, aes(x = a, y = b, color = c, size = c)) +
+  geom_point() +
+  scale_y_discrete(drop = FALSE)
+p
 
 ```
 
