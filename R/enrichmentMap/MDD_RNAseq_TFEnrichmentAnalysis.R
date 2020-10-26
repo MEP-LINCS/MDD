@@ -258,16 +258,34 @@ moduleFileToCHEA3 <- function(excelFileName,
   }
 }
 
+###############################################################################
+# Generating CHEA3 results for combined modules (14 modules and ligand-specific
+# features), and for induced genes via the RNAseq-ATACseq combined table
+
+if(!grepl("R$", getwd())) { setwd("R") }
+
+# Generating ligand-unique CHEA3 scores, with separated directions.
+moduleFileToCHEA3(excelFileName = "../misc/MDD_int_rr_unique_tables.xlsx",
+                  outDirRoot = "../RNAseq/Analyses/Enrichment/ligandUniqueFeatures_CHEA3_separateDirections",
+                  FEATURE = "ligandUniqueFeatures_CHEA3_allLigands",
+                  FEATURENAME = "ligand-unique RNAseq features from integrated modules",
+                  FEATURETYPE = "ligand",
+                  FDR_THRESHOLD = 0.20,
+                  min_set_size = 30,
+                  RmarkdownVersion = "DIFFERENT")
+
+moduleFileToCHEA3(excelFileName = "../misc/MDD_int_rr_combined14_tables.xlsx",
+                  outDirRoot = "../RNAseq/Analyses/Enrichment/combined14Module_CHEA3",
+                  FEATURE = "combined14Module_CHEA3",
+                  FEATURENAME = "combined module RNAseq features",
+                  FEATURETYPE = "module",
+                  FDR_THRESHOLD = 0.20)
+
+###############################################################################
 
 cTableFile <- "../RNAseq/misc/MDD_RNAseq_combinedTable.csv"
 
 combinedTable <- read.csv(cTableFile, stringsAsFactors = FALSE)
-
-combinedTable %>% 
-  filter(Induced) %>% 
-  distinct(Ligand, hgnc_symbol) %>% 
-  split(.$Ligand) %>% 
-  lapply(function(x) {x <- x$hgnc_symbol})
 
 combinedTableToCHEA3 <- function(combinedTableFileName,
                                  outDirRoot,
@@ -301,7 +319,7 @@ combinedTableToCHEA3 <- function(combinedTableFileName,
     split(.$Ligand) %>% 
     lapply(function(x) {
       x <- x$hgnc_symbol
-      })
+    })
   
   lenFilt <- sapply(moduleRNAseqFeatures, length) > min_set_size
   
@@ -316,9 +334,9 @@ combinedTableToCHEA3 <- function(combinedTableFileName,
   print("creating Rmarkdown document")
   rmarkdown::render("MDD_RNAseq_showCHEA3_geneListLengths.Rmd",
                     output_file = sprintf("%s/MDD_%s_summary.html", outDirRoot, FEATURE))
-
+  
   print("subsetting results to selected libraries and writing")
-
+  
   lapply(librariesToExport, function(x) {
     subsetListToLibraryAndWrite(moduleCHEA3ResultsList,
                                 x,
@@ -326,95 +344,26 @@ combinedTableToCHEA3 <- function(combinedTableFileName,
                                 FEATURE = FEATURE)
   }
   )
-
+  
   # Save results for all libraries
   print("writing all libraries")
-
+  
   writeListOfListsToExcel(moduleCHEA3ResultsList, outDirRoot, FEATURE = FEATURE)
-
+  
   moduleCHEA3ResultsListLong <- Reduce(bind_rows, moduleCHEA3ResultsList)
-
+  
   write_csv(moduleCHEA3ResultsListLong, path = sprintf("%s/MDD_%s_all.csv", outDirRoot,
                                                        FEATURE))
-
+  
   save(moduleListLong, moduleCHEA3ResultsList, moduleRNAseqFeatures,
        file = sprintf("%s/MDD_RNAseq_%s.Rdata", outDirRoot, FEATURE))
 }
 
-###############################################################################
-# Generating CHEA3 results for combined modules (14 modules and ligand-specific
-# features), and for induced genes via the RNAseq-ATACseq combined table
+combinedTableToCHEA3(combinedTableFileName = "../RNAseq/misc/MDD_RNAseq_combinedTable.csv",
+                     outDirRoot = "../RNAseq/Analyses/Enrichment/inducedGene_CHEA3",
+                     FEATURE = "inducedGene_CHEA3",
+                     FEATURENAME = "ligand-induced RNAseq genes",
+                     FEATURETYPE = "ligand",
+                     min_set_size = 30,
+                     FDR_THRESHOLD = 0.20)
 
-if(!grepl("R$", getwd())) { setwd("R") }
-# 
-# moduleFileToCHEA3(excelFileName = "../misc/MDD_int_rr_combined14_tables.xlsx",
-#                   outDirRoot = "../RNAseq/Data/Enrichment/combined14Module_CHEA3",
-#                   FEATURE = "combined14Module_CHEA3",
-#                   FEATURENAME = "combined module RNAseq features",
-#                   FEATURETYPE = "module",
-#                   FDR_THRESHOLD = 0.20)
-# 
-# moduleFileToCHEA3(excelFileName = "../misc/MDD_int_rr_unique_tables.xlsx",
-#                   outDirRoot = "../RNAseq/Data/Enrichment/ligandUniqueFeatures_CHEA3",
-#                   FEATURE = "ligandUniqueFeatures_CHEA3",
-#                   FEATURENAME = "ligand-unique RNAseq features from integrated modules",
-#                   FEATURETYPE = "ligand",
-#                   FDR_THRESHOLD = 0.20,
-#                   min_set_size = 30,
-#                   RmarkdownVersion = "DIFFERENT")
-
-moduleFileToCHEA3(excelFileName = "../misc/MDD_int_rr_unique_tables.xlsx",
-                 outDirRoot = "../RNAseq/Data/Enrichment/ligandUniqueFeatures_CHEA3_allLigands",
-                 FEATURE = "ligandUniqueFeatures_CHEA3_allLigands",
-                 FEATURENAME = "ligand-unique RNAseq features from integrated modules",
-                 FEATURETYPE = "ligand",
-                 FDR_THRESHOLD = 0.20,
-                 RmarkdownVersion = "DIFFERENT")
-
-# combinedTableToCHEA3(combinedTableFileName = "../RNAseq/misc/MDD_RNAseq_combinedTable.csv",
-#                      outDirRoot = "../RNAseq/Data/Enrichment/inducedGene_CHEA3",
-#                      FEATURE = "inducedGene_CHEA3",
-#                      FEATURENAME = "ligand-induced RNAseq genes",
-#                      FEATURETYPE = "ligand",
-#                      min_set_size = 30,
-#                      FDR_THRESHOLD = 0.20)
-# 
-# FEATURE = "combined14Module_CHEA3"
-# FEATURENAME = "combined module RNAseq features"
-# FET_THRESHOLD = .05
-# outDir <- "../RNAseq/Data/Enrichment/combined14Module_CHEA3/binaryHeatmaps"
-# CHEA3_in  <- read.csv("../RNAseq/Data/Enrichment/combined14Module_CHEA3/ReMap/MDD_combined14Module_CHEA3_ReMap.csv",
-#                       stringsAsFactors = FALSE) %>% 
-#   mutate(significant = FET.p.value < FET_THRESHOLD) %>% 
-#   dplyr::rename(Module = Query.Name) %>% 
-#   mutate(Module = as.factor(Module)) %>% 
-#   mutate(Module = fct_inorder(Module))
-# size_for_allSig = 20
-# if(!dir.exists(outDir)) {dir.create(outDir)}
-# rmarkdown::render("MDD_RNAseq_TF_Enrichment_binaryHeatmaps.Rmd", 
-#                   output_file = sprintf("%s/MDD_%s_binaryHeatmaps.html", outDir, FEATURE))
-# 
-# 
-# 
-# FEATURE = "ligandUniqueFeatures_CHEA3"
-# FEATURETYPE = "ligand"
-# FEATURENAME = "ligand-unique RNAseq features from integrated modules"
-# FET_THRESHOLD = .05
-# outDir <- "../RNAseq/Data/Enrichment/ligandUniqueFeatures_CHEA3/binaryHeatmaps"
-# CHEA3_in  <- read.csv("../RNAseq/Data/Enrichment/ligandUniqueFeatures_CHEA3/ReMap/MDD_ligandUniqueFeatures_CHEA3_ReMap.csv",
-#                       stringsAsFactors = FALSE) %>% 
-#   mutate(significant = FET.p.value < FET_THRESHOLD) %>% 
-#   dplyr::rename(Module = Query.Name) %>% 
-#   mutate(Module = as.factor(Module)) %>% 
-#   mutate(Module = fct_inorder(Module)) %>% 
-#   mutate(Direction = str_extract(Module, "_[:alnum:]+$")) %>% 
-#   mutate(Direction = str_remove(Direction, "_")) %>% 
-#   mutate(Ligand = str_remove(Module, "_[:alnum:]+$")) %>% 
-#   mutate(annotation = case_when(significant & Direction == "Negative" ~ "Negative",
-#                                 significant & Direction == "Positive" ~ "Positive",
-#                                 !significant ~ ""))
-# size_for_allSig = 20
-# if(!dir.exists(outDir)) {dir.create(outDir)}
-# rmarkdown::render("MDD_RNAseq_TF_Enrichment_binaryHeatmaps_multiDirection.Rmd", 
-#                   output_file = sprintf("%s/MDD_%s_binaryHeatmaps.html", outDir, FEATURE))
-# 
