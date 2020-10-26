@@ -15,6 +15,7 @@ if (!exists("whichGenes")) {whichGenes <- "proteinCoding"}
 if (!exists("identifier")) {identifier <- "hgnc_symbol"}
 if (!exists("returnAsMatrix")) {returnAsMatrix <- FALSE}
 if (!exists("makeHA")) {makeHA <- FALSE}
+if (!exists("biotypeInAnnoTable")) {biotypeInAnnoTable <- FALSE}
 
 if (!grepl("R$", getwd())) {setwd("R")}
 
@@ -28,9 +29,16 @@ colScript          <- "MDD_importColors_pretty.R"
 mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
                 dataset = "hsapiens_gene_ensembl")
 
-annoTable <- getBM(attributes = c("ensembl_gene_id", 
-                                  "hgnc_symbol"),
-                   mart = mart)
+if (biotypeInAnnoTable) {
+  annoTable <- getBM(attributes = c("ensembl_gene_id", 
+                                    "gene_biotype",
+                                    "hgnc_symbol"),
+                     mart = mart)
+} else {
+  annoTable <- getBM(attributes = c("ensembl_gene_id", 
+                                    "hgnc_symbol"),
+                     mart = mart)
+}
 
 ###############################################################################
 # Creating color palette
