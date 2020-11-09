@@ -196,13 +196,7 @@ make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, path
     ungroup() %>%
     dplyr::select(name) %>%
     distinct()
-  
-  silence_pathway_names <- c("ATF6 (ATF6-alpha) activates chaperone genes")
-  # 
-  # df_shortened_names <- df %>%
-  #   mutate(name = case_when(dbId == 983170 ~ "Antigen Presentation",
-  #                           TRUE ~ name))
-  
+
   df_selected <- df %>%
     mutate(module = str_remove(module, "module_"),
            module = factor(module, ordered = TRUE, levels = gtools::mixedsort(decreasing = TRUE,unique(module)))) %>%
@@ -228,18 +222,21 @@ reactome_pathways <- read_delim("../integrated_analysis/Data/ReactomePathways.tx
   select(-species)
 
 #Get the child to parent relationships
-reactome_parents <- read_table2("../integrated_analysis/Data/ReactomePathwaysRelation.txt",
-    col_names = FALSE) %>%
-  rename(parent_stId = X1,
-         child_stId = X2) %>%
-  left_join(reactome_pathways, by = c("child_stId" = "stId")) %>%
-  rename(child_name = name) %>%
-  left_join(reactome_pathways, by = c("parent_stId" = "stId")) %>%
-  rename(parent_name = name) %>%
-    left_join(reactome_pathways, by = c("parent_stId" = "stId")) %>%
-  rename(grandparent_name = name) %>%
-  drop_na()
+#Some child_stIds have more that one parent ID
+#Many parents have mor ethan one child
+# reactome_parents <- read_table2("../integrated_analysis/Data/ReactomePathwaysRelation.txt",
+#     col_names = FALSE) %>%
+#   rename(parent_stId = X1,
+#          child_stId = X2) %>%
+#   filter(str_detect(child_stId, "-HSA-")) %>%
+#   left_join(reactome_pathways, by = c("child_stId" = "stId")) %>%
+#   rename(child_name = name) %>%
+#   left_join(reactome_pathways, by = c("parent_stId" = "stId")) %>%
+#   rename(parent_name = name)
 
+# %>%
+#     left_join(reactome_pathways, by = c("parent_stId" = "stId")) %>%
+#   rename(grandparent_name = name)
 
 #use reactome hierarchy to determine next level up
 reactome_two_levels <- read_table2("../integrated_analysis/Data/ReactomePathwaysRelation.txt",
@@ -251,7 +248,9 @@ reactome_two_levels <- read_table2("../integrated_analysis/Data/ReactomePathways
  reactome_three_levels <- reactome_two_levels %>%
    left_join(reactome_two_levels, by = c("parent_stId" = "child_stId")) %>%
    rename(grandparent_stId = parent_stId.y) %>%
-   select(child_stId, parent_stId, grandparent_stId) %>%
+   #copy parent into grandparent if the parent was the terminal pathway
+   mutate(grandparent_stId = case_when(is.na(grandparent_stId) ~ parent_stId,
+                                       TRUE ~grandparent_stId)) %>%
    left_join(reactome_pathways, by = c("child_stId" = "stId")) %>%
    rename(child_name = name) %>%
    left_join(reactome_pathways, by = c("parent_stId" = "stId")) %>%
@@ -261,6 +260,12 @@ reactome_two_levels <- read_table2("../integrated_analysis/Data/ReactomePathways
  
 df_selected_three_levels <- df_selected %>%
   left_join(reactome_three_levels, by = c("stId" = "child_stId")) %>%
+  mutate(child_name = case_when(is.na(child_name) ~ as.character(name),
+                                       TRUE ~child_name),
+         parent_name = case_when(is.na(parent_name) ~ child_name,
+                                       TRUE ~parent_name),
+         grandparent_name = case_when(is.na(grandparent_name) ~ parent_name,
+                                       TRUE ~grandparent_name)) %>%
   select(module, child_name, parent_name, grandparent_name, fdr, geneRatio)
 
 res <- write_csv(df_selected_three_levels, "../tables/MDD_reactome_three_levels.csv")
@@ -295,6 +300,7 @@ res <- make_dotplots_API(pathways_combined14, pathway_method = "_combined14_API"
 res <- make_dotplots_API(pathways_newly_induced_genes_ligands, pathway_method = "_newly_induced_genes_ligands_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
 
 res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method = "_newly_induced_genes_conditions_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
+
 ####
 # Create bubble plot of Reactome enrichments for combined14 modules with the following filters (Mark: let's brainstorm this a bit):
 # Remove gene sets with > 500 features or < 15 features
@@ -355,6 +361,10 @@ p <-  ggplot(foo, aes(x = a, y = b, color = c, size = c)) +
 p
 
 ```
+
+####Methods
+The Reactome hierarchy has three levels, child, parent and grandparent. These are defined from the specific (child) up through the more all encompassing (grandparent). Parent and child are terms used in Reactome. Grandparent is not but it follows as a natural extension.  
+A pathway may have 0, 1 or more than one parent pathway. In this analyis, if there is no parent pathway the child pathway is copied into the parent pathway slot. If there is no grandparent pathway, the parent pathway is copied into the grandparent slot.  
 
 ###
 
