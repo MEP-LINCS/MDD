@@ -1,0 +1,300 @@
+---
+title: "MDD RPPA line graphs"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE,  message=FALSE, warning = FALSE, fig.height=10, fig.width=10)
+
+suppressMessages(library(tidyverse))
+library(plotly)
+
+
+```
+
+
+## Overview{.tabset .tabset-fade}
+These figures are derived from the level 4 data downloaded from the LINCS Molecular Deep Dive files on Synapse https://www.synapse.org/#!Synapse:syn2862345/wiki/588244.  
+
+
+
+```{r standardFigureFunctions}
+
+#' Read an assay's csv or tsv data file 
+load_data <- function(assay_name, level = 4){
+  file_name <- dir(path = "../",pattern = paste0("MDD_", assay_name,"_","Level",level,".csv"),recursive = TRUE, full.names = TRUE)
+  if(!length(file_name) == 1) stop("There was not one ", assay_name, " data file found")
+    
+  if(str_detect(file_name, "csv")) {
+    df <- read_csv(file_name)
+  } else if (str_detect(file_name, "tsv")){
+    df <- read_tsv(file_name)
+  } else stop("The data file ",file_name, " must be a csv or tsv file type")
+} #end of function
+
+prep_data <- function(df, md){
+    df <- df %>%
+    gather(specimenID, value, -feature) %>%
+    inner_join(md, by = "specimenID") %>%
+    dplyr::select(feature, specimenName, value) %>%
+    spread(specimenName, value) %>%
+    mutate(feature = factor(feature, levels = unique(df$feature))) %>%
+      arrange(feature,)
+  #Set the order of the columns
+  condition_order <-  paste(rep(c("ctrl","PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB"), each = 30, times = 3), rep(c(0, 1, 4 ,8, 24, 48), each = 5, times = 3), rep(c("C1", "C2", "C3"), each = 240), rep(c("A", "B", "C", "D", "E"), times = 109),  sep = "_") %>%
+    intersect(colnames(df))
+  
+  #Arrange columns by standard condition order
+  df <- df %>%
+    dplyr::select(feature, condition_order)
+  return(df)
+}
+
+plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh = 1, assay_name){
+  
+  df_sum <- df %>%
+    prep_data(md = md) %>%
+    gather("specimenName", "value", -feature) %>%
+    inner_join(md, by = "specimenName") %>%
+    dplyr::select(ligand, secondLigand, experimentalTimePoint, replicate, collection, feature, value) %>%
+    rename(Time = experimentalTimePoint,
+           Ligand = ligand,
+           Ligand2 = secondLigand,
+           Replicate = replicate,
+           Collection = collection) %>%
+    group_by(feature, Collection, Time, Ligand) %>%
+    summarise(value = median(value)) %>%
+    ungroup() %>%
+  mutate( Ligand = str_replace(Ligand, "ctrl", "CTRL"),
+          Ligand = str_replace(Ligand, "BMP2", "BMP2+EGF"),
+            Ligand = str_replace(Ligand, "IFNG", "IFNG+EGF"),
+            Ligand = str_replace(Ligand, "TGFB", "TGFB+EGF"),
+            Ligand = factor(Ligand, levels = names(ligand_cols)))
+  
+  if(0 %in% unique(df_sum$Time)){
+    df2 <- df_sum %>%
+      filter(Time == 0) %>%
+      data.frame(Ligand = rep(unique(df_sum$Ligand), each = length(unique(df_sum$feature))),
+                 stringsAsFactors = FALSE) %>%
+      dplyr::select(feature, Ligand.1, value, Collection, Time) %>%
+      rename(Ligand = Ligand.1) %>%
+      bind_rows(df_sum) %>%
+      filter(!Ligand == "ctrl") 
+  } else {
+    df2 <- df_sum
+  }
+  
+  
+  fc_set <- df2 %>%
+    group_by(Time, Ligand) %>%
+    filter(abs(value) > fc_thresh) %>%
+    ungroup() %>%
+    dplyr::select(feature) %>%
+    distinct() %>%
+    inner_join(df2, by = "feature") %>%
+    mutate(Ligand = factor(Ligand, levels = names(ligand_cols)))
+  
+  title_suffix <- ""
+  if(EGF_normed){
+    title_suffix <- ", EGF normalized"
+    filter(fc_set, !ligand == "EGF")
+  }
+  p <- ggplot(fc_set, aes(x=Time, y=value, colour=Ligand))+
+    geom_line(size = .8, alpha = .8)+
+    geom_point(size = .6)+
+    labs(title=paste0("Line Graphs",title_suffix),
+         x = "Time (hours)",
+         y="Intensity (AU)") +
+    scale_x_continuous(breaks = c(0,8,24,48)) +
+    scale_color_manual(values = ligand_cols) +
+    theme(text = element_text(size = 6, colour = "black"),
+          axis.text.y = element_text(color = "black"),
+          axis.text.x = element_text(color = "black"),
+          axis.line = element_line(size = .3),
+          #axis.text = element_text(angle=0, colour = "black"),
+          #axis.text.y=element_blank(),
+          #axis.ticks.y=element_blank(),
+          legend.key = element_blank(),
+          legend.key.height = unit(.2, 'cm'),
+          #strip.text = element_text(size=12, hjust=0, color = "black"),
+          strip.background = element_blank(),
+          panel.background = element_rect(fill = NA),
+          panel.grid.major = element_blank(),
+          legend.spacing.y = unit(.01, 'cm')
+          #panel.spacing.y = unit(1.1, "lines")
+    ) +
+    facet_wrap(~feature, ncol = 3, scales = "free_y")
+  p
+  
+}
+ 
+##########
+```
+
+```{r globalVariables}
+ligand_cols <- c("ctrl" = "#7A4A2A",
+                 "PBS" = "#8dd3c7",
+                  "HGF" = "#80b1d3",
+                  "OSM" = "#fdb462",
+                  "EGF" = "#fb8072",
+                  "BMP2+EGF" = "#b3de69",
+                  "IFNG+EGF" = "#bebada",
+                  "TGFB+EGF" = "#ffd92f")
+
+ligand_2_cols = c("EGF" = "#ff0000",
+                     "None" = "#00000000")
+
+md <- read_csv("../Metadata/MDD_sample_annotations.csv")
+```
+
+
+```{r rppa_figures, fig.height=6}
+
+RPPA_l3 <- load_data(assay_name = "RPPA", level = 3) %>%
+  rename(feature = antibody) %>%
+  gather(key = specimenID, value = value, -feature) %>%
+  group_by(feature) %>%
+  mutate(value = value - median(value, na.rm = TRUE)) %>%
+  ungroup()  
+#Could you please reorder the plots in the RPPA line graph panel and #add tick marks to the y-axis. Please use the following order: IRF1, #pSTAT3, pMET, PAI-1, pHER2, and pS6. Thanks!
+selected_features <- c("IRF-1", "Stat3_pY705", "P-Met_pY1234_Y1235",  "PAI-1", "HER2_pY1248",  "S6_pS240_S244")
+
+df <- RPPA_l3 %>%
+    spread(key = specimenID, value = value) %>%
+  filter(feature %in% selected_features) %>%
+  mutate(feature = factor(feature,levels = selected_features, ordered = TRUE)) %>%
+  arrange(feature)
+
+fc_thresh = 0
+
+p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
+p
+
+pdf(file = "MDD_RPPA_linegraphs.pdf", height =2, width = 4.5, useDingbats = FALSE)
+p
+res <- dev.off()
+
+#pNDRG1, HIF1A, and connexin-43?
+selected_features_2 <- c("NDRG1_pT346", "Hif-1-alpha", "Connexin-43")
+
+df <- RPPA_l3 %>%
+    spread(key = specimenID, value = value) %>%
+  filter(feature %in% selected_features_2) %>%
+  mutate(feature = factor(feature,levels = selected_features_2, ordered = TRUE)) %>%
+  arrange(feature)
+
+fc_thresh = 0
+
+p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
+p
+
+pdf(file = "../plots/MDD_RPPA_linegraphs_2.pdf", height =2, width = 4.5, useDingbats = FALSE)
+p
+res <- dev.off()
+
+
+df <- RPPA_l3 %>%
+    spread(key = specimenID, value = value) %>%
+  filter( feature %in% c( "c-Myc", "EGFR", "EGFR_pY1173"))
+
+fc_thresh = 0
+
+p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
+
+p
+
+pdf(file = "MDD_RPPA_linegraphs_EGFR_Myc.pdf", height =2.5, useDingbats = FALSE)
+p
+res <- dev.off()
+
+
+#EGFR and HER2
+selected_features_3 <- c("HER2", "EGFR")
+
+df <- RPPA_l3 %>%
+    spread(key = specimenID, value = value) %>%
+  filter(feature %in% selected_features_3) %>%
+  mutate(feature = factor(feature,levels = selected_features_3, ordered = TRUE)) %>%
+  arrange(feature)
+
+fc_thresh = 0
+
+p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
+p
+
+pdf(file = "MDD_RPPA_linegraphs_EGFR_HER2.pdf", height =2, width = 4.5, useDingbats = FALSE)
+p
+res <- dev.off()
+
+#module 9 from the combined14 dataset
+
+selected_features_3 <- c("Cyclin-B1", "FoxM1", "Mcl-1", "Wee1", "Myt1", "Rb_pS807_S811", "YB1_pS102", "PLK1", "CDK1")
+
+df <- RPPA_l3 %>%
+  spread(key = specimenID, value = value) %>%
+  filter(feature %in% selected_features_3) %>%
+  mutate(feature = factor(feature,levels = selected_features_3, ordered = TRUE)) %>%
+  arrange(feature)
+
+fc_thresh = 0
+
+p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
+p
+
+pdf(file = "../plots/MDD_RPPA_linegraphs_combined14_module9.pdf", height =2, width = 4.5, useDingbats = FALSE)
+p
+res <- dev.off()
+
+
+
+```
+
+```{r IFNG24v48, fig.width= 8, fig.height=4}
+RPPA_pathways <- read_tsv(file = "RPPA/Data/Pathway_Scores_MDD.txt")
+
+df <- RPPA_l3 %>%
+  # spread(specimenID, value) %>%
+  #   prep_data(md = md) %>%
+  #  # gather("specimenName", "value", -feature) %>%
+    inner_join(md, by = "specimenID") %>%
+    dplyr::select(specimenName,ligand, secondLigand, experimentalTimePoint, replicate,  feature, value) %>%
+  filter(experimentalTimePoint %in% c(24,48),
+         ligand == "IFNG") %>%
+    rename(Time = experimentalTimePoint,
+           Ligand = ligand,
+           Ligand2 = secondLigand,
+           Replicate = replicate) %>%
+  mutate(Time = paste0("Time_",Time)) %>%
+    group_by(feature, Time, Ligand) %>%
+    summarise(value = median(value)) %>%
+    ungroup() %>%
+  spread(Time, value) %>% 
+  left_join(RPPA_pathways, by = c("feature" = "Predictor"))
+
+df_callout <- df %>%
+  drop_na()
+
+p <- ggplot(df, aes(x = Time_24, y = Time_48, colour = Pathway, label = feature)) +
+  geom_point(colour = "lightgray", alpha = .8) +
+  geom_point(data = df_callout) +
+  geom_abline(a = c(-1, -1), b = c(2,2))+
+  labs(title = "Comparison of the RPPA IFNG 24 and 48 hour responses",
+       x = "24 hours",
+       y = "48 hours") +
+  #theme_bw() +
+  theme(axis.text.x = element_text(angle=0),
+        axis.line = element_line(size = .3),
+        # axis.text.y=element_blank(),
+        # axis.ticks.y=element_blank(),
+        legend.key = element_blank(),
+        strip.text = element_text(size=8, hjust=0),
+        strip.background = element_blank(),
+        panel.background = element_blank(),
+        #panel.grid.major = element_blank(),
+        panel.spacing.y = unit(1.5, "lines"))
+pdf("RPPA_IFNG_24_48.pdf", useDingbats = FALSE,height = 5)
+print(p)
+ggplotly(p)
+dev.off()
+
+```
