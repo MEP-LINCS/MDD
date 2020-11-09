@@ -1910,11 +1910,61 @@ p <- ggplot(df, aes(x = n, fill = Type)) +
     panel.grid.minor = element_blank(),
     axis.line =element_blank())
 p
+if(create_pdfs){
+  pdf("../plots/MDD_combined14_cluster_feature_counts.pdf", width = 4, height = 3)
+    print(p_hist)
+  res <- dev.off()
+} 
+#Barplots of mean/median module activity for each ligand: please play around a bit to see if you can make compact version of these
+# Thanks @Mark. Can you make these changes:
+# Make bars narrower
+# re-order into two rows: top) EGF, HGF, OSM; bottom) BMP, IFN, TGFB
+# remove grid
+# And then make two more iterations:
+# Color bars by module (as in this posted version)
+# Color bars by treatment using standard ligand colors
+ligand_facet_order <- c( "EGF", "HGF", "OSM", "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+df <- combined14_features_data_mean %>%
+  pivot_longer(cols = contains("_")) %>%
+  mutate(ligand = str_remove(name, "_.*"),
+         ligand = factor(ligand, levels = ligand_facet_order)) %>%
+  group_by(Cluster, ligand) %>%
+  summarise(mean = mean(value), .groups = "drop")
+
+p_cluster <- ggplot(df, aes(x = Cluster, y =mean, fill = Cluster))+
+  geom_col() +
+  theme_bw() +
+  scale_fill_manual(values = cluster14_cols) +
+  theme(axis.text.x = element_text(angle = 90,
+                                   size = 5),
+        legend.key.size = unit(5,"points"),
+        legend.text = element_text(size = 3),
+        legend.title = element_text(size = 6),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "transparent")) +
+  facet_wrap(~ligand)
+p_cluster
+
+p_ligand <- ggplot(df, aes(x = Cluster, y =mean, fill = ligand))+
+  geom_col() +
+  theme_bw() +
+  scale_fill_manual(values = ligand_cols) +
+  theme(axis.text.x = element_text(angle = 90,
+                                   size = 5),
+        legend.key.size = unit(5,"points"),
+        legend.text = element_text(size = 5),
+        legend.title = element_text(size = 6),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "transparent")) +
+  facet_wrap(~ligand)
+p_ligand
 
 if(create_pdfs){
-  pdf("../plots/MDD_combined14_cluster_feature_counts.pdf")
-     print(p_hist)
-     print(p)
+  pdf("../plots/MDD_combined14_cluster_mean_bars.pdf", width = 4, height = 3)
+  print(p_cluster)
+  print(p_ligand)
   res <- dev.off()
 } 
 
@@ -2285,6 +2335,7 @@ if(create_pdfs){
   res <- dev.off()
 } 
 
+#Add to Compare T0 Normalized tab an analysis of combined14 modules and drop CTRL. Also simplify bar plots to remove gray background (Mark)
 ```
 
 method - load original data  
