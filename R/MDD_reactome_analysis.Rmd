@@ -186,13 +186,13 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
 make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, pathway_nbr = 3, min_pathway_genes = 10, max_pathway_genes = 500, pathway_method = NULL, axis.text.x.angle = 0){
   #browser()
   selected_pathways <- df %>%
-    group_by(module) %>%
     filter(fdr <= fdr_thresh,
            geneRatio >= gene_ratio_thresh,
            total >= min_pathway_genes,
            total <= max_pathway_genes) %>%
-    slice_min(order_by = c(fdr), n = pathway_nbr, with_ties = TRUE) %>%
-    slice_max(geneRatio, n = pathway_nbr, with_ties = TRUE) %>%
+        group_by(module) %>%
+    arrange(fdr, desc(geneRatio), .by_group = TRUE) %>%
+    slice_head(n = pathway_nbr) %>%
     ungroup() %>%
     dplyr::select(name) %>%
     distinct()
@@ -279,6 +279,7 @@ p <- ggplot(df_selected, aes(x = name,
     scale_x_discrete(drop = FALSE) +
     scale_y_discrete(drop = FALSE) +
     labs(title = paste(str_replace_all(pathway_method, "_|_API", " "), "dataset pathways"),
+         subtitle = paste("FDR max:", fdr_thresh, "Gene ratio min:", gene_ratio_thresh, "members min:", min_pathway_genes, "members max:", max_pathway_genes, "keep pathways:",pathway_nbr),
           x = "") +
     theme_bw() +
     theme(axis.text.y = element_text(size = 6,
@@ -286,20 +287,89 @@ p <- ggplot(df_selected, aes(x = name,
           axis.text.x = element_text(size = 4, angle = axis.text.x.angle))
   print(p)
   
-  
-  
-  pdf(paste0("../plots/MDD_reactome_dotplot",pathway_method,".pdf"),
+  pdf(paste0("../plots/MDD_reactome_dotplot",pathway_method,"_FDR_", fdr_thresh, "_GRmin_", gene_ratio_thresh, "_membersMin_", min_pathway_genes, "_membersMax_", max_pathway_genes, "_keep_",pathway_nbr,".pdf"),
       width = 8,
       useDingbats = FALSE,)
   print(p)
   dev_off_res <- dev.off()
+  
+return(p)
 }
+###end of function
 
-res <- make_dotplots_API(pathways_combined14, pathway_method = "_combined14_API",fdr_thresh = 0.15, gene_ratio_thresh = 0.1, axis.text.x.angle = 90, pathway_nbr = 5)
+pathway_method <- "_combined14_API"
+fdr_thresh <- 0.1
+gene_ratio_thresh <- 0.1
+min_pathway_genes <- 15
+max_pathway_genes <- 500
+pathway_nbr <- 5
+                         
+res <- make_dotplots_API(pathways_combined14,
+                         pathway_method = pathway_method,
+                         fdr_thresh = fdr_thresh,
+                         gene_ratio_thresh = gene_ratio_thresh,
+                         min_pathway_genes = min_pathway_genes,
+                         max_pathway_genes = max_pathway_genes,
+                         pathway_nbr = pathway_nbr,
+                         axis.text.x.angle = 90)
+# 
+#   pdf(paste0("../plots/MDD_reactome_dotplot",pathway_method,"_FDR_", fdr_thresh, "_GRmin_", gene_ratio_thresh, "_membersMin_", min_pathway_genes, "_membersMax_", max_pathway_genes, "_keep_",pathway_nbr,".pdf"),
+#       width = 8,
+#       useDingbats = FALSE,)
+#   print(res)
+#   dev_off_res <- dev.off()
+#   
 
-res <- make_dotplots_API(pathways_newly_induced_genes_ligands, pathway_method = "_newly_induced_genes_ligands_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
+pathway_nbr <- 3
+                         
+res <- make_dotplots_API(pathways_combined14,
+                         pathway_method = pathway_method,
+                         fdr_thresh = fdr_thresh,
+                         gene_ratio_thresh = gene_ratio_thresh,
+                         min_pathway_genes = min_pathway_genes,
+                         max_pathway_genes = max_pathway_genes,
+                         pathway_nbr = pathway_nbr,
+                         axis.text.x.angle = 90)
 
-res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method = "_newly_induced_genes_conditions_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
+min_pathway_genes <- 10
+                         
+res <- make_dotplots_API(pathways_combined14,
+                         pathway_method = pathway_method,
+                         fdr_thresh = fdr_thresh,
+                         gene_ratio_thresh = gene_ratio_thresh,
+                         min_pathway_genes = min_pathway_genes,
+                         max_pathway_genes = max_pathway_genes,
+                         pathway_nbr = pathway_nbr,
+                         axis.text.x.angle = 90)
+
+fdr_thresh <- .15
+gene_ratio_thresh <- .05
+
+res <- make_dotplots_API(pathways_combined14,
+                         pathway_method = pathway_method,
+                         fdr_thresh = fdr_thresh,
+                         gene_ratio_thresh = gene_ratio_thresh,
+                         min_pathway_genes = min_pathway_genes,
+                         max_pathway_genes = max_pathway_genes,
+                         pathway_nbr = pathway_nbr,
+                         axis.text.x.angle = 90)
+  
+
+fdr_thresh <- .15
+gene_ratio_thresh <- .05
+ max_pathway_genes <- Inf
+res <- make_dotplots_API(pathways_combined14,
+                         pathway_method = pathway_method,
+                         fdr_thresh = fdr_thresh,
+                         gene_ratio_thresh = gene_ratio_thresh,
+                         min_pathway_genes = min_pathway_genes,
+                         max_pathway_genes = max_pathway_genes,
+                         pathway_nbr = pathway_nbr,
+                         axis.text.x.angle = 90)
+  
+# res <- make_dotplots_API(pathways_newly_induced_genes_ligands, pathway_method = "_newly_induced_genes_ligands_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
+# 
+# res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method = "_newly_induced_genes_conditions_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
 
 ####
 # Create bubble plot of Reactome enrichments for combined14 modules with the following filters (Mark: let's brainstorm this a bit):
@@ -350,15 +420,6 @@ res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method
 #      useDingbats = FALSE)
 #   print(p)
 #   dev_off_res <- dev.off()
-
-foo <- tibble(a = factor(c(1,3,4), levels = 1:4, ordered = TRUE),
-              b = factor(letters[c(2,3,5)], levels = letters[1:6], ordered = TRUE),
-              c = 1:3)
-
-p <-  ggplot(foo, aes(x = a, y = b, color = c, size = c)) +
-  geom_point() +
-  scale_y_discrete(drop = FALSE)
-p
 
 ```
 
