@@ -170,7 +170,7 @@ fc_thresh = 0
 p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 p
 
-pdf(file = "MDD_RPPA_linegraphs.pdf", height =2, width = 4.5, useDingbats = FALSE)
+pdf(file = "../plots/MDD_RPPA_linegraphs.pdf", height =2, width = 4.5, useDingbats = FALSE)
 p
 res <- dev.off()
 
@@ -203,7 +203,7 @@ p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_
 
 p
 
-pdf(file = "MDD_RPPA_linegraphs_EGFR_Myc.pdf", height =2.5, useDingbats = FALSE)
+pdf(file = "../plots/MDD_RPPA_linegraphs_EGFR_Myc.pdf", height =2.5, useDingbats = FALSE)
 p
 res <- dev.off()
 
@@ -222,29 +222,44 @@ fc_thresh = 0
 p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 p
 
-pdf(file = "MDD_RPPA_linegraphs_EGFR_HER2.pdf", height =2, width = 4.5, useDingbats = FALSE)
+pdf(file = "../plots/MDD_RPPA_linegraphs_EGFR_HER2.pdf", height =2, width = 4.5, useDingbats = FALSE)
 p
 res <- dev.off()
 
 #module 9 from the combined14 dataset
-
+#create each figure separately
 selected_features_3 <- c("Cyclin-B1", "FoxM1", "Mcl-1", "Wee1", "Myt1", "Rb_pS807_S811", "YB1_pS102", "PLK1", "CDK1")
 
-df <- RPPA_l3 %>%
+fig_list <- map(selected_features_3, function(x){
+  df <- RPPA_l3 %>%
   spread(key = specimenID, value = value) %>%
-  filter(feature %in% selected_features_3) %>%
-  mutate(feature = factor(feature,levels = selected_features_3, ordered = TRUE)) %>%
-  arrange(feature)
+  filter(feature %in% x) 
 
 fc_thresh = 0
 
 p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 p
+})
 
-pdf(file = "../plots/MDD_RPPA_linegraphs_combined14_module9.pdf", height =2, width = 4.5, useDingbats = FALSE)
-p
+pdf(file = "../plots/MDD_RPPA_linegraphs_combined14_module9.pdf", height =2, width = 3, useDingbats = FALSE)
+res <- map(fig_list, print)
 res <- dev.off()
-
+# 
+# df <- RPPA_l3 %>%
+#   spread(key = specimenID, value = value) %>%
+#   filter(feature %in% selected_features_3) %>%
+#   mutate(feature = factor(feature,levels = selected_features_3, ordered = TRUE)) %>%
+#   arrange(feature)
+# 
+# fc_thresh = 0
+# 
+# p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
+# p
+# 
+# pdf(file = "../plots/MDD_RPPA_linegraphs_combined14_module9.pdf", height =2, width = 4.5, useDingbats = FALSE)
+# p
+# res <- dev.off()
+# 
 
 
 ```
