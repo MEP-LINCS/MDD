@@ -4,7 +4,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=14)
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=14)
 
 suppressMessages(library(tidyverse))
 library(ComplexHeatmap)
@@ -144,7 +144,7 @@ assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(3, 2,6,5, 1)], n
 ```
 ## {.tabset .tabset-fade}
 
-### heatmap
+### Combined heatmaps
 
 ```{r heatmaps}
 
@@ -190,7 +190,7 @@ combined18_features_ann <- combined18_features_data_ann %>%
 #Create a matrix and heatmap of the mean combined18 values
 combined18_features_data_mean <- combined18_features_data_ann %>%
   group_by(Cluster) %>%
-  summarise(across(.cols = matches("_24|48"), .fns = mean))
+  summarise(across(.cols = matches("_24|48"), .fns = mean, .groups = "drop"))
 
 combined18_features_count <- combined18_features_data_ann %>%
   group_by(Cluster) %>%
@@ -302,7 +302,7 @@ combined14_features_ann <- combined14_features_data_ann %>%
 #Create a matrix and heatmap of the mean combined18 values
 combined14_features_data_mean <- combined14_features_data_ann %>%
   group_by(Cluster) %>%
-  summarise(across(.cols = matches("_24|48"), .fns = mean))
+  summarise(across(.cols = matches("_24|48"), .fns = mean, .groups = "drop"))
 
 combined14_features_count <- combined14_features_data_ann %>%
   group_by(Cluster) %>%
@@ -339,24 +339,24 @@ hm_combined14 <- Heatmap(combined14_features_dm,
                        use_raster = FALSE)
 hm_combined14
 
-hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
-                              name = "lfc ",
-                              column_title = "combined14 cluster means",
-                              column_title_gp = gpar(fontsize = 12),
-                              col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                              cluster_rows = FALSE,
-                              cluster_row_slices = FALSE,
-                              cluster_columns = FALSE,
-                              row_gap = unit(2, "mm"),
-                              row_names_side = "left",
-                              row_title = " ",
-                              show_row_names = TRUE,
-                              row_names_gp = gpar(fontsize = 12),
-                              column_names_gp = gpar(fontsize = 10),
-                              use_raster = FALSE)
-draw(hm_combined14_mean, heatmap_legend_side = "left")
+# hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
+#                               name = "lfc ",
+#                               column_title = "combined14 cluster means",
+#                               column_title_gp = gpar(fontsize = 12),
+#                               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+#                               cluster_rows = FALSE,
+#                               cluster_row_slices = FALSE,
+#                               cluster_columns = FALSE,
+#                               row_gap = unit(2, "mm"),
+#                               row_names_side = "left",
+#                               row_title = " ",
+#                               show_row_names = TRUE,
+#                               row_names_gp = gpar(fontsize = 12),
+#                               column_names_gp = gpar(fontsize = 10),
+#                               use_raster = FALSE)
+# #draw(hm_combined14_mean, heatmap_legend_side = "left")
 
-hm_combined14_mean_clustered_obj <- Heatmap(combined14_features_data_mean_dm,
+hm_combined14_mean_obj <- Heatmap(combined14_features_data_mean_dm,
                             name = "lfc ",
                             column_title = "combined14 cluster means",
                             column_title_gp = gpar(fontsize = 12),
@@ -369,31 +369,31 @@ hm_combined14_mean_clustered_obj <- Heatmap(combined14_features_data_mean_dm,
                             row_names_gp = gpar(fontsize = 8),
                             column_names_gp = gpar(fontsize = 10),
                             use_raster = FALSE)
-hm_combined14_mean_clustered <- draw(hm_combined14_mean_clustered_obj)
-combined14_cluster_order <- row_order(hm_combined14_mean_clustered)
+hm_combined14_mean <- draw(hm_combined14_mean_obj)
+combined14_cluster_order <- row_order(hm_combined14_mean)
 
 #Order the combined14 heatmap by the clustering of the mean values
 #reorder the levels in combined14_features ann that are used in  row_split
-dm_ordered <- combined14_features_data_ann %>%
-  mutate(Cluster = fct_relevel(Cluster, (rownames(combined14_features_data_mean_dm)[combined14_cluster_order])))
-
-hm_combined14_ordered <- Heatmap(combined14_features_dm,
-                       name = "lfc rr",
-                       column_title = "combined14 features",
-                       column_title_gp = gpar(fontsize = 12),
-                       col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
-                       cluster_rows = FALSE,
-                       cluster_row_slices = FALSE, 
-                       cluster_columns = FALSE,
-                       row_split = dm_ordered$Cluster,
-                       row_gap = unit(2, "mm"),
-                       row_title = " ",
-                       show_row_names = FALSE,
-                       row_names_gp = gpar(fontsize = 8),
-                       column_names_gp = gpar(fontsize = 10),
-          #             left_annotation = haRow_combined14,
-                       use_raster = FALSE)
-hm_combined14_ordered
+# dm_ordered <- combined14_features_data_ann %>%
+#   mutate(Cluster = fct_relevel(Cluster, (rownames(combined14_features_data_mean_dm)[combined14_cluster_order])))
+# 
+# hm_combined14_ordered <- Heatmap(combined14_features_dm,
+#                        name = "lfc rr",
+#                        column_title = "combined14 features",
+#                        column_title_gp = gpar(fontsize = 12),
+#                        col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+#                        cluster_rows = FALSE,
+#                        cluster_row_slices = FALSE, 
+#                        cluster_columns = FALSE,
+#                        row_split = dm_ordered$Cluster,
+#                        row_gap = unit(2, "mm"),
+#                        row_title = " ",
+#                        show_row_names = FALSE,
+#                        row_names_gp = gpar(fontsize = 8),
+#                        column_names_gp = gpar(fontsize = 10),
+#           #             left_annotation = haRow_combined14,
+#                        use_raster = FALSE)
+# hm_combined14_ordered
 #####
 
 #Remove the cluster assignments to keep the code similar to the 
@@ -445,9 +445,8 @@ if(create_pdfs){
   pdf("../plots/MDD_integrated_rr_combined_heatmaps.pdf",height = 10) 
   draw(hm_combined18)
   draw(hm_combined18_mean)
-  draw(hm_combined14_mean_clustered)
-  draw(hm_combined14)
   draw(hm_combined14_mean)
+  draw(hm_combined14)
   draw(hm_combined14_noRNA)
   res <- dev.off()
 } 
@@ -567,616 +566,7 @@ if(create_pdfs){
 #                column_names_gp = gpar(fontsize = 10),
 #                use_raster = FALSE)
 
-#make a heatmap of the unique features
-#Create data and metadata matrices and annotations
-
-unique_features_data_ann <- unique_features_data %>%
-  mutate(Ligand = str_remove(Cluster, "_.*"),
-         Ligand = factor(Ligand,  ordered = TRUE),
-         Direction = factor(Direction, ordered = TRUE),
-         Cluster = factor(Cluster, ordered = TRUE)) 
-
-unique_features_ann <- unique_features_data_ann %>%
-  select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_unique <- HeatmapAnnotation(df = unique_features_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-unique_features_data_dm<- unique_features_data_ann %>%
-  select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(unique_features_data_dm) <- unique_features_data_ann$feature
-
-unique_features_data_mean <- unique_features_data_ann %>%
-  group_by(Cluster) %>%
-  summarise(across(.cols = matches("_24|48"), .fns = mean))
-
-unique_features_count <- unique_features_data_ann %>%
-  group_by(Cluster) %>%
-  count()
-
-unique_features_data_mean_dm <- unique_features_data_mean %>%
-  select(-Cluster) %>%
-  as.matrix()
-rownames(unique_features_data_mean_dm) <- paste0(unique_features_data_mean$Cluster, "_",unique_features_count$n)
-
-hm_unique <- Heatmap(unique_features_data_dm,
-                     name = "lfc rr",
-                     column_title = "Ligand-specific features",
-                     column_title_gp = gpar(fontsize = 12),
-                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                     cluster_rows = FALSE,
-                     cluster_row_slices = TRUE, 
-                     cluster_columns = FALSE,
-                     row_split = unique_features_data_ann$Cluster,
-                     row_gap = unit(2, "mm"),
-                     row_title = " ",
-                     show_row_names = FALSE,
-                     row_names_gp = gpar(fontsize = 2),
-                     column_names_gp = gpar(fontsize = 10),
-                     left_annotation = haRow_unique,
-                     use_raster = FALSE)
-hm_unique
-
-###Heatmap of ligand-specific RPPA48 hour features with rownames
-unique_features_RPPA_48 <- unique_features_data_ann %>%
-  filter(Type == "RPPA") %>%
-  select(-contains("_24"))
-
-unique_features_RPPA_48_dm <- unique_features_RPPA_48 %>%
-  select(where(is.numeric)) %>%
-  as.matrix()
-rownames(unique_features_RPPA_48_dm) <- unique_features_RPPA_48$feature
-
-unique_features_RPPA_48_ann <- unique_features_RPPA_48 %>%
-  select(Ligand, Type, Direction) %>%
-  data.frame()
-
-haRow_unique_RPPA_48 <- HeatmapAnnotation(df = unique_features_RPPA_48_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_unique_RPPA_48 <- Heatmap(unique_features_RPPA_48_dm,
-                     name = "lfc rr",
-                     column_title = "Ligand-specific RPPA 48H",
-                     column_title_gp = gpar(fontsize = 12),
-                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                     cluster_rows = FALSE,
-                     cluster_row_slices = FALSE, 
-                     cluster_columns = FALSE,
-                     row_split = unique_features_RPPA_48$Cluster,
-                     row_gap = unit(2, "mm"),
-                     row_title = " ",
-                     show_row_names = TRUE,
-                     row_names_gp = gpar(fontsize = 7),
-                     column_names_gp = gpar(fontsize = 10),
-                     left_annotation = haRow_unique_RPPA_48,
-                     use_raster = FALSE)
-hm_unique_RPPA_48
-
-###48 hour motifs
-
-###Heatmap of ligand-specific motifs48 hour features with rownames
-unique_features_motifs_48 <- unique_features_data_ann %>%
-  filter(Type == "motifs") %>%
-  select(-contains("_24"))
-
-unique_features_motifs_48_dm <- unique_features_motifs_48 %>%
-  select(where(is.numeric)) %>%
-  as.matrix()
-rownames(unique_features_motifs_48_dm) <- unique_features_motifs_48$feature
-
-unique_features_motifs_48_ann <- unique_features_motifs_48 %>%
-  select(Ligand, Type, Direction) %>%
-  data.frame()
-
-haRow_unique_motifs_48 <- HeatmapAnnotation(df = unique_features_motifs_48_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_unique_motifs_48 <- Heatmap(unique_features_motifs_48_dm,
-                     name = "lfc rr",
-                     column_title = "Ligand-specific motifs 48H",
-                     column_title_gp = gpar(fontsize = 12),
-                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                     cluster_rows = FALSE,
-                     cluster_row_slices = FALSE, 
-                     cluster_columns = FALSE,
-                     row_split = unique_features_motifs_48$Cluster,
-                     row_gap = unit(2, "mm"),
-                     row_title = " ",
-                     show_row_names = TRUE,
-                     row_names_gp = gpar(fontsize = 7),
-                     column_names_gp = gpar(fontsize = 10),
-                     left_annotation = haRow_unique_motifs_48,
-                     use_raster = FALSE)
-hm_unique_motifs_48
-
-###48 hour cycIF
-###Heatmap of ligand-specific cycIF48 hour features with rownames
-unique_features_cycIF_48 <- unique_features_data_ann %>%
-  filter(Type == "cycIF") %>%
-  select(-contains("_24"))
-
-unique_features_cycIF_48_dm <- unique_features_cycIF_48 %>%
-  select(where(is.numeric)) %>%
-  as.matrix()
-rownames(unique_features_cycIF_48_dm) <- unique_features_cycIF_48$feature
-
-unique_features_cycIF_48_ann <- unique_features_cycIF_48 %>%
-  select(Ligand, Type, Direction) %>%
-  data.frame()
-
-haRow_unique_cycIF_48 <- HeatmapAnnotation(df = unique_features_cycIF_48_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_unique_cycIF_48 <- Heatmap(unique_features_cycIF_48_dm,
-                     name = "lfc rr",
-                     column_title = "Ligand-specific cycIF 48H",
-                     column_title_gp = gpar(fontsize = 12),
-                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                     cluster_rows = FALSE,
-                     cluster_row_slices = FALSE, 
-                     cluster_columns = FALSE,
-                     row_split = unique_features_cycIF_48$Cluster,
-                     row_gap = unit(2, "mm"),
-                     row_title = " ",
-                     show_row_names = TRUE,
-                     row_names_gp = gpar(fontsize = 7),
-                     column_names_gp = gpar(fontsize = 10),
-                     left_annotation = haRow_unique_cycIF_48,
-                     use_raster = FALSE)
-hm_unique_cycIF_48
-###
-hm_unique_mean <- Heatmap(unique_features_data_mean_dm,
-                          name = "lfc ",
-                          column_title = "Ligand-specific averages",
-                          column_title_gp = gpar(fontsize = 12),
-                          col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                          cluster_rows = TRUE,
-                          cluster_row_slices = FALSE,
-                          cluster_columns = FALSE,
-                          row_gap = unit(2, "mm"),
-                          row_title = " ",
-                          show_row_names = TRUE,
-                          row_names_gp = gpar(fontsize = 8),
-                          column_names_gp = gpar(fontsize = 10),
-                          use_raster = FALSE)
-hm_unique_mean
-# ####
-# # Heatmap of ligand-specific cycIF, RPPA, GCP features: a) all timepoints; b) 24+48H only. It will be good to see a few versions of this, eg: 1 heatmap with all assay types and fully clustered rows; 3 separate row-clustered assay-specific heatmaps
-df <- unique_features_data_ann %>%
-  filter(!Type %in% c("RNAseq", "motifs"))
-
-df_dm<- df %>%
-    select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(df_dm) <- df$feature
-
-df_ann <- df %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_noRNAseq <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Unique features, no RNAseq, motifs",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = TRUE,
-               cluster_row_slices = TRUE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 5),
-               column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_noRNAseq
-# ####
-# #GCP version
-df <- unique_features_data_ann %>%
-  filter(Type == "GCP")
-
-df_dm<- df %>%
-    select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(df_dm) <- df$feature
-
-
-df_ann <- df %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_GCP <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Unique features, GCP",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = TRUE,
-               cluster_row_slices = TRUE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 8),
-               column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_GCP
-# #cycIF version
-df <- unique_features_data_ann %>%
-  filter(Type == "cycIF")
-
-df_dm<- df %>%
-    select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(df_dm) <- df$feature
-
-df_ann <- df %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-
-hm_cycIF <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Unique features, cycIF",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = TRUE,
-               cluster_row_slices = TRUE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 8),
-               column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_cycIF
-# #RPPA version
-df <- unique_features_data_ann %>%
-  filter(Type == "RPPA")
-
-df_dm<- df %>%
-    select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(df_dm) <- df$feature
-
-df_ann <- df %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_RPPA <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Unique features, RPPA",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = TRUE,
-               cluster_row_slices = TRUE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 8),
-               column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_RPPA
-# 
-# ####
-if(create_pdfs){
-  pdf("../plots/MDD_integrated_rr_unique_heatmap.pdf")
-  draw(hm_unique)
-  draw(hm_unique_RPPA_48)
-   draw(hm_unique_motifs_48)
-     draw(hm_unique_cycIF_48)
-     draw(hm_noRNAseq)
-  draw(hm_GCP)
-  draw(hm_cycIF)
-  draw(hm_RPPA)
-  res <- dev.off()
-}
-####
-# #heatmaps sorted by ligand and direction
-df <- unique_features_data_ann %>%
-  filter(!Type %in% c("RNAseq", "motifs")) %>%
-  arrange(Set, Direction)
-
-df_dm<- df %>%
-    select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(df_dm) <- df$feature
-
-df_ann <- df %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_noRNAseq <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Unique features, no RNAseq, motifs",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = FALSE,
-               cluster_row_slices = FALSE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 8),
-               column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_noRNAseq
-# ####
-# #GCP version
-df <- unique_features_data_ann %>%
-  filter(Type == "GCP") %>%
-  arrange(Set, Direction)
-
-df_dm<- df %>%
-    select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(df_dm) <- df$feature
-
-df_ann <- df %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_GCP <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Unique features, GCP",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = FALSE,
-               cluster_row_slices = FALSE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 8),
-               column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_GCP
-# #cycIF version
-df <- unique_features_data_ann %>%
-  filter(Type == "cycIF") %>%
-  arrange(Set, Direction)
-
-df_dm<- df %>%
-    select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(df_dm) <- df$feature
-
-df_ann <- df %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_cycIF <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Unique features, cycIF",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = FALSE,
-               cluster_row_slices = FALSE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 8),
-               column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_cycIF
-# #RPPA version
-df <- unique_features_data_ann %>%
-  filter(Type == "RPPA") %>%
-  arrange(Set, Direction)
-
-df_dm<- df %>%
-    select(all_of(condition_order)) %>%
-  as.matrix()
-rownames(df_dm) <- df$feature
-
-df_ann <- df %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-
-hm_RPPA <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Unique features, RPPA",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = FALSE,
-               cluster_row_slices = FALSE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 8),
-               column_names_gp = gpar(fontsize = 10),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_RPPA
-
-# 
-# ####
-if(create_pdfs){
-  pdf("../plots/../plots/MDD_integrated_rr_unique_heatmap_ordered.pdf")
-  draw(hm_noRNAseq)
-  draw(hm_GCP)
-  draw(hm_cycIF)
-  draw(hm_RPPA)
-  res <- dev.off()
-}
-
-####
-#Create a matrix and heatmap of the mean Ligand-specific values
-
-if(create_pdfs){
-  pdf("../plots/../plots/MDD_unique_heatmaps.pdf") 
-  draw(hm_unique)
-  draw(hm_unique_mean)
-  res <- dev.off()
-} 
-
 # Heatmap of ligand-specific cycIF, RPPA, GCP features: plotted with all timepoints and sorted by ligand, direction, type. Annotate with key call-outs: EGF=FoxM1; IFNG=E-cadherin, IRF1, cycIF-stat1-nuc-mean, pdl1; OSM=Myt1, TAZ, Connexin-43, Stat3-pY705, IGFRb, P-cadherin; TGFB=cycIFp21(ask Sean about which compartment), Gab2, b-Actin, Chk2-pT68; HGF=eEF2K
-
-direction_df <- unique_features_data_ann %>%
-  select(feature_type, Direction, Ligand, Type) %>%
-  filter(str_detect(feature_type, "_cycIF|_GCP|_RPPA"),
-         !Ligand == "PBS")
-
-cycIF_directions <- direction_df %>%
-  filter(str_detect(feature_type, "int"),
-         !str_detect(feature_type, "nfkbp65|p21waf1cip1_3_af647cy5_int_mean_nuc_")) %>%
-  mutate(biomarker = str_remove(feature_type, "_.*"),
-         feature_type = paste0(biomarker, "_cycIF")) %>%
-  select(feature_type, Direction, Ligand, Type)
-
-corrected_directions <- direction_df %>%
-  filter(!str_detect(feature_type, "cycIF")) %>%
-  bind_rows(cycIF_directions)
-
-cycIF_GCP_RPPA_raw <- assay_pk_data %>%
-  filter(Type %in% c("cycIF", "GCP", "RPPA"),
-         !ligand == "PBS") %>%
-    mutate(ligand = case_when(ligand == "BMP2" ~"BMP2+EGF",
-                              ligand == "IFNG" ~"IFNG+EGF",
-                              ligand == "TGFB" ~"TGFB+EGF",
-                              TRUE ~ ligand),
-           feature_type = feature,
-           feature = str_remove(feature, "_RPPA|_cycIF|_GCP"),
-           condition = paste0(ligand,"_", experimentalTimePoint)) %>%
-  select(-ligand, -feature, -Type, -experimentalTimePoint)
-
-cycIF_GCP_RPPA_T0_norm <- cycIF_GCP_RPPA_raw %>%
-  filter(condition == "ctrl_0") %>%
-  rename(ctrl_0_value = value) %>%
-  select(-condition) %>%
-  right_join(cycIF_GCP_RPPA_raw, by = "feature_type") %>%
-  mutate(value_T0_norm = value-ctrl_0_value) %>%
-  select(-ctrl_0_value, -value) %>%
-pivot_wider(names_from = condition, values_from = value_T0_norm, values_fn = mean) %>%
-  right_join(corrected_directions, by = "feature_type")  %>%
-arrange(Ligand, Direction, Type) %>%
-  select(ctrl_0, everything())
-###DEBUG
-#### need to reconcile that assay_pk_data cycIF contains the average intensity values while the T0_DE contains individual cycIF values.
-# 
-# df <- unique_features_data_ann %>%
-#   filter(!Type %in% c("RNAseq", "motifs")) %>%
-#   arrange(Set, Direction)
-# 
-df_dm<- cycIF_GCP_RPPA_T0_norm %>%
-    select(where(is.numeric)) %>%
-  as.matrix() %>%
-  t() %>%
-  scale() %>%
-  t()
-rownames(df_dm) <- cycIF_GCP_RPPA_T0_norm$feature_type
-
-df_ann <- cycIF_GCP_RPPA_T0_norm %>%
-    select(Ligand, Direction, Type) %>%
-  as.data.frame()
-
-haRow_df <- HeatmapAnnotation(df = df_ann,
-                                  which = "row",
-                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
-                                             Type = assay_cols,
-                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
-# 
-hm_T0 <- Heatmap(df_dm,
-               name = "lfc rr",
-               column_title = "Ligand-specific features of cycIF, GCP, RPPA",
-               column_title_gp = gpar(fontsize = 12),
-               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-               cluster_rows = FALSE,
-               cluster_row_slices = FALSE,
-               cluster_columns = FALSE,
-               #row_split = df_ann$Cluster,
-               row_gap = unit(2, "mm"),
-               row_title = " ",
-               show_row_names = TRUE,
-               row_names_gp = gpar(fontsize = 7),
-               column_names_gp = gpar(fontsize = 7),
-               left_annotation = haRow_df,
-               use_raster = FALSE)
-hm_T0
-
-if(create_pdfs){
-  pdf("../plots/MDD_integrated_T0_cycIF_GCP_RPPA_heatmap.pdf")
-  draw(hm_T0)
-  res <- dev.off()
-}
 
 ```
 
@@ -1244,6 +634,536 @@ module_features <- unique_features_data %>%
 
 res <- write_xlsx(module_features,
                   path = "../tables/MDD_int_rr_unique_tables.xlsx")
+```
+
+### Ligand heatmaps
+
+```{r ligand_heatmaps}
+
+#make a heatmap of the unique features
+#Create data and metadata matrices and annotations
+
+unique_features_data_ann <- unique_features_data %>%
+  mutate(Ligand = str_remove(Cluster, "_.*"),
+         Ligand = factor(Ligand,  ordered = TRUE),
+         Direction = factor(Direction, ordered = TRUE),
+         Cluster = factor(Cluster, ordered = TRUE)) 
+
+unique_features_ann <- unique_features_data_ann %>%
+  select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_unique <- HeatmapAnnotation(df = unique_features_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+unique_features_data_dm<- unique_features_data_ann %>%
+  select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(unique_features_data_dm) <- unique_features_data_ann$feature
+
+unique_features_data_mean <- unique_features_data_ann %>%
+  group_by(Cluster) %>%
+  summarise(across(.cols = matches("_24|48"), .fns = mean, .groups = "drop"))
+
+unique_features_count <- unique_features_data_ann %>%
+  group_by(Cluster) %>%
+  count()
+
+unique_features_data_mean_dm <- unique_features_data_mean %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(unique_features_data_mean_dm) <- paste0(unique_features_data_mean$Cluster, "_",unique_features_count$n)
+
+hm_unique <- Heatmap(unique_features_data_dm,
+                     name = "lfc rr",
+                     column_title = "Ligand-specific features",
+                     column_title_gp = gpar(fontsize = 12),
+                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                     cluster_rows = FALSE,
+                     cluster_row_slices = TRUE, 
+                     cluster_columns = FALSE,
+                     row_split = unique_features_data_ann$Cluster,
+                     row_gap = unit(2, "mm"),
+                     row_title = " ",
+                     show_row_names = FALSE,
+                     row_names_gp = gpar(fontsize = 2),
+                     column_names_gp = gpar(fontsize = 10),
+                     left_annotation = haRow_unique,
+                     use_raster = FALSE)
+hm_unique
+
+hm_unique_mean <- Heatmap(unique_features_data_mean_dm,
+                          name = "lfc ",
+                          column_title = "Ligand-specific means",
+                          column_title_gp = gpar(fontsize = 12),
+                          col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                          cluster_rows = TRUE,
+                          cluster_row_slices = FALSE,
+                          cluster_columns = FALSE,
+                          row_gap = unit(2, "mm"),
+                          row_title = " ",
+                          show_row_names = TRUE,
+                          row_names_gp = gpar(fontsize = 8),
+                          column_names_gp = gpar(fontsize = 10),
+                          use_raster = FALSE)
+hm_unique_mean
+
+###Heatmap of ligand-specific RPPA48 hour features with rownames
+unique_features_RPPA_48 <- unique_features_data_ann %>%
+  filter(Type == "RPPA") %>%
+  select(-contains("_24"))
+
+unique_features_RPPA_48_dm <- unique_features_RPPA_48 %>%
+  select(where(is.numeric)) %>%
+  as.matrix()
+rownames(unique_features_RPPA_48_dm) <- unique_features_RPPA_48$feature
+
+unique_features_RPPA_48_ann <- unique_features_RPPA_48 %>%
+  select(Ligand, Type, Direction) %>%
+  data.frame()
+
+haRow_unique_RPPA_48 <- HeatmapAnnotation(df = unique_features_RPPA_48_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_unique_RPPA_48 <- Heatmap(unique_features_RPPA_48_dm,
+                     name = "lfc rr",
+                     column_title = "Ligand-specific RPPA 48H, ordered",
+                     column_title_gp = gpar(fontsize = 12),
+                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                     cluster_rows = FALSE,
+                     cluster_row_slices = FALSE, 
+                     cluster_columns = FALSE,
+                     row_split = unique_features_RPPA_48$Cluster,
+                     row_gap = unit(2, "mm"),
+                     row_title = " ",
+                     show_row_names = TRUE,
+                     row_names_gp = gpar(fontsize = 7),
+                     column_names_gp = gpar(fontsize = 10),
+                     left_annotation = haRow_unique_RPPA_48,
+                     use_raster = FALSE)
+hm_unique_RPPA_48
+
+###48 hour motifs
+
+###Heatmap of ligand-specific motifs48 hour features with rownames
+unique_features_motifs_48 <- unique_features_data_ann %>%
+  filter(Type == "motifs") %>%
+  select(-contains("_24"))
+
+unique_features_motifs_48_dm <- unique_features_motifs_48 %>%
+  select(where(is.numeric)) %>%
+  as.matrix()
+rownames(unique_features_motifs_48_dm) <- unique_features_motifs_48$feature
+
+unique_features_motifs_48_ann <- unique_features_motifs_48 %>%
+  select(Ligand, Type, Direction) %>%
+  data.frame()
+
+haRow_unique_motifs_48 <- HeatmapAnnotation(df = unique_features_motifs_48_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_unique_motifs_48 <- Heatmap(unique_features_motifs_48_dm,
+                     name = "lfc rr",
+                     column_title = "Ligand-specific motifs 48H, ordered",
+                     column_title_gp = gpar(fontsize = 12),
+                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                     cluster_rows = FALSE,
+                     cluster_row_slices = FALSE, 
+                     cluster_columns = FALSE,
+                     row_split = unique_features_motifs_48$Cluster,
+                     row_gap = unit(2, "mm"),
+                     row_title = " ",
+                     show_row_names = TRUE,
+                     row_names_gp = gpar(fontsize = 7),
+                     column_names_gp = gpar(fontsize = 10),
+                     left_annotation = haRow_unique_motifs_48,
+                     use_raster = FALSE)
+hm_unique_motifs_48
+
+###48 hour cycIF
+###Heatmap of ligand-specific cycIF48 hour features with rownames
+unique_features_cycIF_48 <- unique_features_data_ann %>%
+  filter(Type == "cycIF") %>%
+  select(-contains("_24"))
+
+unique_features_cycIF_48_dm <- unique_features_cycIF_48 %>%
+  select(where(is.numeric)) %>%
+  as.matrix()
+rownames(unique_features_cycIF_48_dm) <- unique_features_cycIF_48$feature
+
+unique_features_cycIF_48_ann <- unique_features_cycIF_48 %>%
+  select(Ligand, Type, Direction) %>%
+  data.frame()
+
+haRow_unique_cycIF_48 <- HeatmapAnnotation(df = unique_features_cycIF_48_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_unique_cycIF_48 <- Heatmap(unique_features_cycIF_48_dm,
+                     name = "lfc rr",
+                     column_title = "Ligand-specific cycIF 48H, ordered",
+                     column_title_gp = gpar(fontsize = 12),
+                     col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                     cluster_rows = FALSE,
+                     cluster_row_slices = FALSE, 
+                     cluster_columns = FALSE,
+                     row_split = unique_features_cycIF_48$Cluster,
+                     row_gap = unit(2, "mm"),
+                     row_title = " ",
+                     show_row_names = TRUE,
+                     row_names_gp = gpar(fontsize = 7),
+                     column_names_gp = gpar(fontsize = 10),
+                     left_annotation = haRow_unique_cycIF_48,
+                     use_raster = FALSE)
+hm_unique_cycIF_48
+
+#No RNAseq and motifs
+df <- unique_features_data_ann %>%
+  filter(!Type %in% c("RNAseq", "motifs"))
+
+df_dm<- df %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(df_dm) <- df$feature
+
+df_ann <- df %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_noRNAseq <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, no RNAseq, no motifs, row-clustered",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = TRUE,
+               cluster_row_slices = TRUE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 5),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_noRNAseq
+
+# #GCP only version
+df <- unique_features_data_ann %>%
+  filter(Type == "GCP")
+
+df_dm<- df %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(df_dm) <- df$feature
+
+
+df_ann <- df %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_GCP <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, GCP, row-clustered",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = TRUE,
+               cluster_row_slices = TRUE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_GCP
+
+#cycIF only version
+df <- unique_features_data_ann %>%
+  filter(Type == "cycIF")
+
+df_dm<- df %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(df_dm) <- df$feature
+
+df_ann <- df %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+
+hm_cycIF <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, cycIF, row-clustered",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = TRUE,
+               cluster_row_slices = TRUE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_cycIF
+
+#RPPA only version
+df <- unique_features_data_ann %>%
+  filter(Type == "RPPA")
+
+df_dm<- df %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(df_dm) <- df$feature
+
+df_ann <- df %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_RPPA <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, RPPA, row-clustered",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = TRUE,
+               cluster_row_slices = TRUE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_RPPA
+
+if(create_pdfs){
+  pdf("../plots/MDD_integrated_rr_ligand_heatmap.pdf")
+  draw(hm_unique)
+  draw(hm_unique_RPPA_48)
+   draw(hm_unique_motifs_48)
+     draw(hm_unique_cycIF_48)
+     draw(hm_noRNAseq)
+  draw(hm_GCP)
+  draw(hm_cycIF)
+  draw(hm_RPPA)
+  res <- dev.off()
+}
+
+
+# #heatmaps sorted by ligand and direction
+#no RNAseq and motifs
+df <- unique_features_data_ann %>%
+  filter(!Type %in% c("RNAseq", "motifs")) %>%
+  arrange(Set, Direction)
+
+df_dm<- df %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(df_dm) <- df$feature
+
+df_ann <- df %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_noRNAseq <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, no RNAseq, motifs, ordered",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_noRNAseq
+
+# #GCP version
+df <- unique_features_data_ann %>%
+  filter(Type == "GCP") %>%
+  arrange(Set, Direction)
+
+df_dm<- df %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(df_dm) <- df$feature
+
+df_ann <- df %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_GCP <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, GCP, ordered",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_GCP
+
+# #cycIF version
+df <- unique_features_data_ann %>%
+  filter(Type == "cycIF") %>%
+  arrange(Set, Direction)
+
+df_dm<- df %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(df_dm) <- df$feature
+
+df_ann <- df %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_cycIF <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, cycIF, ordered",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_cycIF
+
+#RPPA version
+df <- unique_features_data_ann %>%
+  filter(Type == "RPPA") %>%
+  arrange(Set, Direction)
+
+df_dm<- df %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+rownames(df_dm) <- df$feature
+
+df_ann <- df %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+hm_RPPA <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, RPPA, ordered",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_RPPA
+
+if(create_pdfs){
+  pdf("../plots/../plots/MDD_integrated_rr_ligand_heatmap_ordered.pdf")
+  draw(hm_noRNAseq)
+  draw(hm_GCP)
+  draw(hm_cycIF)
+  draw(hm_RPPA)
+  res <- dev.off()
+}
+
+####
+#Create a matrix and heatmap of the mean Ligand-specific values
+
+if(create_pdfs){
+  pdf("../plots/../plots/MDD_ligand_heatmaps.pdf") 
+  draw(hm_unique)
+  draw(hm_unique_mean)
+  res <- dev.off()
+} 
+
 ```
 
 
@@ -2061,33 +1981,30 @@ res = dev.off()
 #method -use original data assay_pk_data
 #filter to assays and features in DE data
 #T0 normalize
-#use combined18 cluster assignment in heatmap
+#use combined14 cluster assignment in heatmap
 
-# cycIF_directions <- direction_df %>%
-#   filter(str_detect(feature_type, "int"),
-#          !str_detect(feature_type, "nfkbp65|p21waf1cip1_3_af647cy5_int_mean_nuc_")) %>%
-#   mutate(biomarker = str_remove(feature_type, "_.*"),
-#          feature_type = paste0(biomarker, "_cycIF")) %>%
-#   select(feature_type, Direction, Ligand, Type)
+#need to rename cycIF intensity features to match names in T0 Norm dataset
+cluster_assignments <- combined14_features_data_ann %>%
+  select(Cluster, feature_type) %>%
+  mutate(feature_type = case_when(str_detect(feature_type, "int_mean_") ~str_replace(feature_type,  "_.*int_mean_.*_cycIF", "_cycIF"),
+                                  TRUE ~feature_type))
 
-cluster_assignments <- combined18_features_data_ann %>%
-  select(Cluster, feature_type)
-
+ligand_order_all_times <- paste(rep(ligand_order, each = 5), rep(c(1,4,8,24,48), times = 6), sep = "_")
+  ligand_order_all_times <- factor(ligand_order_all_times, levels = ligand_order_all_times, ordered = TRUE)
+  
 #convert cycIF features to the average cell intensity values
-cycIF_combined18_features_int <- combined18_features_data_ann %>%
+cycIF_combined14_features_int <- combined14_features_data_ann %>%
   filter(Type == "cycIF",
          str_detect(feature, "_int_mean")) %>%
   mutate(feature = str_remove(feature, "_.*")) %>%
   group_by(feature) %>%
-  summarise(across(where(is.numeric), mean)) %>%
+  summarise(across(where(is.numeric), mean), .groups = "drop") %>%
   mutate(feature_type = paste(feature, "cycIF", sep = "_")) %>%
   pivot_longer(cols = where(is.numeric), names_to = "condition")
-###DEBUG problem in this section
-#T0 cycIF features were average of intenisty values in nuc and cytoplasm
-#The T0 DE cycIF values are indivdual compartment intensities with assigned clusters
+
 #the T0 values don't map to the DE features so clusters can not be assigned
 #some cyto vs nuc are in different clusers
-combined18_features_with_cycIF_int <- c(combined18_features_data_ann$feature_type, cycIF_combined18_features_int$feature_type)
+combined14_features_with_cycIF_int <- c(combined14_features_data_ann$feature_type, cycIF_combined14_features_int$feature_type)
   
 #reformat raw assay metadata to match T0_DE
 matched_features_types <- assay_pk_data %>%
@@ -2101,7 +2018,7 @@ matched_features_types <- assay_pk_data %>%
            feature_type =  paste0(feature, "_", Type),
            condition = paste0(ligand,"_", experimentalTimePoint)) %>%
   select(-ligand, -feature, -Type, -experimentalTimePoint) %>%
-  filter(feature_type %in% combined18_features_with_cycIF_int)
+  filter(feature_type %in% combined14_features_with_cycIF_int)
 
 assay_pk_data_T0_norm <- matched_features_types %>%
   filter(condition == "ctrl_0") %>%
@@ -2112,39 +2029,63 @@ assay_pk_data_T0_norm <- matched_features_types %>%
   select(-ctrl_0_value, -value) %>%
 pivot_wider(names_from = condition, values_from = value_T0_norm, values_fn = mean) %>%
   left_join(cluster_assignments, by = "feature_type") %>%
-  select(-ctrl_0, -contains("PBS"))
+  select(feature_type, all_of(ligand_order_all_times), Cluster)
 
+#create a numeric matrix with feature row names
+assay_pk_data_T0_norm_dm <- assay_pk_data_T0_norm %>%
+  select(-feature_type, -Cluster) %>%
+  as.matrix() 
+rownames(assay_pk_data_T0_norm_dm) <- assay_pk_data_T0_norm$feature_type
+
+#Select only the 24 and 48 hour values
 assay_pk_data_T0_norm_24_48 <- assay_pk_data_T0_norm %>%
   select(-matches("_1$|_4$|_8$"))
 
-#create heatmap of T0 data using DE cluster assignments
 #create a numeric matrix with feature row names
-assay_pk_data_T0_norm_dm <- assay_pk_data_T0_norm_24_48 %>%
+assay_pk_data_T0_norm_24_48_dm <- assay_pk_data_T0_norm_24_48 %>%
   select(-feature_type, -Cluster) %>%
   as.matrix() 
+rownames(assay_pk_data_T0_norm_24_48_dm) <- assay_pk_data_T0_norm_24_48$feature_type
 
-rownames(assay_pk_data_T0_norm_dm) <- assay_pk_data_T0_norm_24_48$feature_type
-# combined18_features_dm <- combined18_features_dm[!is.nan(combined18_features_dm[,1]),]
+#Calculate the mean values of each conditionxmodule set
+assay_pk_data_T0_norm_mean <- assay_pk_data_T0_norm %>%
+  pivot_longer(cols = matches("_[[:digit:]]"), names_to = "condition") %>%
+  group_by(condition, Cluster) %>%
+  summarise(value_mean =mean(value), .groups = "drop") %>%
+  pivot_wider(names_from = condition, values_from = value_mean)
+
+#Calculate the 24 and 48 mean values
+assay_pk_data_T0_norm_24_48_mean <- assay_pk_data_T0_norm_mean %>%
+  select(Cluster, matches("_24|_48"))
+#create a numeric matrix with feature row names
+assay_pk_data_T0_norm_24_48_mean_dm <- assay_pk_data_T0_norm_24_48_mean %>%
+  select(-Cluster) %>%
+  as.matrix() 
+rownames(assay_pk_data_T0_norm_24_48_mean_dm) <- assay_pk_data_T0_norm_24_48_mean$Cluster
+
+#prepare annotations to be used in heatmaps
 assay_pk_data_T0_norm_ann <- assay_pk_data_T0_norm_24_48 %>%
   select(feature_type, Cluster) %>%
   mutate(Type = str_remove(feature_type, ".*_")) %>%
   select(-feature_type) %>%
   as.data.frame()
+#######End of data prep
 
+#heatmap of all T0 norm data
 haRow_T0 <- HeatmapAnnotation(df = assay_pk_data_T0_norm_ann,
                               which = "row",
-                              col = list(Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE),
+                              col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
                                          Type = assay_cols))
-
+#heatmap of all T0 norm data
 hm_T0 <- Heatmap(assay_pk_data_T0_norm_dm,
         name = "fc ",
-        column_title = "T0 Normalized",
+        column_title = "T0 Normalized, combined14 structure",
         column_title_gp = gpar(fontsize = 12),
-        col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
+        col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
         cluster_rows = FALSE,
         cluster_row_slices = FALSE,
         cluster_columns = FALSE,
-        row_split = assay_pk_data_T0_norm_24_48$Cluster,
+        row_split = assay_pk_data_T0_norm$Cluster,
         #row_gap = unit(2, "mm"),
         row_title = " ",
         left_annotation = haRow_T0,
@@ -2154,27 +2095,32 @@ hm_T0 <- Heatmap(assay_pk_data_T0_norm_dm,
         use_raster = FALSE)
 
 hm_T0
-
-#Make a heatmap of the mean values
-assay_pk_data_T0_norm_mean <- assay_pk_data_T0_norm_24_48 %>%
-  pivot_longer(cols = matches("_0|24|48"), names_to = "condition") %>%
-  group_by(condition, Cluster) %>%
-  summarise(value_mean =mean(value)) %>%
-  pivot_wider(names_from = condition, values_from = value_mean)
-  
-#create heatmap of T0 data using DE cluster assignments
-#create a numeric matrix with feature row names
-assay_pk_data_T0_norm_mean_dm <- assay_pk_data_T0_norm_mean %>%
-  select(-Cluster) %>%
-  as.matrix() 
-
-rownames(assay_pk_data_T0_norm_mean_dm) <- assay_pk_data_T0_norm_mean$Cluster
-
-hm_T0_mean <- Heatmap(assay_pk_data_T0_norm_mean_dm,
-        name = "value ",
-        column_title = "T0 Normalized means",
+#heatmap of only 24 and 48 hour values
+#heatmap of all T0 norm data
+hm_T0_24_48 <- Heatmap(assay_pk_data_T0_norm_24_48_dm,
+        name = "fc ",
+        column_title = "T0 Normalized, combined14 structure, 24, 48 hour only",
         column_title_gp = gpar(fontsize = 12),
         col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
+        cluster_rows = FALSE,
+        cluster_row_slices = FALSE,
+        cluster_columns = FALSE,
+        row_split = assay_pk_data_T0_norm$Cluster,
+        #row_gap = unit(2, "mm"),
+        row_title = " ",
+        left_annotation = haRow_T0,
+        show_row_names = FALSE,
+        row_names_gp = gpar(fontsize = 8),
+        column_names_gp = gpar(fontsize = 10),
+        use_raster = FALSE)
+hm_T0_24_48
+
+#heatmap of mean values
+hm_T0_24_48_mean_cl <- Heatmap(assay_pk_data_T0_norm_24_48_mean_dm,
+        name = "value ",
+        column_title = "T0 Normalized means, combined14 structure, clustered",
+        column_title_gp = gpar(fontsize = 12),
+        col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
         cluster_rows = TRUE,
         cluster_row_slices = FALSE,
         cluster_columns = FALSE,
@@ -2184,23 +2130,44 @@ hm_T0_mean <- Heatmap(assay_pk_data_T0_norm_mean_dm,
         row_names_gp = gpar(fontsize = 8),
         column_names_gp = gpar(fontsize = 10),
         use_raster = FALSE)
+hm_T0_24_48_mean_cl
 
-#barplots with clusters on x axis, mean values on y axis, facetted by condition
-df <- assay_pk_data_T0_norm_mean %>%
-  pivot_longer(cols = matches("_0|24|48"), names_to = "condition")
+hm_T0_24_48_mean_or <- Heatmap(assay_pk_data_T0_norm_24_48_mean_dm,
+        name = "value ",
+        column_title = "T0 Normalized means, combined14 structure, ordered",
+        column_title_gp = gpar(fontsize = 12),
+        col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+        cluster_rows = FALSE,
+        cluster_row_slices = FALSE,
+        cluster_columns = FALSE,
+        #row_gap = unit(2, "mm"),
+        row_title = " ",
+        show_row_names = TRUE,
+        row_names_gp = gpar(fontsize = 8),
+        column_names_gp = gpar(fontsize = 10),
+        use_raster = FALSE)
+hm_T0_24_48_mean_or
 
-p <- ggplot(df, aes(x = Cluster, y = value)) +
+
+#barplots with clusters on x axis, mean values on y axis, faceted by condition
+df <- assay_pk_data_T0_norm_24_48_mean %>%
+  pivot_longer(cols = matches("_[[:digit:]]"), names_to = "condition") %>%
+  mutate(condition = factor(condition, levels = ligand_order_all_times, ordered = TRUE))
+
+mean_bar_plot <- ggplot(df, aes(x = Cluster, y = value)) +
   geom_col() +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
   facet_wrap(~condition, ncol = 2)
-p
+mean_bar_plot
 
 if(create_pdfs){
-  pdf("../plots/MDD_T0_normed_in_combined18_manual_clusters.pdf",height = 10)
-  p
+  pdf("../plots/MDD_T0_normed_in_combined14_clusters.pdf",height = 10)
   draw(hm_T0)
-  draw(hm_T0_mean)
+  draw(hm_T0_24_48)
+  draw(hm_T0_24_48_mean_cl)
+  draw(hm_T0_24_48_mean_or)
+  print(mean_bar_plot)
   res <- dev.off()
 } 
 
@@ -2213,134 +2180,326 @@ module_features <- assay_pk_data_T0_norm_24_48 %>%
 res <- write_xlsx(module_features,
                   path = "../tables/MDD_T0_norm_combined18_tables.xlsx")
 
-
 #Cluster the T0 data according to the combined14 structure
 #and drop RNAseq
-cluster14_assignments <- combined14_features_data_ann %>%
-  select(Cluster, feature_type)
+# assay_pk_data_T0_norm14 <- assay_pk_data_T0_norm %>%
+#   select(-Cluster) %>%
+#   left_join(cluster_assignments, by = "feature_type") %>%
+#   filter(!str_detect(feature_type, "RNAseq")) %>%
+#   select(all_of(ligand_order_all_times),feature_type, Cluster)
+# 
+# #create heatmap of T0 data using DE cluster assignments
+# #create a numeric matrix with feature row names
+# assay_pk_data_T0_norm14_dm <- assay_pk_data_T0_norm14 %>%
+#   select(-feature_type, -Cluster) %>%
+#   as.matrix() %>%
+#   t %>%
+#   scale %>%
+#   t
+# rownames(assay_pk_data_T0_norm14_dm) <- assay_pk_data_T0_norm14$feature_type
+# 
+# assay_pk_data_T0_norm14_ann <- assay_pk_data_T0_norm14 %>%
+#   select(feature_type, Cluster) %>%
+#   mutate(Type = str_remove(feature_type, ".*_")) %>%
+#   select(-feature_type) %>%
+#   as.data.frame()
+# 
+# haRow_T0_14 <- HeatmapAnnotation(df = assay_pk_data_T0_norm14_ann,
+#                               which = "row",
+#                               col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
+#                                          Type = assay_cols))
+# 
+# hm_T0_14 <- Heatmap(assay_pk_data_T0_norm14_dm,
+#         name = "fc ",
+#         column_title = "T0 Normalized, combined14 structure",
+#         column_title_gp = gpar(fontsize = 12),
+#         col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
+#         cluster_rows = FALSE,
+#         cluster_row_slices = FALSE,
+#         cluster_columns = FALSE,
+#         row_split = assay_pk_data_T0_norm14$Cluster,
+#         #row_gap = unit(2, "mm"),
+#         row_title = " ",
+#         left_annotation = haRow_T0_14,
+#         show_row_names = TRUE,
+#         row_names_gp = gpar(fontsize = 4),
+#         column_names_gp = gpar(fontsize = 10),
+#         use_raster = FALSE)
+# 
+# hm_T0_14
+# 
+# #Make a heatmap of the mean values
+# all_conditions_without_1 <- str_remove_all(ligand_order_all_times, ".*_1") %>% stringi::stri_remove_empty()
+# 
+# assay_pk_data_T0_norm14_mean <- assay_pk_data_T0_norm14 %>%
+#   filter(!str_detect(feature_type, "RNAseq|motifs")) %>%
+#   pivot_longer(cols = where(is.numeric), names_to = "condition") %>%
+#   group_by(condition, Cluster) %>%
+#   summarise(value_mean =mean(value), .groups = "drop") %>%
+#   pivot_wider(names_from = condition, values_from = value_mean) %>%
+#   select(all_of(all_conditions_without_1), Cluster)
+#   
+# #create heatmap of T0 data using DE cluster assignments
+# #create a numeric matrix with feature row names
+# assay_pk_data_T0_norm14_mean_dm <- assay_pk_data_T0_norm14_mean %>%
+#   select(-Cluster) %>%
+#   as.matrix()  %>%
+#   t %>%
+#   scale %>%
+#   t
+# 
+# rownames(assay_pk_data_T0_norm14_mean_dm) <- assay_pk_data_T0_norm14_mean$Cluster
+# 
+# hm_T0_norm14_mean <- Heatmap(assay_pk_data_T0_norm14_mean_dm,
+#         name = "value ",
+#         column_title = "T0 Normalized means, combined14 structure",
+#         column_title_gp = gpar(fontsize = 12),
+#         col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
+#         cluster_rows = TRUE,
+#         cluster_row_slices = FALSE,
+#         cluster_columns = FALSE,
+#         #row_gap = unit(2, "mm"),
+#         row_title = " ",
+#         show_row_names = TRUE,
+#         row_names_gp = gpar(fontsize = 8),
+#         column_names_gp = gpar(fontsize = 10),
+#         use_raster = FALSE)
 
-ligand_order_all_times <- paste(rep(ligand_order, each = 5), rep(c(1,4,8,24,48), times = 6), sep = "_")
-  ligand_order_all_times <- factor(ligand_order_all_times, levels = ligand_order_all_times, ordered = TRUE)
-  
-assay_pk_data_T0_norm14 <- assay_pk_data_T0_norm %>%
-  select(-Cluster) %>%
-  left_join(cluster14_assignments, by = "feature_type") %>%
-  filter(!str_detect(feature_type, "RNAseq")) %>%
-  select(ligand_order_all_times,feature_type, Cluster)
+# #barplots with clusters on x axis, mean values on y axis, facetted by condition
+# condition_all_order <- paste0(rep(c("HGF", "OSM", "EGF", "BMP2+EGF", "IFNG+EGF", "TGFB+EGF"), each=4), rep(c("_4", "_8", "_24", "_48"), times = 6))
+# 
+# df <- assay_pk_data_T0_norm14_mean %>%
+#   pivot_longer(cols = where(is.numeric), names_to = "condition") %>%
+#   drop_na() %>%
+#   mutate(condition = factor(condition, levels = condition_all_order, ordered = TRUE))
+# 
+# p <- ggplot(df, aes(x = Cluster, y = value)) +
+#   geom_col() +
+#   labs(title = "T0 normalized in combined14 structure",
+#        subtitle = "mean values per condition and module") +
+#   theme_bw() +
+#   theme(axis.text.x = element_text(angle = 90),
+#         strip.background.x = element_rect(fill = "transparent")) +
+#   facet_wrap(~condition, ncol = 4)
+# p
+# 
+# if(create_pdfs){
+#   pdf("../plots/MDD_T0_normed_combined14.pdf",height = 10)
+#   draw(hm_T0_14)
+#   draw(hm_T0_norm14_mean)
+#   print(p)
+#   res <- dev.off()
+# } 
+# 
+# 
+# 
+# if(create_pdfs){
+#   pdf("../plots/MDD_T0_normed_in_combined18_manual_clusters.pdf",height = 10)
+#   p
+#   draw(hm_T0)
+#   res <- dev.off()
+# } 
 
-#create heatmap of T0 data using DE cluster assignments
-#create a numeric matrix with feature row names
-assay_pk_data_T0_norm14_dm <- assay_pk_data_T0_norm14 %>%
-  select(-feature_type, -Cluster) %>%
+
+direction_df <- unique_features_data_ann %>%
+  select(feature_type, Direction, Ligand, Type) %>%
+  filter(str_detect(feature_type, "_cycIF|_GCP|_RPPA"),
+         !Ligand == "PBS")
+
+cycIF_directions <- direction_df %>%
+  filter(str_detect(feature_type, "int"),
+         !str_detect(feature_type, "nfkbp65|p21waf1cip1_3_af647cy5_int_mean_nuc_")) %>%
+  mutate(biomarker = str_remove(feature_type, "_.*"),
+         feature_type = paste0(biomarker, "_cycIF")) %>%
+  select(feature_type, Direction, Ligand, Type)
+
+corrected_directions <- direction_df %>%
+  filter(!str_detect(feature_type, "cycIF")) %>%
+  bind_rows(cycIF_directions)
+
+cycIF_GCP_RPPA_raw <- assay_pk_data %>%
+  filter(Type %in% c("cycIF", "GCP", "RPPA"),
+         !ligand == "PBS") %>%
+    mutate(ligand = case_when(ligand == "BMP2" ~"BMP2+EGF",
+                              ligand == "IFNG" ~"IFNG+EGF",
+                              ligand == "TGFB" ~"TGFB+EGF",
+                              TRUE ~ ligand),
+           feature_type = feature,
+           feature = str_remove(feature, "_RPPA|_cycIF|_GCP"),
+           condition = paste0(ligand,"_", experimentalTimePoint)) %>%
+  select(-ligand, -feature, -Type, -experimentalTimePoint)
+
+cycIF_GCP_RPPA_T0_norm <- cycIF_GCP_RPPA_raw %>%
+  filter(condition == "ctrl_0") %>%
+  rename(ctrl_0_value = value) %>%
+  select(-condition) %>%
+  right_join(cycIF_GCP_RPPA_raw, by = "feature_type") %>%
+  mutate(value_T0_norm = value-ctrl_0_value) %>%
+  select(-ctrl_0_value, -value) %>%
+pivot_wider(names_from = condition, values_from = value_T0_norm, values_fn = mean) %>%
+  right_join(corrected_directions, by = "feature_type")  %>%
+arrange(Ligand, Direction, Type) %>%
+  select(ctrl_0, everything())
+###DEBUG
+#### need to reconcile that assay_pk_data cycIF contains the average intensity values while the T0_DE contains individual cycIF values.
+# 
+# df <- unique_features_data_ann %>%
+#   filter(!Type %in% c("RNAseq", "motifs")) %>%
+#   arrange(Set, Direction)
+# 
+df_dm<- cycIF_GCP_RPPA_T0_norm %>%
+    select(where(is.numeric)) %>%
   as.matrix() %>%
-  t %>%
-  scale %>%
-  t
-rownames(assay_pk_data_T0_norm14_dm) <- assay_pk_data_T0_norm14$feature_type
+  t() %>%
+  scale() %>%
+  t()
+rownames(df_dm) <- cycIF_GCP_RPPA_T0_norm$feature_type
 
-assay_pk_data_T0_norm14_ann <- assay_pk_data_T0_norm14 %>%
-  select(feature_type, Cluster) %>%
-  mutate(Type = str_remove(feature_type, ".*_")) %>%
-  select(-feature_type) %>%
+df_ann <- cycIF_GCP_RPPA_T0_norm %>%
+    select(Ligand, Direction, Type) %>%
   as.data.frame()
 
-haRow_T0_14 <- HeatmapAnnotation(df = assay_pk_data_T0_norm14_ann,
-                              which = "row",
-                              col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
-                                         Type = assay_cols))
-
-hm_T0_14 <- Heatmap(assay_pk_data_T0_norm14_dm,
-        name = "fc ",
-        column_title = "T0 Normalized, combined14 structure",
-        column_title_gp = gpar(fontsize = 12),
-        col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
-        cluster_rows = FALSE,
-        cluster_row_slices = FALSE,
-        cluster_columns = FALSE,
-        row_split = assay_pk_data_T0_norm14$Cluster,
-        #row_gap = unit(2, "mm"),
-        row_title = " ",
-        left_annotation = haRow_T0_14,
-        show_row_names = TRUE,
-        row_names_gp = gpar(fontsize = 4),
-        column_names_gp = gpar(fontsize = 10),
-        use_raster = FALSE)
-
-hm_T0_14
-
-#Make a heatmap of the mean values
-all_conditions_without_1 <- str_remove_all(ligand_order_all_times, ".*_1") %>% stringi::stri_remove_empty()
-
-assay_pk_data_T0_norm14_mean <- assay_pk_data_T0_norm14 %>%
-  filter(!str_detect(feature_type, "RNAseq|motifs")) %>%
-  pivot_longer(cols = where(is.numeric), names_to = "condition") %>%
-  group_by(condition, Cluster) %>%
-  summarise(value_mean =mean(value)) %>%
-  pivot_wider(names_from = condition, values_from = value_mean) %>%
-  select(all_conditions_without_1, Cluster)
-  
-#create heatmap of T0 data using DE cluster assignments
-#create a numeric matrix with feature row names
-assay_pk_data_T0_norm14_mean_dm <- assay_pk_data_T0_norm14_mean %>%
-  select(-Cluster) %>%
-  as.matrix()  %>%
-  t %>%
-  scale %>%
-  t
-
-rownames(assay_pk_data_T0_norm14_mean_dm) <- assay_pk_data_T0_norm14_mean$Cluster
-
-hm_T0_norm14_mean <- Heatmap(assay_pk_data_T0_norm14_mean_dm,
-        name = "value ",
-        column_title = "T0 Normalized means, combined14 structure",
-        column_title_gp = gpar(fontsize = 12),
-        col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")),
-        cluster_rows = TRUE,
-        cluster_row_slices = FALSE,
-        cluster_columns = FALSE,
-        #row_gap = unit(2, "mm"),
-        row_title = " ",
-        show_row_names = TRUE,
-        row_names_gp = gpar(fontsize = 8),
-        column_names_gp = gpar(fontsize = 10),
-        use_raster = FALSE)
-
-#barplots with clusters on x axis, mean values on y axis, facetted by condition
-df <- assay_pk_data_T0_norm14_mean %>%
-  pivot_longer(cols = where(is.numeric), names_to = "condition") %>%
-  drop_na()
-
-p <- ggplot(df, aes(x = Cluster, y = value)) +
-  geom_col() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_wrap(~condition, ncol = 2)
-p
+haRow_df <- HeatmapAnnotation(df = df_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+# 
+hm_T0 <- Heatmap(df_dm,
+               name = "lfc rr",
+               column_title = "Ligand-specific, T0 norm of cycIF, GCP, RPPA",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               #row_split = df_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 7),
+               column_names_gp = gpar(fontsize = 7),
+               left_annotation = haRow_df,
+               use_raster = FALSE)
+hm_T0
 
 if(create_pdfs){
-  pdf("../../plots/MDD_T0_normed_combined14.pdf",height = 10)
-  draw(hm_T0_14)
-  draw(hm_T0_norm14_mean)
-  print(p)
-  res <- dev.off()
-} 
-
-
-
-if(create_pdfs){
-  pdf("../plots/MDD_T0_normed_in_combined18_manual_clusters.pdf",height = 10)
-  p
+  pdf("../plots/MDD_integrated_T0_cycIF_GCP_RPPA_heatmap.pdf")
   draw(hm_T0)
-  draw(hm_T0_mean)
   res <- dev.off()
-} 
+}
+
 
 #Add to Compare T0 Normalized tab an analysis of combined14 modules and drop CTRL. Also simplify bar plots to remove gray background (Mark)
+
 ```
 
-method - load original data  
+##### methods  
+load original data  
 filter to assays and features in DE data  
 T0 normalize  
 use combined18 cluster assignment in heatmap  
+
+##### T0 normalized in combined14 structure  
+load original data  
+filter to features in the combined14 dataset  
+retain 4,8, 24 and 48 hour data  
+center on ctrl_0 values  
+calculate mean of each condition for each of the 14 modules  
+display as facetted bar graph  
+
+###
+
+### Correlations
+
+```{r correlations}
+
+#Ligand cross-correlation heat map with final megamatrix feature list: 24H only, 48H only, 24+48H combined. Explore scaling options. (Mark)
+
+all_data_cor <- combined18_features_data %>%
+  select(matches("_24|_48")) %>%
+  as.matrix() %>%
+  cor(method = "pearson")
+
+all_data_hm <- Heatmap(all_data_cor,
+                       column_title = "All data, T0 DE correlations",
+                   name = "pearson\ncorrelation ",
+                  row_names_gp = gpar(fontsize = 10),
+                  column_names_gp = gpar(fontsize = 10))
+all_data_hm
+
+all_data_24_cor <- combined18_features_data %>%
+  select(matches("_24")) %>%
+  as.matrix() %>%
+  cor(method = "pearson")
+
+cor_24_hm <- Heatmap(all_data_24_cor,
+                     column_title = "24 hour, T0 DE correlations",
+                     name = "pearson\ncorrelation ",
+                     row_names_gp = gpar(fontsize = 10),
+                     column_names_gp = gpar(fontsize = 10))
+cor_24_hm
+
+all_data_48_cor <- combined18_features_data %>%
+  select(matches("_48")) %>%
+  as.matrix() %>%
+  cor(method = "pearson")
+
+cor_48_hm <- Heatmap(all_data_48_cor,
+                     column_title = "48 hour, T0 DE correlations",
+                     name = "pearson\ncorrelation ",
+                     row_names_gp = gpar(fontsize = 10),
+                     column_names_gp = gpar(fontsize = 10))
+cor_48_hm
+
+
+all_data_pk_cor <- assay_pk_data_T0_norm %>%
+  select(matches("_24|_48")) %>%
+  as.matrix() %>%
+  cor(method = "pearson")
+
+all_data_pk_hm <- Heatmap(all_data_pk_cor,
+                          column_title = "All data, T0 normalized correlations",
+                          name = "pearson\ncorrelation ",
+                          row_names_gp = gpar(fontsize = 10),
+                          column_names_gp = gpar(fontsize = 10))
+all_data_pk_hm
+
+all_data_pk_24_cor <- assay_pk_data_T0_norm %>%
+  select(matches("_24")) %>%
+  as.matrix() %>%
+  cor(method = "pearson")
+
+cor_24_pk_hm <- Heatmap(all_data_pk_24_cor,
+                        column_title = "24 hour data, T0 normalized correlations",
+                        name = "pearson\ncorrelation ",
+                        row_names_gp = gpar(fontsize = 10),
+                        column_names_gp = gpar(fontsize = 10),)
+cor_24_pk_hm
+
+all_data_pk_48_cor <- assay_pk_data_T0_norm %>%
+  select(matches("_48")) %>%
+  as.matrix() %>%
+  cor(method = "pearson")
+
+cor_48_pk_hm <- Heatmap(all_data_pk_48_cor,
+                   column_title = "48 hour data, T0 normalized correlations",
+                   name = "pearson\ncorrelation ",
+                  row_names_gp = gpar(fontsize = 10),
+                  column_names_gp = gpar(fontsize = 10),)
+cor_48_pk_hm
+
+if(create_pdfs){
+  pdf("../plots/MDD_integrated_cors.pdf") 
+  draw(all_data_hm)
+  draw(cor_24_hm)
+  draw(cor_48_hm)
+  draw(all_data_pk_hm)
+  draw(cor_24_pk_hm)
+  draw(cor_48_pk_hm)
+  res <- dev.off()
+} 
+
+```
 
 ###
