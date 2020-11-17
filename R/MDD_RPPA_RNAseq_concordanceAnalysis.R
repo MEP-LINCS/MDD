@@ -14,12 +14,10 @@ RNA_resultsFile <- "../RNAseq/Data/MDD_RNAseq_shrunkenResults_df.Rdata"
 RNAseq_logFC_threshold <- 1.5
 RNAseq_pval_threshold  <- 0.01
 
-outDir <- "../plots/RPPA_RNAseq_concordanceHeatmaps/lfc15"
+outDir <- "../plots/RPPA_RNAseq_concordanceHeatmaps/lfc15_fixedNames"
 
 ###############################################################################
-if(!grepl("R$", getwd())) {
-  setwd("R")
-}
+if(!grepl("R$", getwd())) { setwd("R") }
 
 source(RPPA_limmaFile)
 source(colScript)
@@ -41,6 +39,16 @@ source(colScript)
 
 ###############################################################################
 # Filtering antibody annotation table to non-phospho, non-multi-protein abs
+aTrppaTempFull <- 
+  read.csv(antibodyFile, header = TRUE, stringsAsFactors = FALSE) %>% 
+  mutate(antibody = str_remove(MDD, "-[:alnum:]-[:alnum:]$")) %>% 
+  dplyr::rename(hgnc_symbol = Symbols) %>% 
+  dplyr::select(antibody, hgnc_symbol, Sites)%>% 
+  # filter(is.na(Sites)) %>% 
+  mutate(symbolFilt = !str_detect(hgnc_symbol, " "))
+  # filter(symbolFilt) %>% 
+  # dplyr::select(-symbolFilt)
+
 aTrppaFilt <- 
   read.csv(antibodyFile, header = TRUE, stringsAsFactors = FALSE) %>% 
   mutate(antibody = str_remove(MDD, "-[:alnum:]-[:alnum:]$")) %>% 
@@ -61,6 +69,19 @@ res <-
 # Loading RNASeq data
 load(RNA_resultsFile)
 
+setdiff(res$hgnc_symbol, res_RNA_df$PBS_24$hgnc_symbol)
+
+res$hgnc_symbol[res$hgnc_symbol == "AIM1"]  <- "CRYBG1"
+res$hgnc_symbol[res$hgnc_symbol == "CD29"]  <- "ITGB1"
+res$hgnc_symbol[res$hgnc_symbol == "CDC2"]  <- "CDK1"
+res$hgnc_symbol[res$hgnc_symbol == "PAR"]   <- "F2R"
+res$hgnc_symbol[res$hgnc_symbol == "PDGFR"] <- "PDGFRB"
+res$hgnc_symbol[res$hgnc_symbol == "PDHK1"] <- "PDK1"
+res$hgnc_symbol[res$hgnc_symbol == "RIP"]   <- "RIPK1"
+res$hgnc_symbol[res$hgnc_symbol == "C12ORF5"] <- "TIGAR"
+
+setdiff(res$hgnc_symbol, res_RNA_df$PBS_24$hgnc_symbol)
+
 ### Filtering RNAseq results to those with corresponding RPPA antibodies
 overlap_genes <- base::intersect(res_RNA_df$PBS_24$hgnc_symbol,
                                  res$hgnc_symbol)
@@ -76,6 +97,7 @@ res_temp <-
                                      padj > .01 ~ "0",
                                      is.na(padj) ~ "0",
                                      log2FoldChange < RNAseq_logFC_threshold & log2FoldChange > -RNAseq_logFC_threshold ~ "0"))
+
 ### Heatmaps: RNAseq/RPPA concordance
 
 RNA_matched <- 
@@ -113,25 +135,26 @@ combined.meta.forHA <-
                              "CTRL" = "ctrl",
                              "BMP2+EGF" = "BMP2",
                              "IFNG+EGF" = "IFNG",
-                             "TGFB+EGF" = "TGFB"),
-         experimentalCondition = fct_recode(experimentalCondition,
-                                            "CTRL_0" = "ctrl_0")) %>% 
+                             "TGFB+EGF" = "TGFB")) %>% 
+         # experimentalCondition = fct_recode(experimentalCondition,
+                                            # "CTRL_0" = "ctrl_0")) %>% 
   mutate(Ligand = fct_relevel(Ligand, "CTRL", "PBS",
                               "HGF", "OSM", "EGF",
                               "BMP2+EGF", "IFNG+EGF", "TGFB+EGF")) %>% 
   arrange(Ligand, Time) %>% 
   mutate(experimentalCondition = fct_inorder(experimentalCondition))
+
 columnOrder <- 
   combined.meta.forHA %>% 
   pull(experimentalCondition) %>% 
   as.character
 
-names(col)[c(1,2)] <- c("Ligand", "Time")
+names(col_MDD)[c(1,2)] <- c("Ligand", "Time")
 ha <- HeatmapAnnotation(df = dplyr::select(combined.meta.forHA, -experimentalCondition),
-                        col = col)
+                        col = col_MDD)
 
 ha1 <- HeatmapAnnotation(df = dplyr::select(combined.meta.forHA, -experimentalCondition),
-                         col = col, show_legend = FALSE)
+                         col = col_MDD, show_legend = FALSE)
 names(ha1) <- c("", " ")
 
 ind <- match(c("JAK2", "CD274", "EGFR", "MYC",
@@ -166,11 +189,11 @@ RPPA_matched_factors <-
   column_to_rownames("gene")
 RPPA_matched_factors <- RPPA_matched_factors[, columnOrder]
 
-if (!dir.exists(outDirPlots)) {
-  dir.create(outDirPlots)
+if (!dir.exists(outDir)) {
+  dir.create(outDir)
 }
 
-pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceHeatmap.pdf", outDirPlots), height = 9, width = 15)
+pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceHeatmap.pdf", outDir), height = 9, width = 15)
 Heatmap(RNA_matched_factors, cluster_columns = FALSE, 
         cluster_rows = FALSE,
         show_row_names = FALSE, column_title = "RNAseq", 
@@ -232,14 +255,65 @@ DEFeatureList <- setNames(DEFeatureList$sc,
                           nm = paste(DEFeatureList$assay, 
                                      DEFeatureList$significant, 
                                      sep = "_"))
-
+intersect(DEFeatureList$RNAseq_Down, DEFeatureList$RPPA_Up)
 # This euler diagram shows overlaps between the "up" and "down" sets of genes. 
 # The "noChange" groups are not shown.
 
-pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceEuler.pdf", outDirPlots), height = 6, width = 6)
+pdf(sprintf("%s/MDD_RPPA_RNAseq_significanceEuler.pdf", outDir), height = 6, width = 6)
 euler(DEFeatureList[!grepl("NoChange", names(DEFeatureList))]) %>% 
   plot(quantities = TRUE, 
        fills = c("steelblue4", "firebrick4", "steelblue1", "firebrick2"))
 dev.off()
- 
+
+intersect(DEFeatureList$RNAseq_NoChange,
+          DEFeatureList$RPPA_NoChange) %>% 
+  length
+
+c(DEFeatureList$RNAseq_NoChange,
+          DEFeatureList$RPPA_NoChange) %>% 
+  unique %>% 
+  length
+
+c(DEFeatureList$RNAseq_Up,
+  DEFeatureList$RPPA_Up) %>% 
+  unique %>% 
+  length
   
+c(DEFeatureList$RNAseq_Down,
+  DEFeatureList$RPPA_Down) %>% 
+  unique %>% 
+  length
+
+
+
+concordant_up <-
+  base::intersect(DEFeatureList$RNAseq_Up,
+                  DEFeatureList$RPPA_Up) %>% 
+  data.frame(hgnc_symbol = str_split_fixed(., "_", 2)[, 1],
+             experimentalCondition = str_split_fixed(., "_", 2)[, 2],
+             stringsAsFactors = FALSE) %>% 
+  mutate(direction = "Up")
+
+concordant_down <-
+  base::intersect(DEFeatureList$RNAseq_Down,
+                  DEFeatureList$RPPA_Down) %>% 
+  data.frame(hgnc_symbol = str_split_fixed(., "_", 2)[, 1],
+             experimentalCondition = str_split_fixed(., "_", 2)[, 2],
+             stringsAsFactors = FALSE) %>% 
+  mutate(direction = "Down")
+
+concordant_up
+concordant_down
+
+# res_RNA_working <-
+#   res_RNA %>% 
+#   mutate(toMatch = paste(hgnc_symbol, experimentalCondition ,sep = "_"))
+
+concordant_TW <-
+  rbind(concordant_up, concordant_down)
+
+concordant_TW %>% 
+  arrange(desc(direction), experimentalCondition, hgnc_symbol) %>% 
+  dplyr::select(-.) %>% 
+  write_csv(sprintf("%s/MDD_RNAseq_RPPA_concordanceTable.csv", outDir))
+
