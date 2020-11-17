@@ -275,7 +275,7 @@ p <- ggplot(df_selected, aes(x = name,
                                size = geneRatio)) +
     geom_point() +
     scale_color_gradient(low = "red",high = "blue") +
-    scale_size(range = c(0,4))+
+    scale_size(range = c(2,5))+
     scale_x_discrete(drop = FALSE) +
     scale_y_discrete(drop = FALSE) +
     labs(title = paste(str_replace_all(pathway_method, "_|_API", " "), "dataset pathways"),
