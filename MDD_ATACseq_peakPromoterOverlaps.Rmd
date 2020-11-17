@@ -1,0 +1,329 @@
+---
+title: "Evaluating TSS Accessibility by Overlap with Called Peaks"
+author: "Daniel Derrick"
+date: "6/17/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+
+# Introduction
+
+In this document, TSS accessibility is evaluated by testing for overlap between
+1000-bp windows around the TSS and peaks in a peakset composed of the union
+of all peaks called in CTRL samples.
+
+```{r librariesPaths, include = FALSE}
+library(tidyverse)
+library(biomaRt)
+library(DiffBind)
+library(ChIPseeker)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+
+if(!grepl("R$", getwd())) {
+  setwd("R")
+}
+
+annoFile     <- "ATACseq/Metadata/MDD_ATACseq_sampleMetadata.csv"
+transcriptsFile <- "misc/MDD_RNAseq_mostAbundantTranscripts.txt"
+
+outDirData     <- c("ATACseq/Data")
+outDirMetadata <- c("ATACseq/Metadata")
+RNAscript <- "R/MDD_import_RNAseq_ensembl.R"
+exprFiltFile <- "RNAseq/misc/MDD_RNAseq_exprFilt.csv"
+indRepFile <- "RNAseq/misc/MDD_RNAseq_inducedRepressed.csv"
+accFiltOldFile <- "ATACseq/Metadata/MDD_ATACseq_promoterAccessibilityTable.csv"
+```
+
+```{r Functions}
+# Functions
+makeDBSampleSheet <- function(sampleAnno) {
+  # renames the columns of a sample annotation dataframe
+  # to create a new dataframe that can be used as input to Diffbind.
+  ss <- sampleAnno %>% 
+    dplyr::rename("SampleID"   = specimenID,
+                  "Collection" = collection,
+                  "Time"       = experimentalTimePoint) %>% 
+    mutate(Replicate           = as.factor(replicate),
+           Factor              = as.factor(ligand),
+           # Peaks               = paste0("../", Peaks),
+           # bamReads            = paste0("../", bamReads),
+           PeakCaller          = "narrow"
+           )
+  ss
+}
+
+
+getProm <- function(txdb, annoTable, buffer = 500, genesOnly = FALSE) {
+  # This function returns a GRanges object of transcript promoter coordinates,
+  # annotated with transcript id and ensembl gene id
+  
+  txdb <- keepStandardChromosomes(txdb)
+  txdb <- dropSeqlevels(txdb, c("chrY", "chrM"))
+  
+  if (genesOnly) {
+    txdb <- genes(txdb)
+    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
+    prom$ensembl_gene_id <- annoTable[match(prom$gene_id, 
+                                            annoTable$entrezgene), 1]
+  } else {
+    prom <- promoters(txdb, upstream = buffer, downstream = buffer)
+    prom$tx_name         <- str_remove(prom$tx_name, "[.][0-9]+")
+    prom$ensembl_gene_id <- annoTable[match(prom$tx_name, 
+                                            annoTable$ensembl_transcript_id), ]$ensembl_gene_id
+  }
+  
+  filt <- is.na(prom$ensembl_gene_id)
+  prom <- prom[!filt]
+  
+  return(prom)
+}
+```
+
+```{r}
+source(RNAscript)
+```
+
+# Setup
+
+## Getting CTRL union peakset
+
+A peakset for the CTRL condition is created by taking the union
+of all peaks called in all CTRL samples. Any overlapping peaks
+will be merged.
+
+```{r}
+sampleAnno <- read.csv(annoFile, 
+                       stringsAsFactors = FALSE)
+
+sSheetCtrl <- makeDBSampleSheet(filter(sampleAnno, 
+                                   experimentalCondition == "ctrl_0"))
+
+# Getting counts and TMM-normalized expression
+dobCtrl <- dba(sampleSheet = sSheetCtrl)
+peaksetCtrl <- dba.peakset(dobCtrl, minOverlap = 1)
+
+grCtrl <- dba.peakset(peaksetCtrl,
+                    bRetrieve = TRUE)
+mcols(grCtrl) <- NULL
+mcols(grCtrl) <- NULL
+genome(grCtrl) <- "hg38"
+
+grCtrl <- grCtrl[seqnames(grCtrl) %in% standardChromosomes(grCtrl)]
+```
+
+
+```{r}
+sSheetIFNG <- makeDBSampleSheet(filter(sampleAnno, 
+                                       ATACseq_QCpass,
+                                       experimentalCondition == "IFNG_48"))
+
+# Getting counts and TMM-normalized expression
+dobIFNG <- dba(sampleSheet = sSheetIFNG)
+peaksetIFNG <- dba.peakset(dobIFNG, minOverlap = 1)
+
+grIFNG <- dba.peakset(peaksetIFNG,
+                    bRetrieve = TRUE)
+mcols(grIFNG) <- NULL
+mcols(grIFNG) <- NULL
+genome(grIFNG) <- "hg38"
+
+grIFNG <- grIFNG[seqnames(grIFNG) %in% standardChromosomes(grIFNG)]
+```
+
+## Getting genomic loci for windows around TSS
+
+A GRanges object of genomic windows ± 500 bp from gene transcriptional
+start sites is created from the R package `TxDb.Hsapiens.UCSC.hg38.knownGene`.
+
+```{r}
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",
+                dataset = "hsapiens_gene_ensembl",
+                host = 'apr2019.archive.ensembl.org')
+
+aT <- getBM(attributes = c("ensembl_transcript_id", "ensembl_gene_id"),
+            mart = mart)
+
+prom <- getProm(TxDb.Hsapiens.UCSC.hg38.knownGene, aT)
+
+prom %>% 
+  data.frame
+```
+
+## Intersecting TSS peak windows with union CTRL peakset
+
+The TSS windows are intersected with the union peakset for the
+CTRL condition. TSS windows with ≥ 1 bp overlap with a
+CTRL peak are considered accessible; those with no overlap
+with a CTRL peak are considered inaccessible.
+
+```{r}
+TSSIntersectionCtrl <- findOverlaps(prom, grCtrl)
+TSSIntersectionIFNG <- findOverlaps(prom, grIFNG)
+
+promAccCtrl <- prom[queryHits(TSSIntersectionCtrl)]
+promAccIFNG <- prom[queryHits(TSSIntersectionIFNG)]
+
+accTable <-
+  data.frame(ensembl_gene_id = unique(prom$ensembl_gene_id),
+             stringsAsFactors = FALSE) %>% 
+  mutate(accessibleCtrl = ensembl_gene_id %in% promAccCtrl$ensembl_gene_id,
+         accessibleIFNG = ensembl_gene_id %in% promAccIFNG$ensembl_gene_id)
+```
+
+## Results of Intersection
+
+The number of TSS windows intersecting or not intersecting with peaks
+is summarized below.
+
+```{r}
+accTable %>% 
+  group_by(accessibleCtrl) %>% 
+  summarize(n = n())
+
+accTable %>% 
+  ggplot(aes(accessibleCtrl, fill = accessibleCtrl)) +
+  geom_bar()
+```
+
+
+# Comparing to Prior Analyses
+
+## Expressed Genes
+
+What proportion of expressed/unexpressed genes are identified as 
+having accessible promoters?
+
+```{r}
+exprFilt <-
+  read.csv(exprFiltFile, 
+           stringsAsFactors = FALSE)
+
+exprAcc <- 
+  exprFilt %>% 
+  filter(experimentalCondition == "CTRL_0") %>% 
+  left_join(accTable) %>% 
+  mutate(accessibleCtrl = replace_na(accessibleCtrl, FALSE),
+         accessibleIFNG = replace_na(accessibleIFNG, FALSE))
+```
+
+## Previous Accessibility Classification
+
+```{r}
+accTableOld <-
+  read.csv(accFiltOldFile, stringsAsFactors = FALSE) %>% 
+  dplyr::rename(accessiblePrev = accessible) %>% 
+  left_join(accTable) %>% 
+  dplyr::rename(accessibleNew = accessibleCtrl) %>% 
+  mutate(accessibleNew = replace_na(accessibleNew, FALSE))
+```
+
+
+The TSS regions identified as accessible by the peak overlap method are
+similar to those identified by calculating the coverage across a fixed 
+window around the TSS, as before. 
+
+**`r round(18712/(18712 + 1882), 3)` of accessible gene TSS identified using the peak overlap method were identified using the TSS coverage method**
+
+**`r round(18712/(18712 + 447), 3)` of accessible gene TSS identified using the TSS coverage method were identified using the peak overlap method**
+
+```{r}
+accTableOld %>% 
+  group_by(accessibleNew, accessiblePrev) %>% 
+  summarize(n = n()) %>% 
+  arrange(desc(n))
+
+accTableOld %>% 
+  ggplot(aes(accessibleNew)) +
+  geom_bar(aes(fill = accessiblePrev))
+```
+
+## Text A
+
+```{r}
+EAgenes <-
+  exprAcc %>% 
+  filter(geneType == "protein_coding") %>% 
+  filter(!HLA) %>%
+  group_by(expressed, accessibleCtrl) %>% 
+  summarize(n = n()) %>% 
+  filter(expressed, accessibleCtrl) %>% 
+  pull(n)
+
+EIgenes <-
+  exprAcc %>% 
+  filter(geneType == "protein_coding") %>% 
+  filter(!HLA) %>%
+  group_by(expressed, accessibleCtrl) %>% 
+  summarize(n = n()) %>% 
+  filter(expressed, !accessibleCtrl) %>% 
+  pull(n)
+
+UAgenes <-
+  exprAcc %>% 
+  filter(geneType == "protein_coding") %>% 
+  filter(!HLA) %>%
+  group_by(expressed, accessibleCtrl) %>% 
+  summarize(n = n()) %>% 
+  filter(!expressed, accessibleCtrl) %>% 
+  pull(n)
+
+UIgenes <-
+  exprAcc %>% 
+  filter(geneType == "protein_coding") %>% 
+  filter(!HLA) %>%
+  group_by(expressed, accessibleCtrl) %>% 
+  summarize(n = n()) %>% 
+  filter(!expressed, !accessibleCtrl) %>% 
+  pull(n)
+```
+
+
+Examination of accessibility at the transcriptional start site (TSS) for all protein coding genes revealed that `r round(100*(EAgenes/(EAgenes + EIgenes)), 2)`% (`r EAgenes` / `r EAgenes + EIgenes`) of genes expressed in the T0 CTRL sample had open chromatin whereas only `r round(100*(UAgenes/(UAgenes + UIgenes)), 2)`% (`r UAgenes` / `r UAgenes + UIgenes`)% of the non-expressed genes showed this pattern (Fig. 4B). To see if there was a relationship between TSS peak size and expression we plotted data from the CTRL sample, but we did not find a relationship (Fig. 4C). These data indicate a switch-like relationship between gene expression and accessibility at the TSS, but no relationship between the magnitude of gene expression and the TSS peak size.
+
+## Text B
+
+```{r}
+indRep <- read.csv(indRepFile, stringsAsFactors = FALSE) %>% 
+  filter(experimentalCondition == "IFNG_48") %>% 
+  filter(Induced) %>% 
+  filter(gene_biotype == "protein_coding") %>% 
+  left_join(dplyr::select(exprAcc, ensembl_gene_id, contains("accessible"))) 
+
+totInducedIFNG <-
+  indRep %>% 
+  group_by(accessibleCtrl, accessibleIFNG) %>% 
+  summarize(n = n()) %>% 
+  pull(n) %>% 
+  sum
+
+accCtrlInducedIFNG <-
+  indRep %>% 
+  group_by(accessibleCtrl) %>% 
+  summarize(n = n()) %>% 
+  filter(accessibleCtrl) %>% 
+  pull(n)
+
+accIFNGInducedIFNG <-
+  indRep %>% 
+  group_by(accessibleIFNG) %>% 
+  summarize(n = n()) %>% 
+  filter(accessibleIFNG) %>% 
+  pull(n)
+```
+
+
+Focusing on IFNG ‘induced’ genes we found that `r round(100*(accCtrlInducedIFNG/totInducedIFNG), 2)`% (`r accCtrlInducedIFNG` out of `r totInducedIFNG`) genes had an accessible TSS peak in the CTRL condition, which was increased to
+`r round(100*(accIFNGInducedIFNG/totInducedIFNG), 2)`% (`r accIFNGInducedIFNG` out of `r totInducedIFNG`) following IFNG treatment (Fig **). Additionally, across all IFNG induced genes the overall XX changes were modest. Thus… *Not sure if this analysis will point to a primed state or not**
+
+

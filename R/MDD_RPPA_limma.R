@@ -25,6 +25,8 @@ outDirData <- "../RPPA/Data/DEProteins"
 
 ###############################################################################
 
+if (!grepl("R$", getwd())) {setwd("R")}
+
 RPPA.mat <- read.table(RPPAlevel3File,
                        header = TRUE,
                        sep = ",",
