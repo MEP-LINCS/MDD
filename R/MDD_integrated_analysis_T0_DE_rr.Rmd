@@ -254,7 +254,8 @@ cor_hm <- Heatmap(cor_dm,
                    name = "pearson\ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
                   split = clusters,
-                  column_names_gp = gpar(fontsize = 10),)
+                  column_names_gp = gpar(fontsize = 10),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_hm
 
 if(create_pdfs) {
@@ -355,7 +356,7 @@ hm_combined14
 #                               column_names_gp = gpar(fontsize = 10),
 #                               use_raster = FALSE)
 # #draw(hm_combined14_mean, heatmap_legend_side = "left")
-
+mean_highlight_thresh <- 0.5
 hm_combined14_mean_obj <- Heatmap(combined14_features_data_mean_dm,
                             name = "lfc ",
                             column_title = "combined14 cluster means",
@@ -368,9 +369,15 @@ hm_combined14_mean_obj <- Heatmap(combined14_features_data_mean_dm,
                             show_row_names = TRUE,
                             row_names_gp = gpar(fontsize = 8),
                             column_names_gp = gpar(fontsize = 10),
+                            cell_fun = function(j, i, x, y, width, height, fill) {
+        if(abs(combined14_features_data_mean_dm[i, j]) > mean_highlight_thresh)
+            grid.text(sprintf("%.1f", combined14_features_data_mean_dm[i, j]), x, y, gp = gpar(fontsize = 12))},
                             use_raster = FALSE)
 hm_combined14_mean <- draw(hm_combined14_mean_obj)
 combined14_cluster_order <- row_order(hm_combined14_mean)
+
+#highlight cells with values greater than abs(mean_highlight_thresh
+
 
 #Order the combined14 heatmap by the clustering of the mean values
 #reorder the levels in combined14_features ann that are used in  row_split
@@ -634,6 +641,8 @@ module_features <- unique_features_data %>%
 
 res <- write_xlsx(module_features,
                   path = "../tables/MDD_int_rr_unique_tables.xlsx")
+
+res <- write_csv(combined14_features_data_mean, "../tables/MDD_combined14_mean.csv")
 ```
 
 ### Ligand heatmaps
@@ -1333,7 +1342,7 @@ p_list <- lapply(df_UMAP_conditions, function(condition){
 
   highlights <- df %>%
     filter(Set == ligand,
-           feature_type %in% c("Stat3_pY705_RPPA")) 
+           feature_type %in% c()) 
   
   p_base <- ggplot(df, aes_string(x = "UMAP_1",
                              y = "UMAP_2",
@@ -1424,9 +1433,10 @@ if_module_dm <- rbind(combined14_features_data_mean_dm, if_dm) %>%
 cor_dm <- cor(if_module_dm, method ="pearson")
 
 cor_hm <- Heatmap(cor_dm,
-                   name = "pearson\ncorrelation ",
+                  name = "pearson\ncorrelation ",
                   row_names_gp = gpar(fontsize = 6),
-                  column_names_gp = gpar(fontsize = 6),)
+                  column_names_gp = gpar(fontsize = 6),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_hm
 
 if(create_pdfs) {
@@ -1442,7 +1452,8 @@ cor_dm <- cor(if_module_dm_reduced,  method ="pearson")
 cor_hm <- Heatmap(cor_dm,
                    name = "pearson\ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
-                  column_names_gp = gpar(fontsize = 10),)
+                  column_names_gp = gpar(fontsize = 10),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_hm
 
 if(create_pdfs) {
@@ -1462,7 +1473,8 @@ cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="pearson")
 cor_hm <- Heatmap(cor_dm,
                    name = "pearson\ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
-                  column_names_gp = gpar(fontsize = 10),)
+                  column_names_gp = gpar(fontsize = 10),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_hm
 
 if(create_pdfs) {
@@ -2425,7 +2437,8 @@ all_data_hm <- Heatmap(all_data_cor,
                        column_title = "All data, T0 DE correlations",
                    name = "pearson\ncorrelation ",
                   row_names_gp = gpar(fontsize = 10),
-                  column_names_gp = gpar(fontsize = 10))
+                  column_names_gp = gpar(fontsize = 10),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 all_data_hm
 
 all_data_24_cor <- combined18_features_data %>%
@@ -2437,7 +2450,8 @@ cor_24_hm <- Heatmap(all_data_24_cor,
                      column_title = "24 hour, T0 DE correlations",
                      name = "pearson\ncorrelation ",
                      row_names_gp = gpar(fontsize = 10),
-                     column_names_gp = gpar(fontsize = 10))
+                     column_names_gp = gpar(fontsize = 10),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_24_hm
 
 all_data_48_cor <- combined18_features_data %>%
@@ -2449,7 +2463,8 @@ cor_48_hm <- Heatmap(all_data_48_cor,
                      column_title = "48 hour, T0 DE correlations",
                      name = "pearson\ncorrelation ",
                      row_names_gp = gpar(fontsize = 10),
-                     column_names_gp = gpar(fontsize = 10))
+                     column_names_gp = gpar(fontsize = 10),
+                     col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_48_hm
 
 
@@ -2462,7 +2477,8 @@ all_data_pk_hm <- Heatmap(all_data_pk_cor,
                           column_title = "All data, T0 normalized correlations",
                           name = "pearson\ncorrelation ",
                           row_names_gp = gpar(fontsize = 10),
-                          column_names_gp = gpar(fontsize = 10))
+                          column_names_gp = gpar(fontsize = 10),
+                          col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 all_data_pk_hm
 
 all_data_pk_24_cor <- assay_pk_data_T0_norm %>%
@@ -2474,7 +2490,8 @@ cor_24_pk_hm <- Heatmap(all_data_pk_24_cor,
                         column_title = "24 hour data, T0 normalized correlations",
                         name = "pearson\ncorrelation ",
                         row_names_gp = gpar(fontsize = 10),
-                        column_names_gp = gpar(fontsize = 10),)
+                        column_names_gp = gpar(fontsize = 10),
+                        col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_24_pk_hm
 
 all_data_pk_48_cor <- assay_pk_data_T0_norm %>%
@@ -2486,7 +2503,8 @@ cor_48_pk_hm <- Heatmap(all_data_pk_48_cor,
                    column_title = "48 hour data, T0 normalized correlations",
                    name = "pearson\ncorrelation ",
                   row_names_gp = gpar(fontsize = 10),
-                  column_names_gp = gpar(fontsize = 10),)
+                  column_names_gp = gpar(fontsize = 10),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_48_pk_hm
 
 if(create_pdfs){
