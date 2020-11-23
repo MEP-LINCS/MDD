@@ -46,7 +46,7 @@ prep_data <- function(df, md){
   
   #Arrange columns by standard condition order
   df <- df %>%
-    dplyr::select(feature, condition_order)
+    dplyr::select(feature, all_of(condition_order))
   return(df)
 }
 
@@ -63,7 +63,7 @@ plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh =
            Replicate = replicate,
            Collection = collection) %>%
     group_by(feature, Collection, Time, Ligand) %>%
-    summarise(value = median(value)) %>%
+    summarise(value = median(value),.groups = "drop") %>%
     ungroup() %>%
   mutate( Ligand = str_replace(Ligand, "ctrl", "CTRL"),
           Ligand = str_replace(Ligand, "BMP2", "BMP2+EGF"),
@@ -170,7 +170,7 @@ fc_thresh = 0
 p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 p
 
-pdf(file = "../plots/MDD_RPPA_linegraphs.pdf", height =2, width = 4.5, useDingbats = FALSE)
+pdf(file = "../plots/MDD_RPPA_linegraphs_fig3B.pdf", height =2, width = 4.5, useDingbats = FALSE)
 p
 res <- dev.off()
 
@@ -228,7 +228,7 @@ res <- dev.off()
 
 #module 9 from the combined14 dataset
 #create each figure separately
-selected_features_3 <- c("Cyclin-B1", "FoxM1", "Mcl-1", "Wee1", "Myt1", "Rb_pS807_S811", "YB1_pS102", "PLK1", "CDK1")
+selected_features_3 <- c("Cyclin-B1", "FoxM1", "Wee1", "Rb_pS807_S811", "PLK1", "CDK1")
 
 fig_list <- map(selected_features_3, function(x){
   df <- RPPA_l3 %>%
@@ -265,7 +265,7 @@ res <- dev.off()
 ```
 
 ```{r IFNG24v48, fig.width= 8, fig.height=4}
-RPPA_pathways <- read_tsv(file = "RPPA/Data/Pathway_Scores_MDD.txt")
+RPPA_pathways <- read_tsv(file = "../RPPA/Data/Pathway_Scores_MDD.txt")
 
 df <- RPPA_l3 %>%
   # spread(specimenID, value) %>%
@@ -281,7 +281,7 @@ df <- RPPA_l3 %>%
            Replicate = replicate) %>%
   mutate(Time = paste0("Time_",Time)) %>%
     group_by(feature, Time, Ligand) %>%
-    summarise(value = median(value)) %>%
+    summarise(value = median(value),.groups = "drop") %>%
     ungroup() %>%
   spread(Time, value) %>% 
   left_join(RPPA_pathways, by = c("feature" = "Predictor"))
