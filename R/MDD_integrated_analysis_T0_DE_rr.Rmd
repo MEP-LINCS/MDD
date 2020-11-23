@@ -320,7 +320,7 @@ haRow_combined14 <- HeatmapAnnotation(df = combined14_features_ann,
                                     which = "row",
                                     col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
                                                Type = assay_cols,
-                                               Set = c("shared" = "black", ligand_cols)))
+                                               Set = c("shared" = "white", ligand_cols)))
 
 hm_combined14 <- Heatmap(combined14_features_dm,
                        name = "lfc rr",
@@ -339,6 +339,76 @@ hm_combined14 <- Heatmap(combined14_features_dm,
                        left_annotation = haRow_combined14,
                        use_raster = FALSE)
 hm_combined14
+
+###combined14 heatmap with ligand column annotations, RPpA and motif callouts
+
+#Make heatmap with annotations
+col_annotations <- tibble(condition = colnames(combined14_features_dm)) %>%
+  mutate(ligand = str_remove(condition, "_.*")) %>%
+  select(ligand) %>%
+  as.data.frame()
+
+haCol_combined14 <- HeatmapAnnotation(df = col_annotations,
+                                    which = "column",
+                                    col = list(ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE)))
+
+#Remove all RNAseq, cycIF, GCP rownames to display only RPPA and motifs
+haRow_combined14 <- HeatmapAnnotation(df = combined14_features_ann,
+                                    which = "row",
+                                    col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
+                                               Type = assay_cols,
+                                               Set = c("shared" = "white", ligand_cols)))
+#locate RPPA, motifs, cycIF and GCP, assign unique colors
+df <- combined14_features_data_ann %>%
+  #filter(!Type == "RNAseq") %>%
+  mutate(Color = case_when(Type == "RPPA" ~ "#1F78B4",
+                           Type == "motifs" ~ "#A6CEE3",
+                           Type == "GCP" ~ "#E31A1C",
+                           Type == "cycIF" ~ "#FB9A99",
+                           TRUE ~ ""
+                           ))
+
+RPPA_motif_rows <- which(df$Type %in% c("RPPA", "motifs", "GCP") | str_detect(df$feature, "_int_"))
+
+RPPA_motif_rows_left <- which((df$Type %in% c("RPPA", "motifs", "GCP") | str_detect(df$feature, "_int_")) & df$Cluster %in% c("1", "3+4", "6+16", "8+17", "10+15", "12", "14"))
+RPPA_motif_rows_right <- setdiff(RPPA_motif_rows, RPPA_motif_rows_left)
+
+label_colors <- df$Color[RPPA_motif_rows_right]
+names(label_colors) <- df$feature[RPPA_motif_rows_right]
+
+haRight = rowAnnotation(foo = anno_mark(at = RPPA_motif_rows_right,
+                                   labels = df$feature[RPPA_motif_rows_right],
+                                   labels_gp = gpar(fontsize = 4,
+                                                    col = label_colors)))
+  
+label_colors <- df$Color[RPPA_motif_rows_left]
+names(label_colors) <- df$feature[RPPA_motif_rows_left]
+
+haLeft = rowAnnotation(foo = anno_mark(at = RPPA_motif_rows_left,
+                                       side = "left",
+                                   labels = df$feature[RPPA_motif_rows_left],
+                                   labels_gp = gpar(fontsize = 4,
+                                                    col = label_colors)))
+
+hm_combined14_callouts <- Heatmap(combined14_features_dm,
+                       name = "lfc rr",
+                       column_title = "combined14 features",
+                       column_title_gp = gpar(fontsize = 12),
+                       col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = FALSE,
+                       cluster_row_slices = FALSE, 
+                       cluster_columns = FALSE,
+                       row_split = combined14_features_ann$Cluster,
+                       row_gap = unit(2, "mm"),
+                       row_title = " ",
+                       show_row_names = FALSE,
+                       row_names_gp = gpar(fontsize = 8),
+                       column_names_gp = gpar(fontsize = 10),
+                      left_annotation = haLeft,
+                       right_annotation = haRight,
+                       top_annotation = haCol_combined14,
+                       use_raster = FALSE)
+hm_combined14_callouts
 
 # hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
 #                               name = "lfc ",
@@ -452,9 +522,15 @@ if(create_pdfs){
   pdf("../plots/MDD_integrated_rr_combined_heatmaps.pdf",height = 10) 
   draw(hm_combined18)
   draw(hm_combined18_mean)
-  draw(hm_combined14_mean)
   draw(hm_combined14)
+  draw(hm_combined14_callouts)
+  draw(hm_combined14_mean)
   draw(hm_combined14_noRNA)
+  res <- dev.off()
+} 
+if(create_pdfs){
+  pdf("../plots/MDD_integrated_combined14_callouts_heatmap.pdf",height = 10) 
+  draw(hm_combined14_callouts)
   res <- dev.off()
 } 
 
@@ -1463,11 +1539,11 @@ if(create_pdfs) {
   res <- dev.off()
 }
 
-
-#Modules vs IF  set
-if_modules_dm <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative$|_Positive$")]
+#Modules vs IF set
+if_modules_dm <- if_module_dm[,!str_detect(colnames(if_module_dm), "_")]
 
 if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|MinIntensity_KRT5|migration_distance")]
+
 cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="pearson")
 
 cor_hm <- Heatmap(cor_dm,
@@ -1518,10 +1594,37 @@ p <- ggplot(module_phenotype_data_ann, aes(x = module_value, y = phenotype_value
           strip.text.x = element_text(size = 3.5))
 p
 
+df <- module_phenotype_data_ann %>%
+  filter(module == "9",
+         feature == "Edu_Positive_Proportion")
+
+p_mod9_edu <- ggplot(df, aes(x = module_value, y = phenotype_value)) +
+  stat_smooth(se = FALSE, method = "lm") +
+ geom_point(aes(color = ligand, size = time), alpha = .9) +
+    scale_color_manual(values = ligand_cols) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(4, 6)) +
+  labs(title = "Module 9 EdU positive proportion vs module",
+       x = "Module score",
+       y = "EdU positive proportion score") +
+   guides(color = guide_legend(override.aes = list(size = 4)),
+           size = guide_legend(override.aes = list(shape = 19))) +
+    theme_bw() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          strip.text.x = element_text(size = 3.5))
+p_mod9_edu
+
+
 if(create_pdfs) {
   pdf("../plots/MDD_combined14_module_phenotype_scatterplots.pdf",
       width =8, height = 14)
   res <- print(p)
+  res <- dev.off()
+}
+
+if(create_pdfs) {
+  pdf("../plots/MDD_combined14_module_9_EdU_scatterplots.pdf")
+  res <- print(p_mod9_edu)
   res <- dev.off()
 }
 
@@ -1624,6 +1727,56 @@ if(create_pdfs){
   res <- dev.off()
 } 
 
+#bar chart of the combined14 shared adn ligands
+df <- combined14_features_data_ann %>%
+  count(Set, Cluster) %>%
+  mutate(Cluster = factor(Cluster, levels = names(cluster14_cols), ordered = TRUE),
+         Set = factor(Set, levels = c(ligand_order, "shared"), ordered = TRUE))
+
+feature_dist <- ggplot(df, aes(x = Set, y = n)) +
+  geom_col() +
+  scale_fill_manual(values = assay_cols)+
+  labs(title = paste("Distribution of the",length(unique(paste0(combined14_features_data_ann$feature))), "combined14 features"),
+       x ="Type") +
+  theme_bw()+
+  theme(axis.text.x =  element_text(angle = 90),
+    axis.ticks = element_blank(),
+    #panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank(),
+    strip.background = element_blank()) +
+  facet_wrap(~Cluster, ncol = 1, scales = "free_y")
+feature_dist
+
+feature_dist_fill <- ggplot(df, aes(x = Set, y = n, fill = Set)) +
+  geom_col() +
+  scale_fill_manual(values = c(ligand_cols, "shared" = "black")) +
+  labs(title = paste("Distribution of the",length(unique(paste0(combined14_features_data_ann$feature))), "combined14 features"),
+       x ="Type") +
+  theme_bw()+
+  theme(axis.text.x =  element_text(angle = 90),
+    axis.ticks = element_blank(),
+    #panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank(),
+    strip.background = element_blank()) +
+  facet_wrap(~Cluster, ncol = 1, scales = "free_y")
+feature_dist_fill
+
+if(create_pdfs){
+  pdf("../plots/MDD_integrated_combined14_cluster_feature_dist.pdf", width = 3, height = 14)
+  print(feature_dist)
+  print(feature_dist_fill)
+  res <- dev.off()
+}
+
+if(write_csvs){
+  df_wide <- df %>%
+    pivot_wider(names_from = Set, values_from = n)
+  res <- write_csv(df_wide, path = "../tables/MDD_integrated_feature_distribution.csv")
+}
 ```
 
 
@@ -2506,6 +2659,12 @@ cor_48_pk_hm <- Heatmap(all_data_pk_48_cor,
                   column_names_gp = gpar(fontsize = 10),
                   col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 cor_48_pk_hm
+
+if(create_pdfs){
+  pdf("../plots/MDD_integrated_cors_condition_condition.pdf", width = 7, height = 6) 
+  draw(all_data_hm)
+  res <- dev.off()
+} 
 
 if(create_pdfs){
   pdf("../plots/MDD_integrated_cors.pdf") 
