@@ -207,7 +207,7 @@ make_dotplots_API <- function(df, fdr_thresh = .2, gene_ratio_thresh = 0.1, path
     mutate(mean_fdr = mean(fdr)) %>%
     ungroup() %>%
     arrange(module, mean_fdr) %>%
-    mutate(name = str_wrap(name, 32),
+    mutate(name = str_wrap(name, 42),
            name = fct_inorder(name, ordered = TRUE))
   #df_selected$name[df_selected$name %in% silence_pathway_names] <- ""
  #Use the Reactome hierarchy to reduce the labels used in the dotplot
@@ -288,7 +288,8 @@ p <- ggplot(df_selected, aes(x = name,
   print(p)
   
   pdf(paste0("../plots/MDD_reactome_dotplot",pathway_method,"_FDR_", fdr_thresh, "_GRmin_", gene_ratio_thresh, "_membersMin_", min_pathway_genes, "_membersMax_", max_pathway_genes, "_keep_",pathway_nbr,".pdf"),
-      width = 8,
+      width = 7,
+      height = 5,
       useDingbats = FALSE,)
   print(p)
   dev_off_res <- dev.off()
@@ -298,11 +299,11 @@ return(p)
 ###end of function
 
 pathway_method <- "_combined14_API"
-fdr_thresh <- 0.1
-gene_ratio_thresh <- 0.1
-min_pathway_genes <- 15
+fdr_thresh <- 0.15
+gene_ratio_thresh <- 0.05
+min_pathway_genes <- 10
 max_pathway_genes <- 500
-pathway_nbr <- 5
+pathway_nbr <- 3
                          
 res <- make_dotplots_API(pathways_combined14,
                          pathway_method = pathway_method,
@@ -320,53 +321,53 @@ res <- make_dotplots_API(pathways_combined14,
 #   dev_off_res <- dev.off()
 #   
 
-pathway_nbr <- 3
+#pathway_nbr <- 3
+#                          
+# res <- make_dotplots_API(pathways_combined14,
+#                          pathway_method = pathway_method,
+#                          fdr_thresh = fdr_thresh,
+#                          gene_ratio_thresh = gene_ratio_thresh,
+#                          min_pathway_genes = min_pathway_genes,
+#                          max_pathway_genes = max_pathway_genes,
+#                          pathway_nbr = pathway_nbr,
+#                          axis.text.x.angle = 90)
+
+#min_pathway_genes <- 10
                          
-res <- make_dotplots_API(pathways_combined14,
-                         pathway_method = pathway_method,
-                         fdr_thresh = fdr_thresh,
-                         gene_ratio_thresh = gene_ratio_thresh,
-                         min_pathway_genes = min_pathway_genes,
-                         max_pathway_genes = max_pathway_genes,
-                         pathway_nbr = pathway_nbr,
-                         axis.text.x.angle = 90)
+# res <- make_dotplots_API(pathways_combined14,
+#                          pathway_method = pathway_method,
+#                          fdr_thresh = fdr_thresh,
+#                          gene_ratio_thresh = gene_ratio_thresh,
+#                          min_pathway_genes = min_pathway_genes,
+#                          max_pathway_genes = max_pathway_genes,
+#                          pathway_nbr = pathway_nbr,
+#                          axis.text.x.angle = 90)
 
-min_pathway_genes <- 10
-                         
-res <- make_dotplots_API(pathways_combined14,
-                         pathway_method = pathway_method,
-                         fdr_thresh = fdr_thresh,
-                         gene_ratio_thresh = gene_ratio_thresh,
-                         min_pathway_genes = min_pathway_genes,
-                         max_pathway_genes = max_pathway_genes,
-                         pathway_nbr = pathway_nbr,
-                         axis.text.x.angle = 90)
+# fdr_thresh <- .15
+# gene_ratio_thresh <- .05
+# 
+# res <- make_dotplots_API(pathways_combined14,
+#                          pathway_method = pathway_method,
+#                          fdr_thresh = fdr_thresh,
+#                          gene_ratio_thresh = gene_ratio_thresh,
+#                          min_pathway_genes = min_pathway_genes,
+#                          max_pathway_genes = max_pathway_genes,
+#                          pathway_nbr = pathway_nbr,
+#                          axis.text.x.angle = 90)
+#   
 
-fdr_thresh <- .15
-gene_ratio_thresh <- .05
-
-res <- make_dotplots_API(pathways_combined14,
-                         pathway_method = pathway_method,
-                         fdr_thresh = fdr_thresh,
-                         gene_ratio_thresh = gene_ratio_thresh,
-                         min_pathway_genes = min_pathway_genes,
-                         max_pathway_genes = max_pathway_genes,
-                         pathway_nbr = pathway_nbr,
-                         axis.text.x.angle = 90)
-  
-
-fdr_thresh <- .15
-gene_ratio_thresh <- .05
- max_pathway_genes <- Inf
-res <- make_dotplots_API(pathways_combined14,
-                         pathway_method = pathway_method,
-                         fdr_thresh = fdr_thresh,
-                         gene_ratio_thresh = gene_ratio_thresh,
-                         min_pathway_genes = min_pathway_genes,
-                         max_pathway_genes = max_pathway_genes,
-                         pathway_nbr = pathway_nbr,
-                         axis.text.x.angle = 90)
-  
+# fdr_thresh <- .15
+# gene_ratio_thresh <- .05
+#  max_pathway_genes <- Inf
+# res <- make_dotplots_API(pathways_combined14,
+#                          pathway_method = pathway_method,
+#                          fdr_thresh = fdr_thresh,
+#                          gene_ratio_thresh = gene_ratio_thresh,
+#                          min_pathway_genes = min_pathway_genes,
+#                          max_pathway_genes = max_pathway_genes,
+#                          pathway_nbr = pathway_nbr,
+#                          axis.text.x.angle = 90)
+#   
 # res <- make_dotplots_API(pathways_newly_induced_genes_ligands, pathway_method = "_newly_induced_genes_ligands_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
 # 
 # res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method = "_newly_induced_genes_conditions_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
