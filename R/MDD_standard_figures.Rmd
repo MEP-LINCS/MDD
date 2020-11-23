@@ -192,10 +192,10 @@ custom_settings$n_neighbors = 25
                            size = Time,
                            colour = Ligand,
                            fill = Ligand)) +
-    geom_point(shape = 21, alpha = .9) +
+    geom_point(shape = 21, alpha = 1) +
     scale_color_manual(values = ligand_EGF_cols) +
     scale_fill_manual(values = ligand_cols) +
-    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(2, 6)) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(4, 8)) +
     labs(title = paste("UMAP embedding of ", assay_name, " data")) +
     guides(colour = guide_legend(override.aes = list(size = 4)),
            size = guide_legend(override.aes = list(shape = 19))) +
@@ -246,10 +246,10 @@ plot_pca <- function(df, md, ligand_cols = ligand_cols, assay_name,
                           size = Time,
                           colour = Ligand,
                           fill = Ligand)) +
-    geom_point(shape = 21, alpha = .8) +
+    geom_point(shape = 21, alpha = .95) +
     scale_color_manual(values = ligand_EGF_cols) +
     scale_fill_manual(values = ligand_cols) +
-    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(2, 6)) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(4, 8)) +
     labs(title = paste("UMAP embedding of ", assay_name, " data")) +
     guides(colour = guide_legend(override.aes = list(size = 4)),
            size = guide_legend(override.aes = list(shape = 19))) +
@@ -259,7 +259,10 @@ plot_pca <- function(df, md, ligand_cols = ligand_cols, assay_name,
           panel.grid.major = element_blank(),
           panel.grid.minor = element_blank())
   
-p
+print(p)
+pdf(paste0("../plots/MDD_standard_PCA_",assay_name, ".pdf"), width = 6, height = 5)
+  print(p)
+  res <- dev.off()
 }
 
 
