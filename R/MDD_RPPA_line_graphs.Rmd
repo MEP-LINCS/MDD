@@ -170,10 +170,17 @@ fc_thresh = 0
 p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 p
 
-pdf(file = "../plots/MDD_RPPA_linegraphs_fig3B.pdf", height =2, width = 4.5, useDingbats = FALSE)
+pdf(file = "../plots/MDD_RPPA_linegraphs_fig3B_w4pt5_h2.pdf", height =2, width = 4.5, useDingbats = FALSE)
 p
 res <- dev.off()
 
+pdf(file = "../plots/MDD_RPPA_linegraphs_fig3B_w4pt5_h3.pdf", height =3, width = 4.5, useDingbats = FALSE)
+p
+res <- dev.off()
+
+pdf(file = "../plots/MDD_RPPA_linegraphs_fig3B_w4pt5_h4.pdf", height =4, width = 4.5, useDingbats = FALSE)
+p
+res <- dev.off()
 #pNDRG1, HIF1A, and connexin-43?
 selected_features_2 <- c("NDRG1_pT346", "Hif-1-alpha", "Connexin-43")
 
