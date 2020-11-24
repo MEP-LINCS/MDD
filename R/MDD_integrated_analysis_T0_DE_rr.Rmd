@@ -1545,7 +1545,26 @@ if_modules_dm <- if_module_dm[,!str_detect(colnames(if_module_dm), "_")]
 if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|MinIntensity_KRT5|migration_distance")]
 
 cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="pearson")
+cor_dm_spearman <- cor(if_modules_dm, if_phenotypes_dm,  method ="spearman")
+###
 
+modules <- as.data.frame(if_modules_dm) %>%
+  rename_with(~ paste0("module_", .x)) %>%
+  rownames_to_column()
+phenotypes_modules <- as.data.frame(if_phenotypes_dm) %>%
+  rownames_to_column() %>%
+  left_join(modules, by = "rowname")
+comps <-expand_grid(module = paste0("module_",colnames(if_modules_dm)), phenotype = colnames(if_phenotypes_dm),)
+
+module_phenotype_spearman <- comps %>%
+  mutate(cor_test = map2(module, phenotype, ~cor.test(unlist(phenotypes_modules[,.x]), unlist(phenotypes_modules[,.y]), method = "spearman")), 
+         cor_value = map_dbl(cor_test, "estimate"),                  
+         cor_p_value = map_dbl(cor_test, "p.value"),
+         FDR = p.adjust(cor_p_value, method = "BH")) %>%
+  select(-cor_test) %>%
+  arrange(FDR)
+write_csv(module_phenotype_spearman, "../tables/MDD_integrated_module_phenotype_correlations_spearman.csv")
+###
 cor_hm <- Heatmap(cor_dm,
                    name = "pearson\ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
