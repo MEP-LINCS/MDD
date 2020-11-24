@@ -133,51 +133,51 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
  }
  
  #Get pathways of newly induced gene sets
-   if(!file.exists("MDD_Reactome_pathways_newly_induced_genes_ligands.csv")){
-    file_name <- "MDD_RNAseq_inducedGeneList_ligands.csv"
-    newly_induced_genes_ligands_df <- read_csv(paste0("../integrated_analysis/Data/",file_name)) %>%
-      group_by(Ligand) %>%
-      select(hgnc_symbol)
-    
-    newly_induced_genes_ligands <- newly_induced_genes_ligands_df %>%
-      group_split()
-    newly_induced_genes_ligands_list <- map(newly_induced_genes_ligands, function(x){
-      return(x$hgnc_symbol)
-      })
-    names(newly_induced_genes_ligands_list)<- newly_induced_genes_ligands_df %>%
-      group_keys() %>%
-      unlist()
-    
-   pathways_newly_induced_genes_ligands <- map_dfr(newly_induced_genes_ligands_list, get_pathway_data, .id = "module") %>%
-         mutate(module = fct_inorder(module, ordered = TRUE))
-   write_csv(pathways_newly_induced_genes_ligands, "../tables/MDD_Reactome_pathways_newly_induced_genes_ligands.csv")
- } else {
-   pathways_newly_induced_genes_ligands <- read_csv("MDD_Reactome_pathways_newly_induced_genes_ligands.csv") %>%
-         mutate(module = fct_inorder(module, ordered = TRUE))
- }
- #Pathway analaysis of newly induced genes by condition
-   if(!file.exists("MDD_Reactome_pathways_newly_induced_genes_conditions.csv")){
-    file_name <- "MDD_RNAseq_inducedGeneList_experimentalConditions.csv"
-    newly_induced_genes_conditions_df <- read_csv(paste0("../integrated_analysis/Data/",file_name)) %>%
-      group_by(experimentalCondition) %>%
-      select(hgnc_symbol)
-    
-    newly_induced_genes_conditions <- newly_induced_genes_conditions_df %>%
-      group_split()
-    newly_induced_genes_conditions_list <- map(newly_induced_genes_conditions, function(x){
-      return(x$hgnc_symbol)
-      })
-    names(newly_induced_genes_conditions_list)<- newly_induced_genes_conditions_df %>%
-      group_keys() %>%
-      unlist()
-    
-   pathways_newly_induced_genes_conditions <- map_dfr(newly_induced_genes_conditions_list, get_pathway_data, .id = "module") %>%
-         mutate(module = fct_inorder(module, ordered = TRUE))
-   write_csv(pathways_newly_induced_genes_conditions, "../tables/MDD_Reactome_pathways_newly_induced_genes_conditions.csv")
- } else {
-   pathways_newly_induced_genes_conditions <- read_csv("MDD_Reactome_pathways_newly_induced_genes_conditions.csv") %>%
-         mutate(module = fct_inorder(module, ordered = TRUE))
- }
+ #   if(!file.exists("MDD_Reactome_pathways_newly_induced_genes_ligands.csv")){
+ #    file_name <- "MDD_RNAseq_inducedGeneList_ligands.csv"
+ #    newly_induced_genes_ligands_df <- read_csv(paste0("../integrated_analysis/Data/",file_name)) %>%
+ #      group_by(Ligand) %>%
+ #      select(hgnc_symbol)
+ #    
+ #    newly_induced_genes_ligands <- newly_induced_genes_ligands_df %>%
+ #      group_split()
+ #    newly_induced_genes_ligands_list <- map(newly_induced_genes_ligands, function(x){
+ #      return(x$hgnc_symbol)
+ #      })
+ #    names(newly_induced_genes_ligands_list)<- newly_induced_genes_ligands_df %>%
+ #      group_keys() %>%
+ #      unlist()
+ #    
+ #   pathways_newly_induced_genes_ligands <- map_dfr(newly_induced_genes_ligands_list, get_pathway_data, .id = "module") %>%
+ #         mutate(module = fct_inorder(module, ordered = TRUE))
+ #   write_csv(pathways_newly_induced_genes_ligands, "../tables/MDD_Reactome_pathways_newly_induced_genes_ligands.csv")
+ # } else {
+ #   pathways_newly_induced_genes_ligands <- read_csv("MDD_Reactome_pathways_newly_induced_genes_ligands.csv") %>%
+ #         mutate(module = fct_inorder(module, ordered = TRUE))
+ # }
+ # #Pathway analaysis of newly induced genes by condition
+ #   if(!file.exists("MDD_Reactome_pathways_newly_induced_genes_conditions.csv")){
+ #    file_name <- "MDD_RNAseq_inducedGeneList_experimentalConditions.csv"
+ #    newly_induced_genes_conditions_df <- read_csv(paste0("../integrated_analysis/Data/",file_name)) %>%
+ #      group_by(experimentalCondition) %>%
+ #      select(hgnc_symbol)
+ #    
+ #    newly_induced_genes_conditions <- newly_induced_genes_conditions_df %>%
+ #      group_split()
+ #    newly_induced_genes_conditions_list <- map(newly_induced_genes_conditions, function(x){
+ #      return(x$hgnc_symbol)
+ #      })
+ #    names(newly_induced_genes_conditions_list)<- newly_induced_genes_conditions_df %>%
+ #      group_keys() %>%
+ #      unlist()
+ #    
+ #   pathways_newly_induced_genes_conditions <- map_dfr(newly_induced_genes_conditions_list, get_pathway_data, .id = "module") %>%
+ #         mutate(module = fct_inorder(module, ordered = TRUE))
+ #   write_csv(pathways_newly_induced_genes_conditions, "../tables/MDD_Reactome_pathways_newly_induced_genes_conditions.csv")
+ # } else {
+ #   pathways_newly_induced_genes_conditions <- read_csv("MDD_Reactome_pathways_newly_induced_genes_conditions.csv") %>%
+ #         mutate(module = fct_inorder(module, ordered = TRUE))
+ # }
 ```
 
 
@@ -275,11 +275,11 @@ p <- ggplot(df_selected, aes(x = name,
                                size = geneRatio)) +
     geom_point() +
     scale_color_gradient(low = "red",high = "blue") +
-    scale_size(range = c(2,5))+
+    scale_size(range = c(1,5.5))+
     scale_x_discrete(drop = FALSE) +
     scale_y_discrete(drop = FALSE) +
     labs(title = paste(str_replace_all(pathway_method, "_|_API", " "), "dataset pathways"),
-         subtitle = paste("FDR max:", fdr_thresh, "Gene ratio min:", gene_ratio_thresh, "members min:", min_pathway_genes, "members max:", max_pathway_genes, "keep pathways:",pathway_nbr),
+         #subtitle = paste("FDR max:", fdr_thresh, "Gene ratio min:", gene_ratio_thresh, "members min:", min_pathway_genes, "members max:", max_pathway_genes, "keep pathways:",pathway_nbr),
           x = "") +
     theme_bw() +
     theme(axis.text.y = element_text(size = 6,
@@ -289,12 +289,12 @@ p <- ggplot(df_selected, aes(x = name,
   
   pdf(paste0("../plots/MDD_reactome_dotplot",pathway_method,"_FDR_", fdr_thresh, "_GRmin_", gene_ratio_thresh, "_membersMin_", min_pathway_genes, "_membersMax_", max_pathway_genes, "_keep_",pathway_nbr,".pdf"),
       width = 7,
-      height = 5,
+      height = 4,
       useDingbats = FALSE,)
   print(p)
   dev_off_res <- dev.off()
   
-return(p)
+return(df_selected)
 }
 ###end of function
 
@@ -305,7 +305,7 @@ min_pathway_genes <- 10
 max_pathway_genes <- 500
 pathway_nbr <- 3
                          
-res <- make_dotplots_API(pathways_combined14,
+dotplot_pathways <- make_dotplots_API(pathways_combined14,
                          pathway_method = pathway_method,
                          fdr_thresh = fdr_thresh,
                          gene_ratio_thresh = gene_ratio_thresh,
@@ -425,8 +425,65 @@ res <- make_dotplots_API(pathways_combined14,
 ```
 
 ####Methods
-The Reactome hierarchy has three levels, child, parent and grandparent. These are defined from the specific (child) up through the more all encompassing (grandparent). Parent and child are terms used in Reactome. Grandparent is not but it follows as a natural extension.  
+The Reactome hierarchy has three levels, child, parent and grandparent. These are defined from the specific (child) up through the more all encompassing (grandparent). Parent and child are terms used in Reactome. Grandparent is not but it follows as a natural extension. Reactome also uses the term subpathway to for a lower pathway and superpathway for a higher one.    
 A pathway may have 0, 1 or more than one parent pathway. In this analyis, if there is no parent pathway the child pathway is copied into the parent pathway slot. If there is no grandparent pathway, the parent pathway is copied into the grandparent slot.  
+
+```{r reactome_pathways, eval = TRUE}
+
+#functions
+#for each pathway, return a tibble with columns of gene and stId and each row is a gene
+
+parse_entities <- function(stId, entities){
+  df <- tibble(gene = str_split(entities, ";") %>%
+                 unlist(),
+               stId = stId) 
+}
+####
+
+pathways_super<- dotplot_pathways %>%
+  filter(module == "9") %>%
+  mutate(superpathway = case_when(stId == "R-HSA-69190" ~"DNA Replication",
+                                  stId == "R-HSA-68962" ~"DNA Replication",
+                                  stId == "R-HSA-69205" ~"Cell Cycle" ))
+#Read in reactome file from 
+module9_reactome_web <- read_csv("../integrated_analysis/Data/reactome_module9_noProject.csv") %>%
+  janitor::clean_names()
+
+#filter to pathways in the dotplot
+module9_dotplot_genes <- dotplot_pathways %>%
+  filter(module == 9) %>%
+  left_join(module9_reactome_web, by = c("stId" ="pathway_identifier")) %>%
+    select(stId, submitted_entities_found)
+
+gene_pathways <- map2(module9_dotplot_genes$stId, module9_dotplot_genes$submitted_entities_found, parse_entities) %>%
+  bind_rows() %>%
+  distinct() %>%
+  left_join(pathways_super, by = c("stId" = "stId")) %>%
+  select(gene, stId, module, name, superpathway)
+
+res <- write_csv(gene_pathways, "../tables/MDD_integrated_reactome_module9_genes.csv")
+
+#write out pathways for all genes in module 9
+pathway_names <- pathways_combined14 %>%
+  select(stId, name) %>%
+  distinct()  %>%
+  mutate(superpathway = case_when(stId == "R-HSA-69190" ~"DNA Replication",
+                                  stId == "R-HSA-68962" ~"DNA Replication",
+                                  stId == "R-HSA-69205" ~"Cell Cycle" )) 
+
+gene_pathways_module9 <- map2(module9_reactome_web$pathway_identifier, module9_reactome_web$submitted_entities_found, parse_entities) %>%
+  bind_rows() %>%
+  distinct()  %>%
+  left_join(pathway_names, by = "stId")
+
+res <- write_csv(gene_pathways_module9, "../tables/MDD_integrated_reactome_module9_genes_pathways.csv")
+#Mock up a circos plot for module 9.
+#connect the 3 significant pathways to their highest  superpathway.
+
+#Manually annotate pathways with highest superpathway
+
+
+```
 
 ###
 
