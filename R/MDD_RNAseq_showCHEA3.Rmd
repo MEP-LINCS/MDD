@@ -58,7 +58,7 @@ their API. Results from all TF libraries were returned. Significant TFs were ide
 with an adjusted p-value < `r FDR_THRESHOLD`.
 
 ```{r, fig.width=8}
-listLong <-
+listLongFDR <-
   Reduce(bind_rows,
          lapply(moduleCHEA3ResultsList, function(x) {
   x <-
@@ -85,7 +85,7 @@ listLong <-
 ## Sum of significant TFs in each CHEA3 library
 
 ```{r, fig.width=8}
-listLong %>%
+listLongFDR %>%
   filter(FDR < FDR_THRESHOLD, .preserve = TRUE) %>%
   group_by(`Query Name`, Library) %>%
   summarize(n = n()) %>%
@@ -100,7 +100,7 @@ listLong %>%
 As a table:
 
 ```{r}
-listLong %>%
+listLongFDR %>%
   filter(FDR < FDR_THRESHOLD, .preserve = TRUE) %>%
   group_by(`Query Name`, Library) %>%
   summarize(n = n()) %>%
@@ -111,9 +111,9 @@ listLong %>%
 ## Libraries ordered by # of groups with ≥1 significant TF
 
 ```{r}
-temp <- unique(listLong$`Query Name`)
+temp <- unique(listLongFDR$`Query Name`)
 
-listLong %>%
+listLongFDR %>%
   filter(FDR < FDR_THRESHOLD, .preserve = TRUE) %>%
   group_by(`Query Name`, Library) %>%
   summarize(n = n()) %>%
@@ -133,10 +133,107 @@ All significant (FDR < `r FDR_THRESHOLD`) TFs are shown in the table below. Rows
 are ordered by FDR (increasing).
 
 ```{r, warning=FALSE}
-listLong %>%
+listLongFDR %>%
   filter(FDR < FDR_THRESHOLD) %>%
   arrange(FDR) %>%
   dplyr::select(-Score, -Overlapping_Genes) %>%
   datatable
 ```
+
+
+
+###########
+
+## Summary of significant CHEA3 TFs - FET.p.value threshold
+
+For each `r FEATURETYPE`, all genes were submitted to [CHEA3](https://maayanlab.cloud/chea3/) via
+their API. Results from all TF libraries were returned. Significant TFs were identified by selecting those
+with a p-value < `r FDR_THRESHOLD`.
+
+```{r, fig.width=8}
+listLongFET <-
+  Reduce(bind_rows,
+         lapply(moduleCHEA3ResultsList, function(x) {
+  x <-
+    mapply(function(X, X_NM) {
+      X <-
+        X %>%
+        mutate(Library = X_NM)
+      X
+      },
+      X = x, X_NM = names(x),
+      SIMPLIFY = FALSE)
+  })
+  ) %>%
+  mutate(`Query Name` = fct_inorder(as.factor(`Query Name`))) %>%
+  mutate(Library = as.factor(Library)) %>%
+  mutate(Library = fct_relevel(Library,
+                               grep("ChIP", levels(Library), value = TRUE),
+                               grep("ChIP", levels(Library), invert = TRUE, value = TRUE)
+                               )) %>% 
+  mutate(FDR = as.numeric(FDR),
+         `FET p-value` = as.numeric(`FET p-value`),
+         Rank = as.numeric(Rank))
+```
+
+## Sum of significant TFs in each CHEA3 library
+
+```{r, fig.width=8}
+listLongFET %>%
+  filter(`FET p-value` < FDR_THRESHOLD, .preserve = TRUE) %>%
+  group_by(`Query Name`, Library) %>%
+  summarize(n = n()) %>%
+  ggplot(aes(`Query Name`, n)) +
+  geom_col(position = "dodge") +
+  ylab(sprintf("# TFs with FDR < %s", FDR_THRESHOLD)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  xlab(str_to_title(FEATURETYPE)) +
+  facet_wrap(~Library)
+```
+
+As a table:
+
+```{r}
+listLongFET %>%
+  filter(`FET p-value` < FDR_THRESHOLD, .preserve = TRUE) %>%
+  group_by(`Query Name`, Library) %>%
+  summarize(n = n()) %>%
+  pivot_wider(names_from = "Library", values_from = n) %>% 
+  dplyr::select(`Query Name`, contains("ChIP"), everything())
+```
+
+## Libraries ordered by # of groups with ≥1 significant TF
+
+```{r}
+temp <- unique(listLongFET$`Query Name`)
+
+listLongFET %>%
+  filter(`FET p-value` < FDR_THRESHOLD, .preserve = TRUE) %>%
+  group_by(`Query Name`, Library) %>%
+  summarize(n = n()) %>%
+  ungroup %>%
+  group_by(Library) %>%
+  summarize(n_groups_w_sig_TFs = n(),
+            groups_without_sig_TFs = str_remove_all(
+              paste(setdiff(temp, `Query Name`),
+                    collapse = ", "),
+              "module_")) %>%
+  arrange(desc(n_groups_w_sig_TFs))
+```
+
+## Significant TFs, ordered by FDR
+
+All significant (FDR < `r FDR_THRESHOLD`) TFs are shown in the table below. Rows
+are ordered by FDR (increasing).
+
+```{r, warning=FALSE}
+listLongFET %>%
+  filter(`FET p-value` < FDR_THRESHOLD) %>%
+  arrange(`FET p-value`) %>%
+  dplyr::select(-Score, -Overlapping_Genes) %>%
+  datatable
+```
+
+
+
 
