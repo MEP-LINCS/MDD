@@ -313,114 +313,6 @@ dotplot_pathways <- make_dotplots_API(pathways_combined14,
                          max_pathway_genes = max_pathway_genes,
                          pathway_nbr = pathway_nbr,
                          axis.text.x.angle = 90)
-# 
-#   pdf(paste0("../plots/MDD_reactome_dotplot",pathway_method,"_FDR_", fdr_thresh, "_GRmin_", gene_ratio_thresh, "_membersMin_", min_pathway_genes, "_membersMax_", max_pathway_genes, "_keep_",pathway_nbr,".pdf"),
-#       width = 8,
-#       useDingbats = FALSE,)
-#   print(res)
-#   dev_off_res <- dev.off()
-#   
-
-#pathway_nbr <- 3
-#                          
-# res <- make_dotplots_API(pathways_combined14,
-#                          pathway_method = pathway_method,
-#                          fdr_thresh = fdr_thresh,
-#                          gene_ratio_thresh = gene_ratio_thresh,
-#                          min_pathway_genes = min_pathway_genes,
-#                          max_pathway_genes = max_pathway_genes,
-#                          pathway_nbr = pathway_nbr,
-#                          axis.text.x.angle = 90)
-
-#min_pathway_genes <- 10
-                         
-# res <- make_dotplots_API(pathways_combined14,
-#                          pathway_method = pathway_method,
-#                          fdr_thresh = fdr_thresh,
-#                          gene_ratio_thresh = gene_ratio_thresh,
-#                          min_pathway_genes = min_pathway_genes,
-#                          max_pathway_genes = max_pathway_genes,
-#                          pathway_nbr = pathway_nbr,
-#                          axis.text.x.angle = 90)
-
-# fdr_thresh <- .15
-# gene_ratio_thresh <- .05
-# 
-# res <- make_dotplots_API(pathways_combined14,
-#                          pathway_method = pathway_method,
-#                          fdr_thresh = fdr_thresh,
-#                          gene_ratio_thresh = gene_ratio_thresh,
-#                          min_pathway_genes = min_pathway_genes,
-#                          max_pathway_genes = max_pathway_genes,
-#                          pathway_nbr = pathway_nbr,
-#                          axis.text.x.angle = 90)
-#   
-
-# fdr_thresh <- .15
-# gene_ratio_thresh <- .05
-#  max_pathway_genes <- Inf
-# res <- make_dotplots_API(pathways_combined14,
-#                          pathway_method = pathway_method,
-#                          fdr_thresh = fdr_thresh,
-#                          gene_ratio_thresh = gene_ratio_thresh,
-#                          min_pathway_genes = min_pathway_genes,
-#                          max_pathway_genes = max_pathway_genes,
-#                          pathway_nbr = pathway_nbr,
-#                          axis.text.x.angle = 90)
-#   
-# res <- make_dotplots_API(pathways_newly_induced_genes_ligands, pathway_method = "_newly_induced_genes_ligands_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
-# 
-# res <- make_dotplots_API(pathways_newly_induced_genes_conditions, pathway_method = "_newly_induced_genes_conditions_API",fdr_thresh = 0.1, gene_ratio_thresh = 0.05, axis.text.x.angle = 90)
-
-####
-# Create bubble plot of Reactome enrichments for combined14 modules with the following filters (Mark: let's brainstorm this a bit):
-# Remove gene sets with > 500 features or < 15 features
-# Require FDR < 0.1
-# Require GeneRatio > 0.1
-# Plot: 1) up to the top 5 pathways for each module that meet these thresholds; 2) up to the top 3 pathways for each module that meet these threshold
-
-####
-# 
-###
-#   #####NULL dataset analysis
-#   
-#   selected_pathways_null <- enriched_pathways_null %>%
-#   group_by(module) %>%
-#   slice_min(order_by = c(entities_p_value), n = keep_gene_nbr) %>%
-#   slice_max(geneRatio, n = keep_gene_nbr) %>%
-#   ungroup() %>%
-#   dplyr::select(pathway_identifier)
-# 
-# df <- enriched_pathways_null %>%
-#   right_join(selected_pathways_null) %>%
-#   filter(entities_p_value <= p_value_thresh,
-#          geneRatio > gene_ratio_thresh) %>%
-#   group_by(pathway_name) %>%
-#   mutate(mean_fdr = mean(entities_fdr),
-#          mean_p_value = mean(entities_p_value)) %>%
-#   ungroup() %>%
-#   arrange(desc(module), mean_p_value) %>%
-#   mutate(pathway_name = fct_inorder(pathway_name))
-# 
-# p <- ggplot(df, aes(x = module,
-#                     y = pathway_name,
-#                     colour = entities_p_value,
-#                     size = geneRatio)) +
-#   geom_point() +
-#   scale_x_discrete(drop = FALSE) +
-#   scale_color_gradient(low = "red",high = "blue") +
-#   scale_size(range = c(0,4))+
-#   labs(title = "Null dataset") +
-#   theme_bw() +
-#   theme(axis.text.y = element_text(size = 6,
-#                                    color = "black"))
-# p
-# 
-#  pdf(paste0("MDD_null_dataset_reactome_dotplot.pdf"),
-#      width = 8,
-#      useDingbats = FALSE)
-#   print(p)
-#   dev_off_res <- dev.off()
 
 ```
 
@@ -440,14 +332,25 @@ parse_entities <- function(stId, entities){
 }
 ####
 
-pathways_super<- dotplot_pathways %>%
-  filter(module == "9") %>%
-  mutate(superpathway = case_when(stId == "R-HSA-69190" ~"DNA Replication",
-                                  stId == "R-HSA-68962" ~"DNA Replication",
-                                  stId == "R-HSA-69205" ~"Cell Cycle" ))
+# pathways_super<- dotplot_pathways %>%
+#   filter(module == "9") %>%
+#   mutate(superpathway = case_when(stId == "R-HSA-69190" ~"DNA Replication",
+#                                   stId == "R-HSA-68962" ~"DNA Replication",
+#                                   stId == "R-HSA-69205" ~"Cell Cycle",
+#                                   stId == "R-HSA-176974" ~"DNA Replication",
+#                                   stId == "R-HSA-69206" ~"Cell Cycle",
+#                                   stId == "R-HSA-69278"  ~"Cell Cycle",
+#                                   stId == "R-HSA-1538133" ~"Cell Cycle",
+#                                   stId == "R-HSA-453279" ~"Cell Cycle",
+#                                   stId == "R-HSA-176187" ~"Cell Cycle",
+#                                   stId == "R-HSA-141444" ~"Cell Cycle",
+#                                   stId == "R-HSA-141424" ~"Cell Cycle")) 
+pathways_super <- read_csv("../integrated_analysis/Data/MDD_Reactome_pathways_superpathways.csv")
+
 #Read in reactome file from 
 module9_reactome_web <- read_csv("../integrated_analysis/Data/reactome_module9_noProject.csv") %>%
-  janitor::clean_names()
+  janitor::clean_names() %>%
+  filter(str_detect(pathway_identifier, "-HSA-"))
 
 #filter to pathways in the dotplot
 module9_dotplot_genes <- dotplot_pathways %>%
@@ -459,28 +362,122 @@ gene_pathways <- map2(module9_dotplot_genes$stId, module9_dotplot_genes$submitte
   bind_rows() %>%
   distinct() %>%
   left_join(pathways_super, by = c("stId" = "stId")) %>%
-  select(gene, stId, module, name, superpathway)
+  select(gene, stId, superpathway)
 
 res <- write_csv(gene_pathways, "../tables/MDD_integrated_reactome_module9_genes.csv")
 
 #write out pathways for all genes in module 9
-pathway_names <- pathways_combined14 %>%
-  select(stId, name) %>%
-  distinct()  %>%
-  mutate(superpathway = case_when(stId == "R-HSA-69190" ~"DNA Replication",
-                                  stId == "R-HSA-68962" ~"DNA Replication",
-                                  stId == "R-HSA-69205" ~"Cell Cycle" )) 
+# pathway_names <- pathways_combined14 %>%
+#   select(stId, name) %>%
+#   distinct()  %>%
+#   mutate(superpathway = case_when(stId == "R-HSA-69190" ~"DNA Replication",
+#                                   stId == "R-HSA-68962" ~"DNA Replication",
+#                                   stId == "R-HSA-69205" ~"Cell Cycle",
+#                                   stId == "R-HSA-176974" ~"DNA Replication",
+#                                   stId == "R-HSA-69206" ~"Cell Cycle",
+#                                   stId == "R-HSA-69278"  ~"Cell Cycle",
+#                                   stId == "R-HSA-1538133" ~"Cell Cycle",
+#                                   stId == "R-HSA-453279" ~"Cell Cycle",
+#                                   stId == "R-HSA-176187" ~"Cell Cycle",
+#                                   stId == "R-HSA-141444" ~"Cell Cycle",
+#                                   stId == "R-HSA-141424" ~"Cell Cycle")) 
 
 gene_pathways_module9 <- map2(module9_reactome_web$pathway_identifier, module9_reactome_web$submitted_entities_found, parse_entities) %>%
   bind_rows() %>%
   distinct()  %>%
-  left_join(pathway_names, by = "stId")
+  left_join(pathways_super, by = "stId") %>%
+  filter(str_detect(stId, "-HSA-")) %>%
+  mutate(superpathway = case_when(is.na(superpathway) ~"not_annotated",
+                                  TRUE ~superpathway))
+# 
+# df <- gene_pathways_module9 %>%
+#   mutate(name = make.names(name)) %>%
+#   select(-stId) %>%
+#   distinct() %>%
+#   pivot_wider(names_from = name, values_from = superpathway, values_fill = "notMember")
+# res <- write_csv(df, "../tables/MDD_integrated_reactome_module9_genes_pathways.csv")
 
-res <- write_csv(gene_pathways_module9, "../tables/MDD_integrated_reactome_module9_genes_pathways.csv")
-#Mock up a circos plot for module 9.
-#connect the 3 significant pathways to their highest  superpathway.
+#heatmap (0 = white, 1 = red) for the attached module 9 gene list clustering both the rows and columns
 
-#Manually annotate pathways with highest superpathway
+gene_pathways <- read_xlsx("../integrated_analysis/Data/REACTOME_SUPERPATHWAYS_MODULE9.xlsx")
+
+gene_pathways_dm <- gene_pathways %>%
+  select(-gene) %>%
+  as.matrix()
+rownames(gene_pathways_dm) <- gene_pathways$gene
+gp_hm <- Heatmap(gene_pathways_dm,
+                  name = "Member",
+                  row_names_gp = gpar(fontsize = 4),
+                  column_names_gp = gpar(fontsize = 10),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
+  pdf("../plots/MDD_reactome_gene_pathways.pdf",
+      width = 5,
+      height =20,
+      useDingbats = FALSE,)
+  draw(gp_hm)
+  dev_off_res <- dev.off()
+
+```
+
+```{r module9_patways_vs_superpathways}
+
+#Start with module 9 pathways from Reactome
+#Filter to significant pathways
+#Associate pathwayd with superpathway
+#plot superpathwya vs pathway, color by FDR, size by geneRatio
+FDR_thresh_mod9 <- .1
+gene_ratio_thresh_mod9 <- .1
+
+# module9_pathways_selected <- module9_reactome_web %>%
+#   mutate(geneRatio = number_entities_found/number_entities_total) %>%
+#   filter(entities_fdr < FDR_thresh_mod9,
+#          geneRatio > gene_ratio_thresh_mod9) %>%
+#   arrange(entities_fdr) %>%
+#     mutate(pathway_name = str_wrap(pathway_name, 32),
+#            pathway_name = fct_inorder(pathway_name, ordered = TRUE)) %>%
+#   left_join(pathways_super, by = c("pathway_identifier" = "stId"))
+
+module9_pathways_selected <- module9_reactome_web %>%
+  mutate(geneRatio = number_entities_found/number_entities_total) %>%
+    mutate(pathway_name = str_wrap(pathway_name, 32),
+           pathway_name = fct_inorder(pathway_name, ordered = TRUE)) %>%
+  left_join(pathways_super, by = c("pathway_identifier" = "stId")) %>%
+  group_by(superpathway) %>%
+  select(-mapped_entities) %>%
+  drop_na() %>%
+  slice_min(order_by = c(entities_p_value), n = 5, with_ties = FALSE) %>%
+  ungroup()
+
+p <- ggplot(module9_pathways_selected, aes(x = pathway_name, y = -log10(entities_fdr), fill = superpathway)) +
+  geom_col() +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 20, angle = 90))
+p
+
+p <- ggplot(module9_pathways_selected, aes(x = pathway_name, y = superpathway, size = geneRatio, color = entities_fdr)) +
+  geom_point() +
+  scale_color_gradient(low = "red",high = "blue") +
+  scale_size(range = c(1,20))+
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 20, angle = 90),
+        axis.text.y = element_text(size = 20))
+p
+
+df <- module9_pathways_selected %>%
+  group_by(superpathway) %>%
+  arrange(geneRatio, .by_group = TRUE) %>%
+  ungroup() %>%
+  mutate(pathway_name =  as.character(pathway_name),
+         pathway_name = fct_inorder(pathway_name))
+
+p <- ggplot(df, aes(x = geneRatio, y =  pathway_name, size = number_entities_found, color = entities_fdr)) +
+  geom_point() +
+  scale_color_gradient(low = "red",high = "blue") +
+  scale_size(range = c(5,20))+
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 15, angle = 90),
+        axis.text.y = element_text(size = 20))
+p
 
 
 ```
