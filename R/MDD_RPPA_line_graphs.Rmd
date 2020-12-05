@@ -107,6 +107,7 @@ plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh =
          y="Intensity (AU)") +
     scale_x_continuous(breaks = c(0,8,24,48)) +
     scale_color_manual(values = ligand_cols) +
+    guides(colour = guide_legend(nrow = 1)) +
     theme(text = element_text(size = 6, colour = "black"),
           axis.text.y = element_text(color = "black"),
           axis.text.x = element_text(color = "black"),
@@ -114,16 +115,17 @@ plot_line_graphs <- function(df, md, ligand_cols, EGF_normed = TRUE, fc_thresh =
           #axis.text = element_text(angle=0, colour = "black"),
           #axis.text.y=element_blank(),
           #axis.ticks.y=element_blank(),
-          legend.key = element_blank(),
+          #legend.key = element_blank(),
           legend.key.height = unit(.2, 'cm'),
           #strip.text = element_text(size=12, hjust=0, color = "black"),
           strip.background = element_blank(),
           panel.background = element_rect(fill = NA),
           panel.grid.major = element_blank(),
-          legend.spacing.y = unit(.01, 'cm')
+          legend.spacing.y = unit(.01, 'cm'),
+                    legend.position="bottom"
           #panel.spacing.y = unit(1.1, "lines")
     ) +
-    facet_wrap(~feature, ncol = 3, scales = "free_y")
+    facet_wrap(~feature, nrow = 3, scales = "free_y")
   p
   
 }
@@ -170,17 +172,10 @@ fc_thresh = 0
 p <- plot_line_graphs(df, md, ligand_cols = ligand_cols, EGF_normed = FALSE, fc_thresh = fc_thresh, assay_name = "RPPA")
 p
 
-pdf(file = "../plots/MDD_RPPA_linegraphs_fig3B_w4pt5_h2.pdf", height =2, width = 4.5, useDingbats = FALSE)
+pdf(file = "../plots/MDD_RPPA_linegraphs_module9D.pdf", height =3.6, width = 5.6, useDingbats = FALSE)
 p
 res <- dev.off()
 
-pdf(file = "../plots/MDD_RPPA_linegraphs_fig3B_w4pt5_h3.pdf", height =3, width = 4.5, useDingbats = FALSE)
-p
-res <- dev.off()
-
-pdf(file = "../plots/MDD_RPPA_linegraphs_fig3B_w4pt5_h4.pdf", height =4, width = 4.5, useDingbats = FALSE)
-p
-res <- dev.off()
 #pNDRG1, HIF1A, and connexin-43?
 selected_features_2 <- c("NDRG1_pT346", "Hif-1-alpha", "Connexin-43")
 
