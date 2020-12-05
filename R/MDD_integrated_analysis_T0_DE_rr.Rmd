@@ -1280,26 +1280,6 @@ df_UMAP <- umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
 save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_combined14_UMAP.rda"))
 }
 
-# plot_UMAP_3d <- FALSE
-# if(plot_UMAP_3d){
-#   custom_settings$n_components = 3
-#   
-#   df_UMAP_3d <-  umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
-#     data.frame(feature = rownames(dm)) %>%
-#     rename(UMAP_1 = X1,
-#            UMAP_2 = X2,
-#            UMAP_3 = X3) %>%
-#     left_join(integrated_shared, by = "feature")
-#   df_UMAP_3d$Cluster_color <- cluster_cols[df_UMAP_3d$Cluster]
-#   save(df_UMAP_3d, file = "MDD_UMAP_3d")
-#   
-#   library(rgl)
-#   plot3d(df_UMAP_3d$UMAP_1,
-#          df_UMAP_3d$UMAP_2,
-#          df_UMAP_3d$UMAP_3,
-#          col = factor(df_UMAP_3d$Cluster_color))
-# }
-
   p <- ggplot(df_UMAP, aes(x = UMAP_1,
                            y = UMAP_2,
                            colour = factor(Cluster))) +
@@ -1448,6 +1428,77 @@ if(create_pdfs) {
   res <- dev.off()
 }
 
+#Now create a version of RNAseq features only
+dm <- combined14_features_data_ann %>%
+  filter(Type == "RNAseq") %>%
+  dplyr::select(-feature, -Cluster, -Type, -feature_type, -Set) %>%
+  as.matrix()
+rownames(dm) <- combined14_features_data_ann %>%
+    filter(Type == "RNAseq") %>%
+  pull(feature_type)
+
+custom_settings = umap.defaults
+custom_settings$random_state <- 42
+custom_settings$n_epochs = 500
+custom_settings$n_neighbors = 25
+
+if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_combined14_UMAP_RNAseq.rda"))){
+  load(paste0("../integrated_analysis/MDD_",cluster_method,"_combined14_UMAP_RNAseq.rda"))
+} else {
+df_UMAP <- umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
+  data.frame(feature_type = rownames(dm)) %>%
+  rename(UMAP_1 = X1,
+         UMAP_2 = X2) %>%
+  left_join(combined14_features_data_ann, by = "feature_type") 
+save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_combined14_UMAP_RNAseq.rda"))
+}
+
+df <- df_UMAP %>%
+  rename("BMP2_EGF_24" = "BMP2+EGF_24",
+         "IFNG_EGF_24" =  "IFNG+EGF_24",
+         "TGFB_EGF_24" = "TGFB+EGF_24",
+         "BMP2_EGF_48" = "BMP2+EGF_48",
+         "IFNG_EGF_48" =  "IFNG+EGF_48",
+         "TGFB_EGF_48" = "TGFB+EGF_48")
+df_UMAP_conditions <- colnames(df)[str_detect(colnames(df_UMAP),"PBS|HGF|OSM|EGF|BMP2|IFNG|TGFB")] %>%
+  str_replace("[+]","_")
+
+p_list <- lapply(df_UMAP_conditions, function(condition){
+  ligand <- str_remove(condition, "_[[:digit:]]*$") %>%
+    str_replace("_", "+")
+
+  highlights <- df %>%
+    filter(Set == ligand,
+           feature_type %in% c()) 
+  
+  p_base <- ggplot(df, aes_string(x = "UMAP_1",
+                             y = "UMAP_2",
+                             colour = condition)) +
+    geom_point(size = 2, alpha = .8, shape = 16) +
+    annotate("text",x = -2, y = -6, label = condition)+
+    scale_color_gradientn(colours = colorRampPalette(rev(brewer.pal(n = 7, name =
+                                                                      "RdBu")))(100)) +
+    labs()+
+    guides(colour = FALSE)+
+    theme_bw()+
+    theme(text = element_text(size = 1),
+          axis.title = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line = element_line(colour = "black"))
+
+  p <- p_base + geom_text(data = highlights, aes(label = feature_type), color = "black") +
+    geom_point(data = highlights, color = "black")
+  return(p)
+})
+res <- map(p_list, print)
+if(create_pdfs) {
+  pdf("../plots/MDD_integrated_combined14_umap_RNAseq_by_condition.pdf")
+  res <- map(p_list, print)
+  res <- dev.off()
+}
+
 ```
 
 ### phenotype analysis
@@ -1542,18 +1593,19 @@ if(create_pdfs) {
 #Modules vs IF set
 if_modules_dm <- if_module_dm[,!str_detect(colnames(if_module_dm), "_")]
 
-if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|MinIntensity_KRT5|migration_distance")]
+if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|migration_distance")]
 
 cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="pearson")
 cor_dm_spearman <- cor(if_modules_dm, if_phenotypes_dm,  method ="spearman")
-###
 
 modules <- as.data.frame(if_modules_dm) %>%
   rename_with(~ paste0("module_", .x)) %>%
   rownames_to_column()
+
 phenotypes_modules <- as.data.frame(if_phenotypes_dm) %>%
   rownames_to_column() %>%
   left_join(modules, by = "rowname")
+
 comps <-expand_grid(module = paste0("module_",colnames(if_modules_dm)), phenotype = colnames(if_phenotypes_dm),)
 
 module_phenotype_spearman <- comps %>%
@@ -1563,10 +1615,27 @@ module_phenotype_spearman <- comps %>%
          FDR = p.adjust(cor_p_value, method = "BH")) %>%
   select(-cor_test) %>%
   arrange(FDR)
+
 write_csv(module_phenotype_spearman, "../tables/MDD_integrated_module_phenotype_correlations_spearman.csv")
-###
+
+#volcano plots of -log(FDR) vs correlation
+p_volcano <- ggplot(module_phenotype_spearman, aes(cor_value, -log10(cor_p_value), label = paste(module, phenotype, sep = "_"))) +
+  geom_point() +
+  geom_text(data = filter(module_phenotype_spearman, FDR <  .1), size = 2, position = position_jitter(height = .05))+
+  coord_cartesian(xlim = c(-1.5, 1.5)) +
+  labs(title = "Module-to-phenotype correlations") +
+  theme_bw()
+p_volcano
+
+if(create_pdfs) {
+  pdf("../plots/MDD_combined14_module_phenotype_correlations_volcano.pdf",
+      width = 6, height = 4)
+  res <- print(p_volcano)
+  res <- dev.off()
+}
+
 cor_hm <- Heatmap(cor_dm,
-                   name = "pearson\ncorrelation",
+                  name = "pearson\ncorrelation",
                   row_names_gp = gpar(fontsize = 10),
                   column_names_gp = gpar(fontsize = 10),
                   col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
@@ -1613,6 +1682,37 @@ p <- ggplot(module_phenotype_data_ann, aes(x = module_value, y = phenotype_value
           strip.text.x = element_text(size = 3.5))
 p
 
+FDR_thresh <- 0.1
+df <- module_phenotype_spearman %>%
+  mutate(module = str_remove(module, "module_")) %>%
+  filter(FDR <= FDR_thresh,
+         !str_detect(phenotype, "MinIntensity")) %>%
+  left_join(module_phenotype_data_ann, by = c("phenotype" = "feature", "module" = "module"))
+
+p_signif <- ggplot(df, aes(x = module_value, y = phenotype_value, color = ligand, size = time)) +
+  geom_point(alpha = .8) +
+    scale_color_manual(values = ligand_cols) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(2, 4)) +
+  facet_wrap(~phenotype+module, nrow = 1) + 
+   guides(color = guide_legend(override.aes = list(size = 1)),
+           size = guide_legend(override.aes = list(shape = 19, size = 1))) +
+    theme_bw() +
+    theme(axis.title = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          strip.text.x = element_text(size = 3.5),
+          strip.background = element_blank(),
+          legend.title = element_text(size = 1),
+          legend.text = element_text(size = 1))
+p_signif
+
+if(create_pdfs) {
+  pdf("../plots/MDD_combined14_module_phenotype_scatterplots_signif.pdf",
+      width =8, height = 2)
+  res <- print(p_signif)
+  res <- dev.off()
+}
+
 df <- module_phenotype_data_ann %>%
   filter(module == "9",
          feature == "Edu_Positive_Proportion")
@@ -1632,7 +1732,6 @@ p_mod9_edu <- ggplot(df, aes(x = module_value, y = phenotype_value)) +
           panel.grid.minor = element_blank(),
           strip.text.x = element_text(size = 3.5))
 p_mod9_edu
-
 
 if(create_pdfs) {
   pdf("../plots/MDD_combined14_module_phenotype_scatterplots.pdf",
@@ -1796,6 +1895,15 @@ if(write_csvs){
     pivot_wider(names_from = Set, values_from = n)
   res <- write_csv(df_wide, path = "../tables/MDD_integrated_feature_distribution.csv")
 }
+
+# df <- combined14_features_data_ann %>%
+#   pivot_longer(cols = matches("_[[:digit:]]"), names_to = "condition") %>%
+#   mutate(ligand = str_remove(condition, "_.*"))
+# p <- ggplot(df, aes(x = condition, fill = ligand)) +
+#   geom_bar() +
+#   facet_wrap(~Type, scale = "free_y")
+# p
+
 ```
 
 
