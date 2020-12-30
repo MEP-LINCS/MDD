@@ -340,9 +340,11 @@ hm_combined14 <- Heatmap(combined14_features_dm,
                        use_raster = FALSE)
 hm_combined14
 
-###combined14 heatmap with ligand column annotations, RPpA and motif callouts
+###combined14 heatmap with ligand column annotations, RPPA and motif callouts
+  callouts <- read_csv("../integrated_analysis/Data/MDD_combined14_noRNAseq-lh.csv") %>%
+    filter(selected == "x")
 
-#Make heatmap with annotations
+  #Make heatmap with annotations
 col_annotations <- tibble(condition = colnames(combined14_features_dm)) %>%
   mutate(ligand = str_remove(condition, "_.*")) %>%
   select(ligand) %>%
@@ -352,12 +354,12 @@ haCol_combined14 <- HeatmapAnnotation(df = col_annotations,
                                     which = "column",
                                     col = list(ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE)))
 
-#Remove all RNAseq, cycIF, GCP rownames to display only RPPA and motifs
-haRow_combined14 <- HeatmapAnnotation(df = combined14_features_ann,
-                                    which = "row",
-                                    col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
-                                               Type = assay_cols,
-                                               Set = c("shared" = "white", ligand_cols)))
+# #Remove all RNAseq, cycIF, GCP rownames to display only RPPA and motifs
+# haRow_combined14 <- HeatmapAnnotation(df = combined14_features_ann,
+#                                     which = "row",
+#                                     col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE),
+#                                                Type = assay_cols,
+#                                                Set = c("shared" = "white", ligand_cols)))
 #locate RPPA, motifs, cycIF and GCP, assign unique colors
 df <- combined14_features_data_ann %>%
   #filter(!Type == "RNAseq") %>%
@@ -366,12 +368,13 @@ df <- combined14_features_data_ann %>%
                            Type == "GCP" ~ "#E31A1C",
                            Type == "cycIF" ~ "#FB9A99",
                            TRUE ~ ""
-                           ))
+                           ),
+         feature = str_remove(feature, "_[[:digit:]]_.*[nuc|cytoplasm]"))
 
-RPPA_motif_rows <- which(df$Type %in% c("RPPA", "motifs", "GCP") | str_detect(df$feature, "_int_"))
+RPPA_motif_rows_right <- which(df$feature_type %in% callouts$feature_type)
 
-RPPA_motif_rows_left <- which((df$Type %in% c("RPPA", "motifs", "GCP") | str_detect(df$feature, "_int_")) & df$Cluster %in% c("1", "3+4", "6+16", "8+17", "10+15", "12", "14"))
-RPPA_motif_rows_right <- setdiff(RPPA_motif_rows, RPPA_motif_rows_left)
+# RPPA_motif_rows_left <- which((df$Type %in% c("RPPA", "motifs", "GCP") | str_detect(df$feature, "_int_")) & df$Cluster %in% c("1", "3+4", "6+16", "8+17", "10+15", "12", "14"))
+#RPPA_motif_rows_right <- setdiff(RPPA_motif_rows, RPPA_motif_rows_left)
 
 label_colors <- df$Color[RPPA_motif_rows_right]
 names(label_colors) <- df$feature[RPPA_motif_rows_right]
@@ -380,35 +383,42 @@ haRight = rowAnnotation(foo = anno_mark(at = RPPA_motif_rows_right,
                                    labels = df$feature[RPPA_motif_rows_right],
                                    labels_gp = gpar(fontsize = 4,
                                                     col = label_colors)))
-  
-label_colors <- df$Color[RPPA_motif_rows_left]
-names(label_colors) <- df$feature[RPPA_motif_rows_left]
-
-haLeft = rowAnnotation(foo = anno_mark(at = RPPA_motif_rows_left,
-                                       side = "left",
-                                   labels = df$feature[RPPA_motif_rows_left],
-                                   labels_gp = gpar(fontsize = 4,
-                                                    col = label_colors)))
+#   
+# label_colors <- df$Color[RPPA_motif_rows_left]
+# names(label_colors) <- df$feature[RPPA_motif_rows_left]
+# 
+# haLeft = rowAnnotation(foo = anno_mark(at = RPPA_motif_rows_left,
+#                                        side = "left",
+#                                    labels = df$feature[RPPA_motif_rows_left],
+#                                    labels_gp = gpar(fontsize = 4,
+#                                                     col = label_colors)))
 
 hm_combined14_callouts <- Heatmap(combined14_features_dm,
                        name = "lfc rr",
                        column_title = "combined14 features",
-                       column_title_gp = gpar(fontsize = 12),
+                       column_title_gp = gpar(fontsize = 6),
+                       width = ncol(combined14_features_dm)*unit(4, "mm"),
                        col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
                        cluster_rows = FALSE,
                        cluster_row_slices = FALSE, 
                        cluster_columns = FALSE,
                        row_split = combined14_features_ann$Cluster,
-                       row_gap = unit(2, "mm"),
+                       row_gap = unit(3, "mm"),
                        row_title = " ",
                        show_row_names = FALSE,
-                       row_names_gp = gpar(fontsize = 8),
-                       column_names_gp = gpar(fontsize = 10),
-                      left_annotation = haLeft,
+                       row_names_gp = gpar(fontsize = 12),
+                       column_names_gp = gpar(fontsize = 6),
+                     # left_annotation = haLeft,
                        right_annotation = haRight,
                        top_annotation = haCol_combined14,
                        use_raster = FALSE)
 hm_combined14_callouts
+
+if(create_pdfs){
+  pdf("../plots/MDD_integrated_combined14_callouts_heatmap.pdf",height = 10) 
+  draw(hm_combined14_callouts)
+  res <- dev.off()
+} 
 
 # hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
 #                               name = "lfc ",
@@ -492,6 +502,11 @@ combined14_noRNA_features_ann <- combined14_features_data_ann %>%
   filter(!Type == "RNAseq")%>%
   as.data.frame()
 
+if(write_csvs){
+  df <- combined14_features_data_ann %>%
+  filter(!Type == "RNAseq")
+  res <- write_csv(df, "../tables/MDD_combined14_noRNAseq.csv")
+}
 #Make heatmap with annotations
 haRow_noRNA_combined14 <- HeatmapAnnotation(df = combined14_noRNA_features_ann,
                                     which = "row",
@@ -526,11 +541,6 @@ if(create_pdfs){
   draw(hm_combined14_callouts)
   draw(hm_combined14_mean)
   draw(hm_combined14_noRNA)
-  res <- dev.off()
-} 
-if(create_pdfs){
-  pdf("../plots/MDD_integrated_combined14_callouts_heatmap.pdf",height = 10) 
-  draw(hm_combined14_callouts)
   res <- dev.off()
 } 
 
@@ -719,6 +729,14 @@ res <- write_xlsx(module_features,
                   path = "../tables/MDD_int_rr_unique_tables.xlsx")
 
 res <- write_csv(combined14_features_data_mean, "../tables/MDD_combined14_mean.csv")
+
+###add analysis of modules in tissues
+
+GTEX <- read_delim("../integrated_analysis/Data/GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct", 
+    "\t", escape_double = FALSE, trim_ws = TRUE, 
+    skip = 2) %>%
+  janitor::clean_names()
+
 ```
 
 ### Ligand heatmaps
@@ -2041,16 +2059,23 @@ p_ligand <- ggplot(df, aes(x = as.factor(Cluster), fill = ligand)) +
   labs(title = "Ligand-specific cluster analysis",
        x = "Cluster",
        fill = "Ligand") +
-  facet_wrap(~Type, scales = "free_y") +
   theme_bw()+
-  theme(#axis.title = element_blank(),
-    axis.text.x = element_text(angle = 90),
-    axis.ticks = element_blank(),
+    theme(axis.ticks = element_blank(),
+    axis.text.x = element_text(size = 5, angle = 90, color = "black"),
     panel.border = element_blank(),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    axis.line =element_blank())
+    axis.line =element_blank(),
+    strip.background = element_blank(),
+    legend.key.size = unit(.5, "lines")) +
+    facet_wrap(~Type, scales = "free_y")
 p_ligand
+
+if(create_pdfs){
+  pdf("../plots/MDD_ligand_cluster_feature_counts.pdf", width = 5, height = 3)
+   print(p_ligand)
+  res <- dev.off()
+} 
 
 ####
 df <- unique_features_data_ann %>%
@@ -2095,11 +2120,20 @@ p_hist <- ggplot(combined14_features_data_ann, aes(x = as.factor(Cluster), fill 
   theme(#axis.title = element_blank(),
     #axis.text = element_blank(),
     axis.ticks = element_blank(),
+    axis.text.x = element_text(size = 5, angle = 90, color = "black"),
     panel.border = element_blank(),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    axis.line =element_blank())
+    axis.line =element_blank(),
+    strip.background = element_blank(),
+    legend.key.size = unit(.5, "lines"))
 p_hist
+
+if(create_pdfs){
+  pdf("../plots/MDD_combined14_cluster_feature_counts.pdf", width = 5, height = 3)
+    print(p_hist)
+  res <- dev.off()
+} 
 
 df <- combined14_features_data_ann %>%
   group_by(Type, Cluster) %>%
@@ -2122,11 +2156,7 @@ p <- ggplot(df, aes(x = n, fill = Type)) +
     panel.grid.minor = element_blank(),
     axis.line =element_blank())
 p
-if(create_pdfs){
-  pdf("../plots/MDD_combined14_cluster_feature_counts.pdf", width = 4, height = 3)
-    print(p_hist)
-  res <- dev.off()
-} 
+
 #Barplots of mean/median module activity for each ligand: please play around a bit to see if you can make compact version of these
 # Thanks @Mark. Can you make these changes:
 # Make bars narrower
@@ -2162,20 +2192,28 @@ p_ligand <- ggplot(df, aes(x = Cluster, y =mean, fill = ligand))+
   geom_col() +
   theme_bw() +
   scale_fill_manual(values = ligand_cols) +
-  theme(axis.text.x = element_text(angle = 90,
-                                   size = 5),
-        legend.key.size = unit(5,"points"),
-        legend.text = element_text(size = 5),
-        legend.title = element_text(size = 6),
+  # theme(axis.text.x = element_text(angle = 90,
+  #                                  size = 5),
+  #       legend.key.size = unit(5,"points"),
+  #       legend.text = element_text(size = 5),
+  #       legend.title = element_text(size = 6),
+  #   panel.grid.major = element_blank(),
+  #   panel.grid.minor = element_blank(),
+  #   strip.background = element_rect(fill = "transparent")) +
+  theme(axis.ticks = element_blank(),
+    axis.text.x = element_text(size = 5, angle = 90, color = "black"),
+    panel.border = element_blank(),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    strip.background = element_rect(fill = "transparent")) +
+    axis.line =element_blank(),
+    strip.background = element_blank(),
+    legend.key.size = unit(.5, "lines")) +
   facet_wrap(~ligand)
 p_ligand
 
 if(create_pdfs){
-  pdf("../plots/MDD_combined14_cluster_mean_bars.pdf", width = 4, height = 3)
-  print(p_cluster)
+  pdf("../plots/MDD_combined14_cluster_ligand_mean_bars.pdf", width = 4, height = 3)
+  #print(p_cluster)
   print(p_ligand)
   res <- dev.off()
 } 
