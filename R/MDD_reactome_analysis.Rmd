@@ -10,6 +10,8 @@ suppressMessages(library(tidyverse))
 library(readxl)
 library(httr)
 library(jsonlite)
+library(ComplexHeatmap)
+library(circlize)
 
 
 create_pdfs <- TRUE
@@ -316,7 +318,7 @@ dotplot_pathways <- make_dotplots_API(pathways_combined14,
 
 ```
 
-####Methods
+#### Methods
 The Reactome hierarchy has three levels, child, parent and grandparent. These are defined from the specific (child) up through the more all encompassing (grandparent). Parent and child are terms used in Reactome. Grandparent is not but it follows as a natural extension. Reactome also uses the term subpathway to for a lower pathway and superpathway for a higher one.    
 A pathway may have 0, 1 or more than one parent pathway. In this analyis, if there is no parent pathway the child pathway is copied into the parent pathway slot. If there is no grandparent pathway, the parent pathway is copied into the grandparent slot.  
 
@@ -439,7 +441,7 @@ gene_ratio_thresh_mod9 <- .1
 
 module9_pathways_selected <- module9_reactome_web %>%
   mutate(geneRatio = number_entities_found/number_entities_total) %>%
-    mutate(pathway_name = str_wrap(pathway_name, 32),
+    mutate(pathway_name = str_wrap(pathway_name, 38),
            pathway_name = fct_inorder(pathway_name, ordered = TRUE)) %>%
   left_join(pathways_super, by = c("pathway_identifier" = "stId")) %>%
   group_by(superpathway) %>%
@@ -473,12 +475,28 @@ df <- module9_pathways_selected %>%
 p <- ggplot(df, aes(x = geneRatio, y =  pathway_name, size = number_entities_found, color = entities_fdr)) +
   geom_point() +
   scale_color_gradient(low = "red",high = "blue") +
-  scale_size(range = c(5,20))+
+  scale_size(range = c(.8, 3))+
   theme_bw() +
-  theme(axis.text.x = element_text(size = 15, angle = 90),
-        axis.text.y = element_text(size = 20))
+  labs(title = "Module 9 Reactome Pathway Enrichment",
+       x = "Gene Ratio",
+       y = "",
+       size = "Entities Found",
+       color ="Entities FDR") +
+  theme(title = element_text(size = 4),
+        axis.title = element_text(size = 2),
+        axis.text.x = element_text(size = 2.5, angle = 90),
+        axis.text.y = element_text(size = 4, color = "black"),
+        legend.title=element_text(size=4, color = "black"), 
+        legend.text=element_text(size=2, color = "black"),
+        legend.key.size = unit(4,"points"))
 p
 
+  pdf("../plots/MDD_reactome_module9_selected_pathways.pdf",
+      width = 3.1,
+      height =2.5,
+      useDingbats = FALSE,)
+  print(p)
+  dev_off_res <- dev.off()
 
 ```
 
