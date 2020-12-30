@@ -1,0 +1,367 @@
+---
+title: "Drug Signature Enrichment in MDD Ligand-induced genes"
+author: "Daniel Derrick"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+---
+
+
+```{r, include = FALSE}
+library(httr)
+library(jsonlite)
+library(tidyverse)
+library(openxlsx)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+
+rnaseqDEGeneTable <- "../RNAseq/MDD_RNAseq_combinedTable.csv"
+
+drugMetaFile      <- "../misc/Drugs_metadata.csv"
+ljpTargetFile     <- "../misc/ljp_sfile1_drug_anno.txt"
+identifiersFile   <- "../misc/LJP_BRD_to_DrugName.txt"
+sigInfoFile       <- "../misc/CD_signature_metadata.csv"
+sAnnofile         <- "../../Metadata/MDD_sample_annotations.csv"
+drugMOATable      <- "../misc/repurposing_drugs_20200324.txt"
+
+L1000FWD_URL      <- "https://maayanlab.cloud/L1000FWD/"
+
+fdrThresholdFWD    <- 1
+fdrThresholdRNAseq <- 1
+nTopGenes          <- 200
+
+theme_set(theme_cowplot())
+
+outDir <- "../RNAseq/Analyses/MDD_RNAseqL1000FWD_Drug_Enrichment"
+if (!dir.exists(outDir)) {dir.create(outDir)}
+```
+
+# Setup {.tabset .tabset-fade .tabset-pills}
+
+## Importing MCF10A differential expression table
+
+Differentially expressed genes have an FDR-corrected q-value 
+< `r fdrThresholdRNAseq` and  are further filtered to select only the
+top `r nTopGenes` genes ranked by log2FoldChange, in each direction (upregulated and downregulated), 
+to create a more appropriately sized list. (ideal range: 200-500 genes)
+
+The barplot below shows the # of genes used as input for each `experimentalCondition`.
+
+```{r, message=FALSE}
+sAnno <- 
+  read_csv(sAnnofile) %>% 
+  filter(RNAseq_QCpass)
+  
+MDD_RNAseq_degenes <-
+  read.csv(rnaseqDEGeneTable, stringsAsFactors = FALSE) %>% 
+  filter(Ligand != "CTRL") %>% 
+  filter(padj < fdrThresholdRNAseq)
+  
+MDD_ligandLists <-
+  MDD_RNAseq_degenes %>%
+  filter(Time == 24) %>%
+  mutate(direction = case_when(log2FoldChange > 0 ~ "up",
+                               log2FoldChange < 0 ~ "down")
+         ) %>% 
+  group_by(experimentalCondition, direction) %>% 
+  mutate(rank = rank(log2FoldChange, ties.method = "first")) %>%
+  filter(rank <= nTopGenes) %>%
+  ungroup %>% 
+  split(.$experimentalCondition) %>% 
+  lapply(., function(x) {
+    X <- split(x, x$direction)
+    X <- lapply(X, pull, hgnc_symbol)
+    X
+  }) 
+
+sapply(MDD_ligandLists, sapply, length) %>%
+  t %>% 
+  data.frame %>% 
+  rownames_to_column("experimentalCondition") %>% 
+  pivot_longer(-experimentalCondition, names_to = "direction", values_to = "genes") %>% 
+  mutate(experimentalCondition = as.factor(experimentalCondition)) %>% 
+  mutate(experimentalCondition = fct_relevel(experimentalCondition,
+unique(sAnno$experimentalCondition)[str_detect(unique(sAnno$experimentalCondition), "_24")]
+)) %>% 
+  arrange(experimentalCondition) %>% 
+  ggplot(aes(experimentalCondition, genes, fill = direction)) +
+  geom_col(position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab("# DE Genes") +
+  ggtitle("DE Genes per experimentalCondition") +
+  scale_fill_manual(values = c("down" = "steelblue3",
+                               "up"   = "firebrick3"))
+
+```
+
+## Loading annotations from Drug Repurposing Hub
+
+Loading table of drugs annotated with mechanisms of action (moa) and
+target information. This table is joined with a table of drug signatures.
+
+```{r, message=FALSE, warning=FALSE}
+drugMeta <- read_csv(drugMetaFile)
+MOAMeta  <- read_tsv(drugMOATable, skip = 9)
+sigMeta  <- read_csv(sigInfoFile)
+
+drugTargets_Meta <-
+  drugMeta %>% 
+  left_join(MOAMeta)
+
+
+combinedAnnotations <-
+  drugTargets_Meta %>% 
+  inner_join(sigMeta) %>% 
+  dplyr::select(sig_id, cell_id, pert_iname, moa, target,
+                disease_area, indication, pert_dose, pert_time)
+
+combinedAnnotations
+```
+
+## Submitting DE Genes to L1000FWD API
+
+The differentially expressed gene lists are submitted to the L1000 FWD API. 
+The result is a data frame for each experimentalCondition.
+
+```{r, }
+L1000FWD_URL <- 'https://maayanlab.cloud/L1000FWD/'
+
+if (!file.exists(sprintf("%s/MDD_L1000FWD_top%s_ligandResults.Rdata", outDir, nTopGenes))) {
+  ligandDrugList <- lapply(MDD_ligandLists, function( X ) {
+    up_genes     <- X$up[!is.na(X$up)]
+    down_genes   <- X$down[!is.na(X$down)]
+  
+    payload <- list(
+      up_genes = up_genes,
+      down_genes = down_genes
+      )
+  
+    responseA <- POST(paste0(L1000FWD_URL, 'sig_search'), body=payload, encode='json')
+
+    if (responseA$status_code == 200) {
+      responseCode <- fromJSON(httr::content(responseA, 'text'))$result_id
+    
+      responseB <- GET(paste0(L1000FWD_URL, 'result/topn/', responseCode))
+    
+    if (responseB$status_code == 200) {
+      drugResponse <- 
+        fromJSON(httr::content(responseB, 'text'))
+      
+      drugResponse <-
+        lapply(drugResponse, function(x) {
+          X <-
+            x %>%
+            mutate(pert_id = str_extract(sig_id, "BRD-[:alnum:]+"))
+          
+          X
+      })
+      drugResponse
+    }
+      } else {
+        return("ERR")
+        }
+    })
+  save(ligandDrugList, file = sprintf("%s/MDD_L1000FWD_top%s_ligandResults.Rdata", outDir, nTopGenes))
+  } else {
+  load(sprintf("%s/MDD_L1000FWD_top%s_ligandResults.Rdata", outDir, nTopGenes))
+  }
+```
+
+Rearranging data into one long table.
+
+```{r}
+ligandDrugList <- ligandDrugList[sAnno %>% 
+                                   filter(experimentalTimePoint == 24) %>%
+                                   filter(ligand != "ctrl") %>% 
+                                   pull(experimentalCondition) %>% 
+                                   unique]
+
+ligandDrugListCombined <- 
+  lapply(ligandDrugList, bind_rows)
+
+ligandDrugListCombined <-
+  mapply(function(x, x_nm) {
+    x <-
+      x %>% 
+      mutate(experimentalCondition = x_nm) %>% 
+      mutate(direction = case_when(sign(combined_scores) == 1 ~ "Positive",
+                                   sign(combined_scores) != 1 ~ "Negative")) %>%
+      mutate(direction = fct_rev(as.factor(direction))) %>% 
+      dplyr::select(experimentalCondition, everything())
+    x
+  }, 
+  x = ligandDrugListCombined,
+  x_nm = names(ligandDrugListCombined),
+  SIMPLIFY = FALSE
+  )
+
+ligandDrugListCombinedLong <-
+  Reduce(bind_rows, ligandDrugListCombined)  %>% 
+  mutate(experimentalCondition = as.factor(experimentalCondition)) %>% 
+  mutate(experimentalCondition = fct_relevel(experimentalCondition,
+unique(sAnno$experimentalCondition)[str_detect(unique(sAnno$experimentalCondition), "_24")])) %>% 
+  arrange(experimentalCondition) %>% 
+  # mutate(LJP = grepl("LJP", sig_id)) %>% 
+  filter(grepl("24", experimentalCondition)) %>% 
+  filter(!grepl("PBS", experimentalCondition)) %>% 
+  mutate(experimentalCondition = fct_drop(experimentalCondition)) %>% 
+  mutate(Ligand = str_extract(experimentalCondition, "[:alnum:]+")) %>% 
+  mutate(Ligand = fct_inorder(as.factor(Ligand)))
+```
+
+
+```{r}
+ligandDrugListCombinedLong %>% 
+  filter(qvals < 0.2) %>% 
+  group_by(experimentalCondition, direction) %>% 
+  summarize(n = n()) %>% 
+  ggplot(aes(experimentalCondition, n, fill = direction)) +
+  geom_col()
+```
+
+
+```{r}
+ligandDrugListCombinedLong %>% 
+  arrange(desc(scores)) %>% 
+  left_join(combinedAnnotations) %>% 
+  # dplyr::select(experimentalCondition, 
+                # sig_id,
+                # pert_iname, scores, zscores) %>% 
+  group_by(experimentalCondition, direction) %>% 
+  mutate(rank = rank(qvals, ties.method = "first")) %>% 
+  ungroup %>% 
+  dplyr::select(Ligand, qvals, scores, rank, sig_id,
+                pert_iname, moa) %>% 
+  arrange(Ligand, rank) %>% 
+  # filter(rank <= 5) %>% 
+  filter(!is.na(moa)) %>% 
+  ungroup() %>% 
+  group_by(moa) %>%
+  summarize(n =n()) %>% 
+  arrange(desc(n)) 
+```
+
+## All drug target-annotated results
+
+Using the metadata file, data is filtered to select drug signatures
+with annotations from the Drug Repurposing Hub.
+
+```{r, fig.height=10, fig.width = 8}
+drugAnnoBarplot_drugClass <-
+  ligandDrugListCombinedLong %>% 
+  inner_join(combinedAnnotations, by = "sig_id") %>% 
+  filter(qvals < fdrThresholdFWD,.preserve = TRUE) %>% 
+  filter(!is.na(moa)) %>% 
+  group_by(Ligand, direction, moa, .drop = FALSE) %>% 
+  summarize(n= n(), .groups = "drop") 
+
+drugAnnoBarplot_drugClass_merged <- drugAnnoBarplot_drugClass %>%
+  mutate(
+    n  = case_when(
+    direction == "Negative" ~ n*(-1L),
+    TRUE ~ n)) %>%
+  group_by(moa, Ligand) %>%
+  summarise(n  = sum(n), .groups = "drop")
+
+moa <- drugAnnoBarplot_drugClass_merged %>%
+  pivot_wider(names_from = Ligand, values_from = n, values_fill = 0)
+ 
+# moa_dm <- moa %>%
+#   select(-moa, -direction) %>%
+#   as.matrix()
+# rownames(moa_dm) <- paste0(moa$moa, "_", moa$direction) %>%
+#   janitor::make_clean_names()
+# df <- moa %>%
+#   mutate(Color = case_when(direction == "Positive" ~ "red",
+#                            direction == "Negative" ~ "blue",
+#                            TRUE ~ ""
+#                            ))
+# 
+# label_colors <- df$Color
+# names(label_colors) <- df$moa
+# 
+# haRight = rowAnnotation(foo = anno_mark(at = 1:nrow(moa),
+#                                    labels = df$moa,
+#                                    labels_gp = gpar(fontsize = 7,
+#                                                     col = label_colors)))
+#make a merged version
+moa_dm <- moa %>%
+  select(-moa) %>%
+  as.matrix()
+rownames(moa_dm) <- moa$moa 
+# %>%
+#   janitor::make_clean_names()
+####
+
+####
+hm <- Heatmap(moa_dm,
+        col = colorRamp2(c(-3, 0, 3), c("#2166AC", "white", "#B2182B")),
+        cluster_rows = TRUE,
+        show_row_names = TRUE,
+        cluster_columns = FALSE,
+        row_names_gp = gpar(fontsize = 7),
+        width = ncol(moa_dm)*unit(5, "mm"),name = "Drug count")
+hm
+
+hm_col_cl <- Heatmap(moa_dm,
+        col = colorRamp2(c(-3, 0, 3), c("#2166AC", "white", "#B2182B")),
+        cluster_rows = TRUE,
+        show_row_names = TRUE,
+        cluster_columns = TRUE,
+        row_names_gp = gpar(fontsize = 7),
+        width = ncol(moa_dm)*unit(5, "mm"),name = "Drug count")
+hm_col_cl
+
+
+pdf("../plots/drugAnnoBarPlot_drugClass_heatmap.pdf", height = 12, width = 8)
+draw(hm)
+draw(hm_col_cl)
+res <- dev.off()    
+
+res <- write_csv(moa, "../tables/MDD_l1000_drugClass_MOA.csv")
+        
+p <-  ggplot(drugAnnoBarplot_drugClass, aes(Ligand, n, fill = moa)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab(sprintf("# Drugs w/ FDR < %s", fdrThresholdFWD)) +
+  ggtitle("Enriched target-annotated Drug Signatures") +
+  facet_wrap(~direction, ncol = 1) +
+  scale_fill_discrete("Drug MOA")
+ 
+ drugAnnoBarplot_drugClass_TGFB_OSM <- drugAnnoBarplot_drugClass %>%
+   filter(Ligand %in% c("TGFB", "OSM"))
+write_csv(drugAnnoBarplot_drugClass, "../tables/MDD_l1000_drugClass.csv")
+write_csv(drugAnnoBarplot_drugClass_TGFB_OSM, "../tables/MDD_l1000_drugClass_TGFB_OSM.csv")
+
+pdf("../plots/drugAnnoBarPlot_drugClass.pdf", height = 12, width = 60)
+p
+res <- dev.off()
+```
+
+```{r, fig.height=10, fig.width = 8}
+drugAnnoBarplot_targets <-
+  ligandDrugListCombinedLong %>% 
+  inner_join(combinedAnnotations, by = "sig_id") %>% 
+  filter(qvals < fdrThresholdFWD,.preserve = TRUE) %>%
+  mutate(target = fct_drop(target)) %>% 
+  group_by(Ligand, target, direction, .drop = FALSE) %>% 
+  summarize(n = n(), .groups = "drop") 
+  p <- ggplot(drugAnnoBarplot_targets, aes(Ligand, n, fill = target)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab(sprintf("# Drugs w/ FDR < %s", fdrThresholdFWD)) +
+  ggtitle("Enriched target-annotated Drug Signatures") +
+  scale_fill_discrete("Drug Target") +
+  facet_wrap(~direction, ncol = 1)
+write_csv(drugAnnoBarplot_targets, "../tables/MDD_l1000_drugTargets.csv")
+pdf("../plots/drugAnnoBarPlot_drugTargets.pdf", height = 12, width = 60)
+p
+res <- dev.off()
+```
+
+
