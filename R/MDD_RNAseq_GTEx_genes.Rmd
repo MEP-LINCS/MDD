@@ -1,0 +1,97 @@
+---
+title: "Analysis of tissue specificity of MDD integrated modules"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(readxl)
+library(ComplexHeatmap)
+library(circlize)
+
+create_pdfs <- TRUE
+write_csvs <- TRUE
+
+```
+
+Read in the DESeq2 processed MDD RNAseq data   
+Read in the file GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct genes to tissue associations     
+Annotate the MDD module data with the GTEx tissue associations  
+ 
+
+```{r MDD_GTEx_genes}
+
+#make a list with a character vector of gene names from each module
+ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+condition_order <- paste0(rep(ligand_order, each = 2), rep(c("_24", "_48"), times = length(ligand_order)))
+
+
+GTEx <- read_delim("../integrated_analysis/Data/GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct", 
+    "\t", escape_double = FALSE, trim_ws = TRUE, 
+    skip = 2) %>%
+  janitor::clean_names() %>%
+  mutate(name = str_remove(name, "[.].*"))
+
+MDD_RNAseq_DESeq2_Long <- read_csv("../RNAseq/Data/MDD_RNAseq_DESeq2_Long.csv")
+
+foo <- MDD_RNAseq_DESeq2_Long %>%
+  inner_join(GTEx, by = c("ensembl_gene_id" = "name"))
+########
+###DEBUG here: convert code from sting to GTEx
+sting_genes <- MDD_RNAseq_DESeq2_Long %>%
+  rename(condition = experimentalCondition,
+         Gene = hgnc_symbol,
+         value = log2FoldChange) %>%
+  right_join(sting_unique_genes, by = "Gene") %>%
+  dplyr::select(condition, value, Gene) %>%
+  mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
+         condition = str_replace(condition, "IFNG","IFNG+EGF"),
+         condition = str_replace(condition, "TGFB","TGFB+EGF")) %>%
+  pivot_wider(names_from = "condition", values_from = "value") %>%
+  dplyr::select(Gene, all_of(condition_order)) %>%
+  drop_na()
+ 
+sting_dm <- sting_genes %>%
+  dplyr::select(where(is.numeric)) %>%
+  as.matrix %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+rownames(sting_dm) <- sting_genes$Gene
+
+sting_dm_var <- apply(sting_dm, 1, var)
+sting_dm_high_var <- sting_dm[sting_dm_var > .01,]
+
+```
+
+```{r create_heatmap}
+
+hm_sting <- Heatmap(sting_dm_high_var,
+                       name = "log2 fold change, median centered",
+                       column_title = "sting genes in MCF10A data",
+                       column_title_gp = gpar(fontsize = 12),
+                       col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_sting
+
+
+
+if(create_pdfs){
+  pdf(paste0("../plots/MDD_sting_genes_heatmaps.pdf"),useDingbats = FALSE)
+  #draw(hm_bccl)
+  draw(hm_sting)
+  res <- dev.off()
+}
+```
+
+
