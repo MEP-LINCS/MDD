@@ -16,9 +16,12 @@ write_csvs <- TRUE
 
 ```
 
-Read in the DESeq2 processed MDD RNAseq data   
-Read in the file GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct genes to tissue associations     
-Annotate the MDD module data with the GTEx tissue associations  
+Read in the file GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct genes with tissue associations     
+Annotate the GTEx gene data with the MCF10A module assignments  
+Mean summarize the GTEx data by module and tissue  
+Make heatmaps of the TPM and log2 values with row and with both row and column mean-centering  
+Then, annotate the GTEx values with the ligand module labels and rerun the analysis  
+
  
 
 ```{r MDD_GTEx_genes}
@@ -27,71 +30,352 @@ Annotate the MDD module data with the GTEx tissue associations
 ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
 condition_order <- paste0(rep(ligand_order, each = 2), rep(c("_24", "_48"), times = length(ligand_order)))
 
-
 GTEx <- read_delim("../integrated_analysis/Data/GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct", 
     "\t", escape_double = FALSE, trim_ws = TRUE, 
     skip = 2) %>%
   janitor::clean_names() %>%
   mutate(name = str_remove(name, "[.].*"))
 
-MDD_RNAseq_DESeq2_Long <- read_csv("../RNAseq/Data/MDD_RNAseq_DESeq2_Long.csv")
+#Use the RNAseq data to get the ensembl to HGNC conversions
+ensembl_hgnc_dict <- read_csv("../RNAseq/Data/MDD_RNAseq_DESeq2_Long.csv") %>%
+  select(ensembl_gene_id, hgnc_symbol) %>%
+  distinct()
 
-foo <- MDD_RNAseq_DESeq2_Long %>%
-  inner_join(GTEx, by = c("ensembl_gene_id" = "name"))
-########
-###DEBUG here: convert code from sting to GTEx
-sting_genes <- MDD_RNAseq_DESeq2_Long %>%
-  rename(condition = experimentalCondition,
-         Gene = hgnc_symbol,
-         value = log2FoldChange) %>%
-  right_join(sting_unique_genes, by = "Gene") %>%
-  dplyr::select(condition, value, Gene) %>%
-  mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
-         condition = str_replace(condition, "IFNG","IFNG+EGF"),
-         condition = str_replace(condition, "TGFB","TGFB+EGF")) %>%
-  pivot_wider(names_from = "condition", values_from = "value") %>%
-  dplyr::select(Gene, all_of(condition_order)) %>%
-  drop_na()
- 
-sting_dm <- sting_genes %>%
-  dplyr::select(where(is.numeric)) %>%
-  as.matrix %>%
-  t %>%
-  scale(scale = FALSE) %>%
-  t
-rownames(sting_dm) <- sting_genes$Gene
+#make a list with a character vector of gene names from each module
+get_genes_from_excel <- function(sheet_name, file_name){
+  genes <- read_excel(file_name, sheet = sheet_name) %>%
+    filter(Type == "RNAseq") %>%
+    mutate(module = sheet_name) %>%
+    select(module, feature, Set)
+  if(nrow(genes) == 0) return(NULL)
+  return(genes)
+}
 
-sting_dm_var <- apply(sting_dm, 1, var)
-sting_dm_high_var <- sting_dm[sting_dm_var > .01,]
+file_name <- "../tables/MDD_int_rr_combined18_tables.xlsx"
+gene_module <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name) %>%
+  bind_rows() %>%
+  mutate(module = case_when(
+    module %in% c("module_3", "module_4") ~ "module_3+4",
+    module %in% c("module_8", "module_17") ~ "module_8+17",
+    module %in% c("module_10", "module_15") ~ "module_10+15",
+    module %in% c("module_6", "module_16") ~ "module_6+16",
+    TRUE ~ module
+  )) %>%
+  left_join(ensembl_hgnc_dict, by = c("feature" = "hgnc_symbol"))
+
+tissue_module <- gene_module %>%
+  left_join(GTEx, by = c("ensembl_gene_id" = "name")) %>%
+  select(module, feature, where(is.numeric)) %>%
+  pivot_longer(cols = where(is.numeric),
+               names_to = "tissue",
+               values_to = "lfc") %>%
+  group_by(module, tissue) %>%
+  summarise(lfc = mean(lfc, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = tissue, values_from = lfc)
+
+tissue_module_dm <- tissue_module %>%
+   dplyr::select(where(is.numeric)) %>%
+  as.matrix 
+rownames(tissue_module_dm) <- tissue_module$module
+
+tissue_module_collapsed <- gene_module %>%
+  left_join(GTEx, by = c("ensembl_gene_id" = "name")) %>%
+  select( module, feature, where(is.numeric)) %>%
+  pivot_longer(cols = where(is.numeric),
+               names_to = "tissue",
+               values_to = "lfc") %>%
+  mutate(tissue = str_remove(tissue, "_.*")) %>%
+  group_by(module, tissue) %>%
+  summarise(lfc = mean(lfc, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = tissue, values_from = lfc)
+
+tissue_module_collapsed_dm <- tissue_module_collapsed %>%
+   dplyr::select(where(is.numeric)) %>%
+  as.matrix 
+rownames(tissue_module_collapsed_dm) <- tissue_module_collapsed$module
+
+#### create ligand version of the GTEx data
+ligand_pos_genes <- read_csv("../integrated_analysis/integrated_unique_features_rr_noPBS2_absDir.csv") %>%
+  filter(Type == "RNAseq",
+         Direction == "Positive") %>%
+  left_join(ensembl_hgnc_dict, by = c("feature" = "hgnc_symbol"))
+
+tissue_ligand <- ligand_pos_genes %>%
+  left_join(GTEx, by = c("ensembl_gene_id" = "name")) %>%
+  select(ligand, feature, where(is.numeric),- Log2FoldChange) %>%
+  pivot_longer(cols = where(is.numeric),
+               names_to = "tissue",
+               values_to = "TPM") %>%
+  group_by(ligand, tissue) %>%
+  summarise(TPM = mean(TPM, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = tissue, values_from = TPM)
+
+tissue_ligand_dm <- tissue_ligand %>%
+   dplyr::select(where(is.numeric)) %>%
+  as.matrix 
+rownames(tissue_ligand_dm) <- tissue_ligand$ligand
+
+tissue_ligand_collapsed <- ligand_pos_genes %>%
+  left_join(GTEx, by = c("ensembl_gene_id" = "name")) %>%
+  select(ligand, feature, where(is.numeric),- Log2FoldChange) %>%
+  pivot_longer(cols = where(is.numeric),
+               names_to = "tissue",
+               values_to = "TPM") %>%
+  mutate(tissue = str_remove(tissue, "_.*")) %>%
+  group_by(ligand, tissue) %>%
+  summarise(TPM = mean(TPM, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = tissue, values_from = TPM)
+
+tissue_ligand_collapsed_dm <- tissue_ligand_collapsed %>%
+   dplyr::select(where(is.numeric)) %>%
+  as.matrix 
+rownames(tissue_ligand_collapsed_dm) <- tissue_ligand_collapsed$ligand
 
 ```
 
+
 ```{r create_heatmap}
 
-hm_sting <- Heatmap(sting_dm_high_var,
-                       name = "log2 fold change, median centered",
-                       column_title = "sting genes in MCF10A data",
+hm_GTEx <- Heatmap(tissue_module_dm,
+                       name = "GTEx TPM",
+                       column_title = "GTEx tissue expression in MCF10A modules",
                        column_title_gp = gpar(fontsize = 12),
-                       col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
                        cluster_rows = TRUE,
                        cluster_row_slices = FALSE,
-                       cluster_columns = FALSE,
+                       cluster_columns = TRUE,
                        row_title = " ",
                        show_row_names = TRUE,
                    show_column_names = TRUE,
                        row_names_gp = gpar(fontsize = 5),
                        column_names_gp = gpar(fontsize = 6),
                        use_raster = FALSE)
-hm_sting
+hm_GTEx
+
+tissue_module_dm_centered <- tissue_module_dm %>%
+  log2 %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+hm_GTEx_lfc <- Heatmap(tissue_module_dm_centered,
+                       name = "GTEx TPM\n (log2, row mean-centered)",
+                       column_title = "GTEx tissue expression in MCF10A modules",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_GTEx_lfc
+
+tissue_module_dm_centered_both <- tissue_module_dm_centered %>%
+  scale(scale = FALSE)
+
+hm_GTEx_lfc_centered_both <- Heatmap(tissue_module_dm_centered_both,
+                       name = "GTEx TPM\n (log2, mean-centered both directions)",
+                       column_title = "GTEx tissue expression in MCF10A modules",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_GTEx_lfc_centered_both
+
+tissue_module_collapsed_dm_centered <- tissue_module_collapsed_dm %>%
+  log2 %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+  
+hm_GTEx_lfc_collapsed_row_centered <- Heatmap(tissue_module_collapsed_dm_centered,
+                       name = "GTEx TPM\n (log2, row  mean-centered)",
+                       column_title = "GTEx tissue expression in MCF10A modules",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 8),
+                       column_names_gp = gpar(fontsize = 8),
+                       use_raster = FALSE)
+hm_GTEx_lfc_collapsed_row_centered
+
+tissue_module_collapsed_dm_both_centered <- tissue_module_collapsed_dm_centered %>%
+  scale(scale = FALSE)
+  
+hm_GTEx_lfc_collapsed_both_centered <- Heatmap(tissue_module_collapsed_dm_both_centered,
+                       name = "GTEx TPM\n (log2, row and column  mean-centered)",
+                       column_title = "GTEx tissue expression in MCF10A modules",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 8),
+                       column_names_gp = gpar(fontsize = 8),
+                       use_raster = FALSE)
+hm_GTEx_lfc_collapsed_both_centered
+
+```
+
+#### GTEx ligand response method  
+Select the BMP2, HGF, OSM, IFNG, EGF and TGFB1 GTEx TPM values  
+First display a heatmap of the raw TPM values  
+Next display a heatmap of the log2(TPM +.001) values to help the color visualization  
+Finally, display a heatmap of the log2(TPM+.001) values after centering on the row mean  
 
 
+```{r create_GTEx_ligand_heatmap, fig.height=5}
 
-if(create_pdfs){
-  pdf(paste0("../plots/MDD_sting_genes_heatmaps.pdf"),useDingbats = FALSE)
-  #draw(hm_bccl)
-  draw(hm_sting)
-  res <- dev.off()
-}
+MCF10A_ligands_in_GTEx <- GTEx %>%
+  filter(description %in% c("BMP2", "HGF", "OSM", "IFNG", "EGF", "TGFB1")) %>%
+  select(-name)
+
+dm <- MCF10A_ligands_in_GTEx %>%
+  select(where(is.numeric)) %>%
+  as.matrix
+rownames(dm) <- MCF10A_ligands_in_GTEx$description
+
+hm_MCF10A_ligands_in_GTEx <- Heatmap(dm,
+                                     name = "TPM",
+                                     column_title = "Raw GTEx TPM data")
+hm_MCF10A_ligands_in_GTEx
+
+hm_MCF10A_ligands_in_GTEx <- Heatmap(log2(dm+.001),
+                                     name = "TPM\nlog2(+.001)",
+                                     column_title = "Raw GTEx TPM data")
+hm_MCF10A_ligands_in_GTEx
+
+dm_row_centered <- log2(dm+.001) %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+
+hm_MCF10A_ligands_in_GTEx_cen <- Heatmap(dm_row_centered,
+                                     name = "TPM\nlog2(+.001)",
+                                     column_title = "GTEx TPM data, row-mean centered")
+hm_MCF10A_ligands_in_GTEx_cen
+
+```
+
+#### Display summary MCF10A ligand-specific genes in the GTEx data  
+
+```{r create_ligand_selected_genes_heatmap}
+
+hm_GTEx <- Heatmap(tissue_ligand_dm,
+                       name = "GTEx TPM",
+                       column_title = "GTEx tissue expression in MCF10A ligand-specific genes",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_GTEx
+
+tissue_ligand_dm_centered <- tissue_ligand_dm %>%
+  log2 %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+hm_GTEx_lfc <- Heatmap(tissue_ligand_dm_centered,
+                       name = "GTEx TPM\n (log2, row mean-centered)",
+                       column_title = "GTEx tissue expression in MCF10A ligand-specific genes",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_GTEx_lfc
+
+tissue_ligand_dm_centered_both <- tissue_ligand_dm_centered %>%
+  scale(scale = FALSE)
+
+hm_GTEx_lfc_centered_both <- Heatmap(tissue_ligand_dm_centered_both,
+                       name = "GTEx TPM\n (log2, mean-centered both directions)",
+                       column_title = "GTEx tissue expression in MCF10A ligand-specific genes",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_GTEx_lfc_centered_both
+
+tissue_ligand_collapsed_dm_centered <- tissue_ligand_collapsed_dm %>%
+  log2 %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+  
+hm_GTEx_lfc_collapsed_row_centered <- Heatmap(tissue_ligand_collapsed_dm_centered,
+                       name = "GTEx TPM\n (log2, row  mean-centered)",
+                       column_title = "GTEx tissue expression in MCF10A ligand-specific genes",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 8),
+                       column_names_gp = gpar(fontsize = 8),
+                       use_raster = FALSE)
+hm_GTEx_lfc_collapsed_row_centered
+
+tissue_ligand_collapsed_dm_both_centered <- tissue_ligand_collapsed_dm_centered %>%
+  scale(scale = FALSE)
+  
+hm_GTEx_lfc_collapsed_both_centered <- Heatmap(tissue_ligand_collapsed_dm_both_centered,
+                       name = "GTEx TPM\n (log2, row and column  mean-centered)",
+                       column_title = "GTEx tissue expression in MCF10A ligand-specific genes",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = TRUE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 8),
+                       column_names_gp = gpar(fontsize = 8),
+                       use_raster = FALSE)
+hm_GTEx_lfc_collapsed_both_centered
+
 ```
 
 
