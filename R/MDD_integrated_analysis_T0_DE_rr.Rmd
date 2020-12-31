@@ -730,13 +730,6 @@ res <- write_xlsx(module_features,
 
 res <- write_csv(combined14_features_data_mean, "../tables/MDD_combined14_mean.csv")
 
-###add analysis of modules in tissues
-
-GTEX <- read_delim("../integrated_analysis/Data/GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_median_tpm.gct", 
-    "\t", escape_double = FALSE, trim_ws = TRUE, 
-    skip = 2) %>%
-  janitor::clean_names()
-
 ```
 
 ### Ligand heatmaps
