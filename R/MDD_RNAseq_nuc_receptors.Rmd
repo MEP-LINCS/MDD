@@ -1,0 +1,101 @@
+---
+title: "Analysis of nuclear receptors in MDD integrated modules"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(ComplexHeatmap)
+library(circlize)
+
+```
+
+Filter the median-summarized MDD data to six nuclear receptor genes    
+ 
+
+```{r MDD_nr_genes}
+
+#make a list with a character vector of gene names from each module
+ligand_order <-  c("ctrl", "PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+condition_order <- paste0(rep(ligand_order, each = 3), rep(c("_0", "_24", "_48"), times = length(ligand_order)))
+
+nr_genes <- c("NR3C2","NR3C1","AR","ESR1","PGR","VDR")
+file_name <- "../RNAseq/Data/MDD_RNAseq_med.csv"
+mdd_RNAseq_nr <- read_csv(file_name) %>%
+  filter(feature %in% nr_genes) %>%
+   pivot_wider(names_from = condition, values_from = value) %>%
+  select(feature, matches(condition_order))
+
+nr_dm <- mdd_RNAseq_nr %>%
+   dplyr::select(where(is.numeric)) %>%
+  as.matrix 
+rownames(nr_dm) <- mdd_RNAseq_nr$feature
+
+
+```
+
+
+```{r create_heatmaps, fig.width=4, fig.height=4}
+
+hm_nr <- Heatmap(nr_dm,
+                       name = "lfc",
+                       column_title = "Nuclear receptors in MDD RNAseq",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_nr
+
+nr_dm_centered <- nr_dm %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+hm_nr_lfc <- Heatmap(nr_dm_centered,
+                       name = "lfc",
+                       column_title = "Nuclear receptors in MDD RNAseq\n (row mean-centered)",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_nr_lfc
+
+nr_dm_centered_both <- nr_dm_centered %>%
+  scale(scale = FALSE)
+
+hm_nr_lfc_centered_both <- Heatmap(nr_dm_centered_both,
+                       name = "lfc",
+                       column_title = "Nuclear receptors in MDD RNAseq\n (mean-centered both directions)",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_nr_lfc_centered_both
+
+write_csv(as.data.frame(nr_dm_centered_both) %>%
+  mutate(gene = rownames(nr_dm_centered_both)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_nr.csv")
+
+```
