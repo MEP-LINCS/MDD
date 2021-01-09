@@ -253,6 +253,7 @@ dm <- MCF10A_ligands_in_GTEx %>%
   as.matrix
 rownames(dm) <- MCF10A_ligands_in_GTEx$description
 
+write_csv(MCF10A_ligands_in_GTEx, "GTEx_ligands.csv")
 hm_MCF10A_ligands_in_GTEx <- Heatmap(dm,
                                      name = "TPM",
                                      column_title = "Raw GTEx TPM data")
