@@ -55,6 +55,10 @@ hm_nr <- Heatmap(nr_dm,
                        use_raster = FALSE)
 hm_nr
 
+write_csv(as.data.frame(nr_dm) %>%
+  mutate(gene = rownames(nr_dm)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_nr.csv")
+
 nr_dm_centered <- nr_dm %>%
   t %>%
   scale(scale = FALSE) %>%
@@ -96,6 +100,6 @@ hm_nr_lfc_centered_both
 
 write_csv(as.data.frame(nr_dm_centered_both) %>%
   mutate(gene = rownames(nr_dm_centered_both)) %>%
-  select(gene, everything()), "../tables/MDD_RNAseq_nr.csv")
+  select(gene, everything()), "../tables/MDD_RNAseq_nr_both.csv")
 
 ```
