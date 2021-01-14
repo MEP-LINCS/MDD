@@ -18,11 +18,22 @@ sample_names <- colnames(l3_wide)[str_detect(colnames(l3_wide),"_")] %>%
   str_remove("_C[12]_.*") %>%
   matrix(nrow = 1)
 
-write.table(sample_names,
-            file = "tables/RNAseq_GSEA.cls",
-            quote = FALSE,
-            sep = "\t",
-            row.names = FALSE,
-            col.names = FALSE)
+#write.table(sample_names,
+            # file = "tables/RNAseq_GSEA.cls",
+            # quote = FALSE,
+            # sep = "\t",
+            # row.names = FALSE,
+            # col.names = FALSE)
 
-#after running each lignad vs control, aggragte the results
+#after running each ligand vs control, aggragate the results
+fdr_thresh <- 0.2
+gsea_reports <- dir("RNAseq/Data/GSEA/", full.names = TRUE)
+gsea_report_tables <- map(gsea_reports,  read_tsv) %>%
+  bind_rows(.id = "ligand") %>%
+  janitor::clean_names() %>%
+  mutate(ligand = gsea_reports[as.integer(ligand)],
+         ligand = str_remove_all(ligand, ".*_for_|_[[:digit:]]*.tsv")) %>%
+  select(ligand, name, size, es, nes, nom_p_val, fdr_q_val, fwer_p_val, rank_at_max) %>%
+  filter(fdr_q_val <= fdr_thresh)
+
+write_csv(gsea_report_tables, "tables/GSEA_report.csv")
