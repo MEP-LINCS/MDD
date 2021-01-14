@@ -1,0 +1,94 @@
+---
+title: "Analysis of Mills data using the MDD RNAseq dataset"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(readxl)
+library(ComplexHeatmap)
+library(circlize)
+
+create_pdfs <- TRUE
+write_csvs <- TRUE
+
+```
+
+Read in the DESeq2 processed MDD RNAseq data   
+Read in the Mills unique genes 
+Filter the MDD data to the Mills unique gene set  
+median center each gene's data  
+
+ 
+
+```{r MDD_Mills_unique_genes_}
+
+#make a list with a character vector of gene names from each module
+ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+condition_order <- paste0(rep(ligand_order, each = 2), rep(c("_24", "_48"), times = length(ligand_order)))
+
+Mills_unique_genes <- read_excel("../integrated_analysis/Data/Mills MCF10A Vars.xlsx",
+    sheet = "unique genes") %>%
+  mutate(Gene = case_when(Gene == "BAI3" ~ "ADGRB3",
+                   Gene == "NOTCH2NL" ~ "NOTCH2NLA",
+                   TRUE ~ Gene))
+
+MDD_RNAseq_DESeq2_Long <- read_csv("../RNAseq/Data/MDD_RNAseq_DESeq2_Long.csv")
+
+mills_genes <- MDD_RNAseq_DESeq2_Long %>%
+  rename(condition = experimentalCondition,
+         Gene = hgnc_symbol,
+         value = log2FoldChange) %>%
+  right_join(Mills_unique_genes, by = "Gene") %>%
+  dplyr::select(condition, value, Gene) %>%
+  mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
+         condition = str_replace(condition, "IFNG","IFNG+EGF"),
+         condition = str_replace(condition, "TGFB","TGFB+EGF")) %>%
+  pivot_wider(names_from = "condition", values_from = "value") %>%
+  dplyr::select(Gene, all_of(condition_order)) %>%
+  drop_na()
+ 
+mills_dm <- mills_genes %>%
+  dplyr::select(where(is.numeric)) %>%
+  as.matrix %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+rownames(mills_dm) <- mills_genes$Gene
+
+mills_dm_var <- apply(mills_dm, 1, var)
+mills_dm_high_var <- mills_dm[mills_dm_var > .05,]
+
+```
+
+```{r create_heatmap}
+
+hm_mills <- Heatmap(mills_dm_high_var,
+                       name = "log2 fold change, median centered",
+                       column_title = "Mills genes in MCF10A data",
+                       column_title_gp = gpar(fontsize = 12),
+                       col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_mills
+
+
+
+if(create_pdfs){
+  pdf(paste0("../plots/MDD_mills_genes_heatmaps.pdf"),useDingbats = FALSE)
+  #draw(hm_bccl)
+  draw(hm_mills)
+  res <- dev.off()
+}
+```
+
+

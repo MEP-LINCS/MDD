@@ -1,0 +1,57 @@
+---
+title: "Analysis of proteases in MDD integrated modules"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(readxl)
+library(ComplexHeatmap)
+library(circlize)
+
+create_pdfs <- TRUE
+write_csvs <- TRUE
+
+```
+
+Read in the file Human_Proteases.xlsx  
+Filter the MDD data to the protease genes and annotate with type     
+ 
+
+```{r MDD_protease_genes}
+
+#make a list with a character vector of gene names from each module
+ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+condition_order <- paste0(rep(ligand_order, each = 2), rep(c("_24", "_48"), times = length(ligand_order)))
+
+protease <- read_excel("../integrated_analysis/Data/Human_Proteases.xlsx")
+
+#make a list with a character vector of gene names from each module
+get_genes_from_excel <- function(sheet_name, file_name){
+  genes <- read_excel(file_name, sheet = sheet_name) %>%
+    filter(Type == "RNAseq") %>%
+    mutate(module = sheet_name) %>%
+    select(module, feature, Set)
+  if(nrow(genes) == 0) return(NULL)
+  return(genes)
+}
+
+file_name <- "../tables/MDD_int_rr_combined18_tables.xlsx"
+module_proteases <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name) %>%
+  bind_rows() %>%
+  mutate(module = case_when(
+    module %in% c("module_3", "module_4") ~ "module_3+4",
+    module %in% c("module_8", "module_17") ~ "module_8+17",
+    module %in% c("module_10", "module_15") ~ "module_10+15",
+    module %in% c("module_6", "module_16") ~ "module_6+16",
+    TRUE ~ module
+  )) %>%
+  right_join(protease, by = c("feature" = "Gene"))
+
+write_csv(module_proteases, "../tables/MDD_proteases.csv")
+
+```
+
+

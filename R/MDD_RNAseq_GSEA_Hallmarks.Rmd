@@ -1,0 +1,124 @@
+---
+title: "Analysis of Hallmark GSEA in MDD RNAseq data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(ComplexHeatmap)
+library(circlize)
+
+```
+
+#### METHOD  
+Perform GSEA on the ligand vs T0 MDD RNA seq data
+Use the Normalized Enrichment Score (nes) to compare the Hallmark gene sets in the ligand responses  
+
+
+
+```{r MDD_data}
+
+#make a list with a character vector of gene names from each module
+ligands <- c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
+ligand_order <-  c("ctrl", ligands)
+condition_order <- paste0(ligand_order, c("_0", rep("_24", times = 7)))
+
+#Read in GSEA tables
+data_path <- "../RNAseq/Data/GSEA"
+ligand_uids <- dir(data_path) %>%
+  str_extract("_[[:digit:]]*.tsv") %>%
+  str_extract("_[[:digit:]]*") %>%
+  str_remove("_") %>%
+  unique()
+
+GSEA_files <- dir(data_path, full.names = TRUE) 
+
+hallmarks <- map(ligand_uids, .f = function(uid){
+  file_names <- dir(data_path, pattern = uid, full.names = TRUE)
+  ligand <- str_extract(file_names, str_c(ligands, collapse = "|")) %>% na.omit
+  ligand_data <- map(file_names,  read_tsv) %>%
+    bind_rows() %>%
+    janitor::clean_names() %>%
+    mutate(ligand = ligand) %>%
+    select(name, ligand, nes)
+  return(ligand_data)
+  }) %>%
+  bind_rows() %>%
+  pivot_wider(names_from = ligand, values_from = nes)
+
+hallmarks_dm <- hallmarks %>%
+  select(-name) %>%
+  as.matrix()
+rownames(hallmarks_dm) <- hallmarks$name
+
+```
+
+
+```{r create_heatmaps, fig.width=5, fig.height=4}
+
+hm_hallmarks <- Heatmap(hallmarks_dm,
+                       name = "NES",
+                       column_title = "Hallmark GSEA in MDD RNAseq",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_hallmarks
+
+write_csv(as.data.frame(hallmarks_dm) %>%
+  mutate(gene = rownames(hallmarks_dm)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_hallmark_GSEA.csv")
+
+hallmarks_dm_centered <- hallmarks_dm %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+hm_hallmarks_row_centered <- Heatmap(hallmarks_dm_centered,
+                       name = "NES",
+                       column_title = "Hallmark GSEA in MDD RNAseq\n (row mean-centered)",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_hallmarks_row_centered
+
+hallmarks_dm_centered_both <- hallmarks_dm_centered %>%
+  scale(scale = FALSE)
+
+hm_hallmarks_dm_centered_both <- Heatmap(hallmarks_dm_centered_both,
+                       name = "NES",
+                       column_title = "Hallmark GSEA in MDD RNAseq\n (mean-centered both directions)",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 5),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_hallmarks_dm_centered_both
+
+write_csv(as.data.frame(hallmarks_dm_centered_both) %>%
+  mutate(gene = rownames(hallmarks_dm_centered_both)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_hallmarks_dm_centered_both.csv")
+
+```

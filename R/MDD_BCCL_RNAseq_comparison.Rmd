@@ -1,0 +1,425 @@
+---
+title: "Analysis of BCCL data using the MDD combined14 dataset"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(readxl)
+library(ComplexHeatmap)
+library(circlize)
+library(biomaRt)
+library(preprocessCore)
+
+create_pdfs <- TRUE
+write_csvs <- TRUE
+
+```
+
+Read in the MDD combined14 module assignments for the RNAseq genes  
+Read in the bccl_tatlow_bygene_counts.txt file  
+Convert from ensembl IDs to hgnc symbols  
+Assign combined14 clusters to the genes  
+Filter to genes with assigned clusters  
+For the median centered version, divide each value+1 by the median of the row values+1 and log2 transform  
+
+
+
+```{r BCCL_to_MDD_module_analysis}
+
+#make a list with a character vector of gene names from each module
+ get_genes_from_excel <- function(sheet_name, file_name){
+     genes <- read_excel(file_name, sheet = sheet_name) %>%
+    filter(Type == "RNAseq") %>%
+       mutate(module = sheet_name) %>%
+       dplyr::select(module, feature)
+     if(nrow(genes) == 0) return(NULL)
+     return(genes$feature)
+ }
+ 
+#manually combine some modules based on biological review
+file_name <- "../tables/MDD_int_rr_combined18_tables.xlsx"
+gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
+names(gene_list) <- excel_sheets(file_name)
+gene_list[["module_3+4"]] <- c(gene_list[[3]], gene_list[[4]])
+gene_list[["module_8+17"]] <- c(gene_list[[8]], gene_list[[17]])
+gene_list[["module_10+15"]] <- c(gene_list[[10]], gene_list[[15]])
+gene_list[["module_6+16"]] <- c(gene_list[[6]], gene_list[[16]])
+gene_list[c("module_3", "module_4", "module_6","module_8", "module_10", "module_15", "module_16", "module_17")] <- NULL
+genes <- compact(gene_list) %>%
+  enframe() %>%
+  unnest_longer(col = value, values_to = "hgnc_symbol") %>%
+  rename(Cluster = name) %>%
+  mutate(Cluster = str_remove(Cluster, "module_"))
+
+#get hgnc symbols from biomart
+mart <- useEnsembl(biomart = "ENSEMBL_MART_ENSEMBL",
+                dataset = "hsapiens_gene_ensembl",
+                host = "uswest.ensembl.org")
+
+annoTable <- getBM(attributes = c("ensembl_gene_id",
+                                  "hgnc_symbol"),
+                   mart = mart)
+
+#Get BCCL data
+#Convert from ensembl gene IDs to HGNC names
+input_filename <- "bccl_tatlow_bygene_abund.txt"
+input_filename <-"JWGray_BCCL_rnaseq_matrix_v3_tatlowGeneAbundance.csv"
+# 
+# bccl <- read_delim(paste0("../integrated_analysis/Data/", input_filename), 
+#     "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+#   rename(ensembl_gene_id = X1) %>%
+#   mutate(ensembl_gene_id = str_remove(ensembl_gene_id, "[.].*")) %>%
+#   left_join(annoTable)
+
+ bccl <- read_csv("../integrated_analysis/Data/JWGray_BCCL_rnaseq_matrix_v3_tatlowGeneAbundance.csv") %>%
+   rename(ensembl_gene_id = gene_ensg) %>%
+   mutate(ensembl_gene_id = str_remove(ensembl_gene_id, "[.].*")) %>%
+   left_join(annoTable) %>%
+   dplyr::select(-matches("DU4475|HCC2185")) %>%
+   dplyr::rename_with(.fn = str_remove, pattern = "_.*", .cols = is.numeric)
+
+bccl_dm <- bccl %>%
+  dplyr::select(where(is.numeric)) %>%
+  as.matrix
+
+bccl_dm_qn <- bccl_dm %>%
+  normalize.quantiles.robust()
+colnames(bccl_dm_qn) <- colnames(bccl_dm)
+
+bccl_qn <- bccl_dm_qn %>%
+  as_tibble() %>%
+  mutate(ensembl_gene_id = bccl$ensembl_gene_id,
+            hgnc_symbol = bccl$hgnc_symbol)
+
+#Order bccl data by combined14 module
+bccl_ordered <- bccl_qn %>%
+  left_join(genes) %>%
+  drop_na()
+
+#create a named vector of color values for the Heatmap clusters
+cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)], names = 1:12), c("13" = "#222222", "14" = "#555555", "15" = "#999999", "16" = "#AAAAAA", "17" = "#BBBBBB", "18" = "#CCCCCC", "19" = "#DDDDDD"))
+
+combined14_clusters <-c("1", "2", "3+4", "5", "6+16", "7", "8+17", "9", "10+15", "11", "12", "13", "14","18")
+
+cluster14_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[1:12], names = combined14_clusters[1:12]), c("14" = "#222222", "18" = "#555555"))
+```
+
+```{r QA_boxplots}
+
+df <- bccl %>%
+  pivot_longer(cols = where(is_numeric),names_to = "sample", values_to = "Abundance")
+
+p <- ggplot(df, aes(x = sample, y = log2(Abundance))) +
+  geom_boxplot() +
+  labs(title = "BCCL (log2)") +
+  theme(axis.text.x = element_text(angle = 90))
+p
+
+
+df <- bccl_qn %>%
+  pivot_longer(cols = where(is_numeric),names_to = "sample", values_to = "Abundance")
+
+p_qn <- ggplot(df, aes(x = sample, y = log2(Abundance))) +
+  geom_boxplot() +
+  labs(title = "BCCL quantile normalized (log2)") +
+  theme(axis.text.x = element_text(angle = 90))
+p_qn
+
+if(create_pdfs){
+  pdf("../plots/bccl_abundance_boxplots.pdf")
+  print(p)
+  print(p_qn)
+  res <- dev.off()
+}
+```
+The input data is from `r input_filename`
+
+```{r create_heatmap}
+combined14_clusters <- unique(genes$Cluster)
+
+bccl_data_ann <- bccl_ordered %>%
+    mutate(Cluster = factor(Cluster, levels = combined14_clusters, ordered = TRUE)) %>%
+  as.data.frame()
+
+#Remove the cluster assignments to keep the code similar to the
+#other dataset processing
+bccl_data <- bccl_data_ann %>%
+  dplyr::select(-Cluster, -ensembl_gene_id, -hgnc_symbol)
+
+#create a numeric matrix with feature row names
+bccl_dm <- bccl_data %>%
+  as.matrix() 
+rownames(bccl_dm) <- bccl_data_ann$hgnc_symbol
+
+bccl_ann <- bccl_data_ann %>%
+  dplyr::select(Cluster)
+
+#Make the row annotations
+haRow_bccl <- HeatmapAnnotation(df = bccl_ann,
+                                    which = "row",
+                                    col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE)))
+# hm_bccl <- Heatmap(log2(1+bccl_dm),
+#                        name = "log2(1+counts)",
+#                        column_title = "bccl data in MCF10A modules",
+#                        column_title_gp = gpar(fontsize = 12),
+#                        #col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+#                        cluster_rows = FALSE,
+#                        cluster_row_slices = FALSE, 
+#                        cluster_columns = TRUE,
+#                        row_split = bccl_data_ann$Cluster,
+#                        row_gap = unit(.5, "mm"),
+#                        row_title = " ",
+#                        show_row_names = FALSE,
+#                    show_column_names = TRUE,
+#                        row_names_gp = gpar(fontsize = 8),
+#                        column_names_gp = gpar(fontsize = 4),
+#                        left_annotation = haRow_bccl,
+#                        use_raster = FALSE)
+#hm_bccl
+
+#median center then log2 transform
+#mean center then log2 transform
+med_bccl <- apply(1+bccl_dm, 1, median)
+bccl_centered <- log2((1+bccl_dm)/med_bccl)
+# mean_bccl <- apply(1+bccl_dm, 1, mean)
+# bccl_centered <- log2((1+bccl_dm)/mean_bccl)
+
+hm_bccl_centered <- Heatmap(bccl_centered,
+                       name = "log2(counts+1/row median)",
+                       column_title = "BCCL quantile-normalized in MCF10A modules",
+                       column_title_gp = gpar(fontsize = 12),
+                       col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = FALSE,
+                       cluster_row_slices = FALSE, 
+                       cluster_columns = TRUE,
+                       row_split = bccl_data_ann$Cluster,
+                       row_gap = unit(.5, "mm"),
+                       row_title = " ",
+                       show_row_names = FALSE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 8),
+                       column_names_gp = gpar(fontsize = 4),
+                       left_annotation = haRow_bccl,
+                       use_raster = FALSE)
+hm_bccl_centered
+
+if(write_csvs){
+  write_csv(data.frame(Cluster = bccl_data_ann$Cluster,
+                       gene = rownames(bccl_centered),
+                       bccl_centered), "../integrated_analysis/Tables/bccl_centered.csv")
+}
+# for the median-centered version, let's compute a module score for each sample. This is similar to the module activity score you used to correlate MDD data to phenotype: module score =  median(or mean) expression of all genes in the module. This would give 14 scores per sample.
+bccl_ann_cluster <- bccl_data_ann %>%
+  dplyr::select(hgnc_symbol, Cluster )
+
+module_scores <- bccl_centered %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "hgnc_symbol") %>%
+  left_join(bccl_ann_cluster, by = "hgnc_symbol") %>%
+  group_by(Cluster) %>%
+  summarise(across(where(is_numeric), median)) %>%
+  drop_na()
+
+module_scores_dm <- module_scores %>%
+  dplyr::select(-Cluster) %>%
+  as.matrix()
+rownames(module_scores_dm) <- module_scores$Cluster
+
+#Make the row annotations
+haRow_bccl_module_scores <- HeatmapAnnotation(Module =  module_scores[["Cluster"]],
+                                    which = "row",
+                                    col = list(Module = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE)))
+hm_module_scores <- Heatmap(module_scores_dm,
+                       name = "Module scores",
+                       column_title = "BCCL quantile-normalized, median-centered MCF10A module scores",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = FALSE,
+                       cluster_row_slices = FALSE, 
+                       cluster_columns = TRUE,
+                       #row_split = bccl_data_ann$Cluster,
+                       row_gap = unit(.5, "mm"),
+                       row_title = " ",
+                       show_row_names = FALSE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 8),
+                       column_names_gp = gpar(fontsize = 4),
+                       left_annotation = haRow_bccl_module_scores,
+                       use_raster = FALSE)
+hm_module_scores
+if(write_csvs){
+  write_csv(data.frame(module = rownames(module_scores_dm),
+                       module_scores_dm), "../integrated_analysis/Tables/bccl_centered_module_scores.csv")
+}
+
+if(create_pdfs){
+  pdf(paste0("../plots/MDD_bccl_heatmaps",input_filename,".pdf"),useDingbats = FALSE)
+  #draw(hm_bccl)
+  draw(hm_bccl_centered)
+  draw(hm_module_scores)
+  res <- dev.off()
+}
+```
+
+```{r process_FASMIC_data}
+
+#Load FASMIC RPPA data
+fasmic <- read_tsv("~/Documents/FASMIC/FASMIC_NGCHM_RPPA_data.tsv") %>%
+  mutate(feature=str_remove(Protein,"-.-.$"))
+
+#Get MDD data that has RPPA and combined18 module assignments
+get_RPPA_from_excel <- function(sheet_name, file_name){
+     genes <- read_excel(file_name, sheet = sheet_name) %>%
+    filter(Type == "RPPA") %>%
+       mutate(module = sheet_name) %>%
+       dplyr::select(module, feature)
+     if(nrow(genes) == 0) return(NULL)
+     return(genes$feature)
+ }
+ 
+#manually combine some modules based on biological review
+file_name <- "../tables/MDD_int_rr_combined18_tables.xlsx"
+feature_list <- map(excel_sheets(file_name), get_RPPA_from_excel, file_name = file_name)
+names(feature_list) <- excel_sheets(file_name)
+feature_list[["module_3+4"]] <- c(feature_list[[3]], feature_list[[4]])
+feature_list[["module_8+17"]] <- c(feature_list[[8]], feature_list[[17]])
+feature_list[["module_10+15"]] <- c(feature_list[[10]], feature_list[[15]])
+feature_list[["module_6+16"]] <- c(feature_list[[6]], feature_list[[16]])
+feature_list[c("module_3", "module_4", "module_6","module_8", "module_10", "module_15", "module_16", "module_17")] <- NULL
+
+features <- compact(feature_list) %>%
+  enframe() %>%
+  unnest_longer(col = value, values_to = "feature") %>%
+  rename(Cluster = name) %>%
+  mutate(Cluster = str_remove(Cluster, "module_"))
+
+#Organize FASMIC data by combined14 modules
+combined14_clusters <- unique(features$Cluster)
+
+#Order bccl data by combined14 module
+fasmic_ordered <- fasmic %>%
+  left_join(features) %>%
+  drop_na()
+
+fasmic_data_ann <- fasmic_ordered %>%
+    mutate(Cluster = factor(Cluster, levels = combined14_clusters, ordered = TRUE)) %>%
+  as.data.frame()
+
+#Remove the cluster assignments to keep the code similar to the
+#other dataset processing
+fasmic_data <- fasmic_data_ann %>%
+  dplyr::select(-Cluster, -Protein, -feature)
+
+#create a numeric matrix with feature row names
+fasmic_dm <- fasmic_data %>%
+  as.matrix() 
+rownames(fasmic_dm) <- fasmic_data_ann$feature
+
+fasmic_ann <- fasmic_data_ann %>%
+  dplyr::select(Cluster)
+
+#Make the row annotations
+haRow_fasmic <- HeatmapAnnotation(df = fasmic_ann,
+                                    which = "row",
+                                    col = list(Cluster = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE)))
+# hm_bccl <- Heatmap(log2(1+bccl_dm),
+#                        name = "log2(1+counts)",
+#                        column_title = "bccl data in MCF10A modules",
+#                        column_title_gp = gpar(fontsize = 12),
+#                        #col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+#                        cluster_rows = FALSE,
+#                        cluster_row_slices = FALSE, 
+#                        cluster_columns = TRUE,
+#                        row_split = bccl_data_ann$Cluster,
+#                        row_gap = unit(.5, "mm"),
+#                        row_title = " ",
+#                        show_row_names = FALSE,
+#                    show_column_names = TRUE,
+#                        row_names_gp = gpar(fontsize = 8),
+#                        column_names_gp = gpar(fontsize = 4),
+#                        left_annotation = haRow_bccl,
+#                        use_raster = FALSE)
+#hm_bccl
+
+#median center then log2 transform
+#mean center then log2 transform
+med_fasmic <- apply(fasmic_dm, 1, median)
+fasmic_centered <- fasmic_dm-med_fasmic
+# mean_bccl <- apply(1+bccl_dm, 1, mean)
+# bccl_centered <- log2((1+bccl_dm)/mean_bccl)
+
+hm_fasmic_centered <- Heatmap(fasmic_centered,
+                       name = "values-row median)",
+                       column_title = "FASMIC data in MCF10A modules",
+                       column_title_gp = gpar(fontsize = 12),
+                       col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = FALSE,
+                       cluster_row_slices = FALSE, 
+                       cluster_columns = TRUE,
+                       row_split = fasmic_data_ann$Cluster,
+                       row_gap = unit(.5, "mm"),
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 4),
+                       column_names_gp = gpar(fontsize = 2),
+                       left_annotation = haRow_fasmic,
+                       use_raster = FALSE)
+hm_fasmic_centered
+
+# for the median-centered version, let's compute a module score for each sample. This is similar to the module activity score you used to correlate MDD data to phenotype: module score =  median(or mean) expression of all genes in the module. This would give 14 scores per sample.
+fasmic_ann_cluster <- fasmic_data_ann %>%
+  dplyr::select(feature, Cluster )
+
+module_scores <- fasmic_centered %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "feature") %>%
+  left_join(fasmic_ann_cluster, by = "feature") %>%
+  group_by(Cluster) %>%
+  summarise(across(where(is_numeric), median))
+
+module_scores_dm <- module_scores %>%
+  dplyr::select(-Cluster) %>%
+  as.matrix()
+rownames(module_scores_dm) <- module_scores$Cluster
+
+#Make the row annotations
+haRow_fasmic_module_scores <- HeatmapAnnotation(Module =  module_scores[["Cluster"]],
+                                    which = "row",
+                                    col = list(Module = factor(cluster14_cols, levels = cluster14_cols, ordered = TRUE)))
+hm_fasmic_module_scores <- Heatmap(module_scores_dm,
+                       name = "Module scores",
+                       column_title = "FASMIC data, median-centered MCF10A module scores",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = FALSE,
+                       cluster_row_slices = FALSE, 
+                       cluster_columns = TRUE,
+                       #row_split = bccl_data_ann$Cluster,
+                       row_gap = unit(.5, "mm"),
+                       row_title = " ",
+                       show_row_names = FALSE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 4),
+                       column_names_gp = gpar(fontsize = 2),
+                       left_annotation = haRow_fasmic_module_scores,
+                       use_raster = FALSE)
+hm_fasmic_module_scores
+
+
+if(create_pdfs){
+  pdf("../plots/MDD_fasmic_heatmaps.pdf",height = 9, useDingbats = FALSE)
+  #draw(hm_bccl)
+  draw(hm_fasmic_centered)
+ draw(hm_fasmic_module_scores)
+  res <- dev.off()
+}
+
+```
+
+
+###
+

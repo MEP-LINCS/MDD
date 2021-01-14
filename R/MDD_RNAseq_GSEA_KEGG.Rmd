@@ -1,0 +1,137 @@
+---
+title: "Analysis of KEGG GSEA in MDD RNAseq data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=12)
+
+suppressMessages(library(tidyverse))
+library(ComplexHeatmap)
+library(circlize)
+
+```
+
+#### METHOD  
+Perform GSEA on the ligand vs T0 MDD RNA seq data
+Use the nes to compare the KEGG gene sets in the ligand responses  
+
+
+
+```{r MDD_data}
+
+#make a list with a character vector of gene names from each module
+ligands <- c("PBS", "HGF", "OSM", "EGF","BMP2", "IFNG", "TGFB")
+ligand_order <-  c("ctrl", ligands)
+condition_order <- paste0(ligand_order, c("_0", rep("_24", times = 7)))
+
+#Read in GSEA tables
+data_path <- "~/gsea_home/output/jan13/"
+
+ligand_uids <- dir(data_path,
+                   pattern = "gsea_report_for_.*.tsv",
+                   recursive = TRUE) %>%
+  str_extract("_[[:digit:]]*.tsv") %>%
+  str_extract("_[[:digit:]]*") %>%
+  str_remove("_") %>%
+  unique()
+
+GSEA_files <- dir(data_path,
+                  pattern = "gsea_report_for_.*.tsv",
+                  recursive = TRUE,
+                  full.names = TRUE) 
+
+KEGG <- map(ligand_uids, .f = function(uid){
+  file_names <- dir(data_path,
+                    pattern = paste0("gsea_report.*",uid, ".tsv"),
+                   recursive = TRUE,
+                   full.names = TRUE)
+  ligand <- str_extract(file_names, str_c(ligands, collapse = "|")) %>% na.omit
+  ligand_data <- map(file_names,  read_tsv) %>%
+    bind_rows() %>%
+    janitor::clean_names() %>%
+    mutate(ligand = ligand) %>%
+    select(name, ligand, nes)
+  return(ligand_data)
+  }) %>%
+  bind_rows() %>%
+  pivot_wider(names_from = ligand, values_from = nes)
+
+KEGG_dm <- KEGG %>%
+  select(-name) %>%
+  as.matrix()
+rownames(KEGG_dm) <- KEGG$name
+
+```
+
+
+```{r create_heatmaps, fig.width=5, fig.height=10}
+
+hm_KEGG <- Heatmap(KEGG_dm,
+                       name = "NES",
+                       column_title = "KEGG GSEA in MDD RNAseq",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 4),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_KEGG
+
+write_csv(as.data.frame(KEGG_dm) %>%
+  mutate(gene = rownames(KEGG_dm)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_KEGG_GSEA.csv")
+
+KEGG_dm_centered <- KEGG_dm %>%
+  t %>%
+  scale(scale = FALSE) %>%
+  t
+hm_KEGG_row_centered <- Heatmap(KEGG_dm_centered,
+                       name = "NES",
+                       column_title = "KEGG GSEA in MDD RNAseq\n (row mean-centered)",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 4),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_KEGG_row_centered
+
+write_csv(as.data.frame(KEGG_dm_centered) %>%
+  mutate(gene = rownames(KEGG_dm_centered)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_KEGG_dm_row_centered.csv")
+
+KEGG_dm_centered_both <- KEGG_dm_centered %>%
+  scale(scale = FALSE)
+
+hm_KEGG_dm_centered_both <- Heatmap(KEGG_dm_centered_both,
+                       name = "NES",
+                       column_title = "KEGG GSEA in MDD RNAseq\n (mean-centered both directions)",
+                       column_title_gp = gpar(fontsize = 12),
+                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                       cluster_rows = TRUE,
+                       cluster_row_slices = FALSE,
+                       cluster_columns = FALSE,
+                       row_title = " ",
+                       show_row_names = TRUE,
+                   show_column_names = TRUE,
+                       row_names_gp = gpar(fontsize = 4),
+                       column_names_gp = gpar(fontsize = 6),
+                       use_raster = FALSE)
+hm_KEGG_dm_centered_both
+
+write_csv(as.data.frame(KEGG_dm_centered_both) %>%
+  mutate(gene = rownames(KEGG_dm_centered_both)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_KEGG_dm_centered_both.csv")
+
+```
