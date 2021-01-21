@@ -13,8 +13,9 @@ library(circlize)
 ```
 
 #### METHOD  
-Perform GSEA on the ligand vs T0 MDD RNA seq data
+Perform GSEA on the ligand vs T0 MDD RNA seq data  
 Use the Normalized Enrichment Score (nes) to compare the Hallmark gene sets in the ligand responses  
+Create include all ligands and a no PBS set  
 
 
 
@@ -74,21 +75,14 @@ hm_hallmarks <- Heatmap(hallmarks_dm,
                        use_raster = FALSE)
 hm_hallmarks
 
-res <- pdf("../plots/MDD_GSEA_Hallmarks.pdf",width = 5, height = 6)
-draw(hm_hallmarks)
-res <- dev.off()
-
 write_csv(as.data.frame(hallmarks_dm) %>%
   mutate(gene = rownames(hallmarks_dm)) %>%
   select(gene, everything()), "../tables/MDD_RNAseq_hallmark_GSEA.csv")
 
-hallmarks_dm_centered <- hallmarks_dm %>%
-  t %>%
-  scale(scale = FALSE) %>%
-  t
-hm_hallmarks_row_centered <- Heatmap(hallmarks_dm_centered,
+hallmarks_dm_noPBS <- hallmarks_dm[,!str_detect(colnames(hallmarks_dm),"PBS")]
+hm_hallmarks_noPBS <- Heatmap(hallmarks_dm_noPBS,
                        name = "NES",
-                       column_title = "Hallmark GSEA in MDD RNAseq\n (row mean-centered)",
+                       column_title = "Hallmark GSEA in MDD RNAseq",
                        column_title_gp = gpar(fontsize = 12),
                        #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
                        cluster_rows = TRUE,
@@ -100,29 +94,16 @@ hm_hallmarks_row_centered <- Heatmap(hallmarks_dm_centered,
                        row_names_gp = gpar(fontsize = 5),
                        column_names_gp = gpar(fontsize = 6),
                        use_raster = FALSE)
-hm_hallmarks_row_centered
+hm_hallmarks_noPBS
 
-hallmarks_dm_centered_both <- hallmarks_dm_centered %>%
-  scale(scale = FALSE)
+res <- pdf("../plots/MDD_GSEA_Hallmarks.pdf",width = 5, height = 6)
+draw(hm_hallmarks)
+draw(hm_hallmarks_noPBS)
+res <- dev.off()
 
-hm_hallmarks_dm_centered_both <- Heatmap(hallmarks_dm_centered_both,
-                       name = "NES",
-                       column_title = "Hallmark GSEA in MDD RNAseq\n (mean-centered both directions)",
-                       column_title_gp = gpar(fontsize = 12),
-                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                       cluster_rows = TRUE,
-                       cluster_row_slices = FALSE,
-                       cluster_columns = FALSE,
-                       row_title = " ",
-                       show_row_names = TRUE,
-                   show_column_names = TRUE,
-                       row_names_gp = gpar(fontsize = 5),
-                       column_names_gp = gpar(fontsize = 6),
-                       use_raster = FALSE)
-hm_hallmarks_dm_centered_both
+write_csv(as.data.frame(hallmarks_dm_noPBS) %>%
+  mutate(gene = rownames(hallmarks_dm_noPBS)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_noPBS_hallmark_GSEA.csv")
 
-write_csv(as.data.frame(hallmarks_dm_centered_both) %>%
-  mutate(gene = rownames(hallmarks_dm_centered_both)) %>%
-  select(gene, everything()), "../tables/MDD_RNAseq_hallmarks_dm_centered_both.csv")
 
 ```
