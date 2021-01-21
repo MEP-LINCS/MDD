@@ -39,7 +39,7 @@ get_genes_from_excel <- function(sheet_name, file_name){
 }
 
 file_name <- "../tables/MDD_int_rr_combined18_tables.xlsx"
-module_proteases <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name) %>%
+MDD <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name) %>%
   bind_rows() %>%
   mutate(module = case_when(
     module %in% c("module_3", "module_4") ~ "module_3+4",
@@ -47,11 +47,91 @@ module_proteases <- map(excel_sheets(file_name), get_genes_from_excel, file_name
     module %in% c("module_10", "module_15") ~ "module_10+15",
     module %in% c("module_6", "module_16") ~ "module_6+16",
     TRUE ~ module
-  )) %>%
+  ))
+
+module_proteases <- MDD %>%
   right_join(protease, by = c("feature" = "Gene"))
 
 write_csv(module_proteases, "../tables/MDD_proteases.csv")
 
 ```
+
+```{r figures}
+#barplot of proteases in each module
+
+p_figure_count <- module_proteases %>%
+  drop_na %>%
+  mutate(module = str_remove(module, "module_")) %>%
+  ggplot( aes(x = module)) +
+  geom_bar()
+
+p_figure_count
+
+protease_counts <- MDD %>%
+  group_by(module) %>%
+  summarise(MDD_count = n(), .groups = "drop") %>%
+  left_join(module_proteases, by = "module") %>%
+  group_by(module, MDD_count) %>%
+  summarise(protease_count = n() - 1, .groups = "drop") %>%
+  mutate(protease_prop = protease_count/MDD_count,
+         module = str_remove(module, "module_"))
+  
+p_figure_count <- protease_counts %>%
+  ggplot( aes(x = module, y = protease_count)) +
+  geom_col()
+
+p_figure_prop <- protease_counts %>%
+  ggplot( aes(x = module, y = protease_prop)) +
+  geom_col()
+
+p_figure_count
+p_figure_prop
+
+pdf("../plots/MDD_protease_counts.pdf")
+print(p_figure_count)
+print(p_figure_prop)
+res <- dev.off()
+
+#module 6+16 has pathway enrichment in neutrophil degranulation. Please check how many of the features in neutrophil degranulation are proteases.
+np_degran <- read_delim("../integrated_analysis/Data/Participating Molecules [R-HSA-6798695].tsv", 
+    "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+  mutate(Gene = str_remove(MoleculeName, ".* ")) %>%
+  select(Gene) %>%
+  distinct()
+
+np_degran_proteases <- np_degran %>%
+  left_join(protease, by = "Gene") %>%
+  mutate(protease = case_when(!is.na(Type) ~TRUE,
+                              TRUE ~FALSE)) %>%
+  select(Gene, protease) %>%
+    distinct()
+  
+#Module 6+16 Reactome Neutrophil degranulation proteases
+np_degran_in_MDD <- MDD %>%
+  right_join(np_degran, by = c("feature" = "Gene")) %>%
+  drop_na()
+np_degran_in_MDD_proteases <- np_degran_in_MDD %>%
+  right_join(protease, by = c("feature" = "Gene")) %>%
+  drop_na()
+
+np_degran_in_MDD_proteases_counts <- np_degran_in_MDD_proteases %>%
+  group_by(module) %>%
+  summarise(counts = n())
+
+```
+
+There are `r nrow(np_degran_proteases)` unique genes in the Reactome Neutrophil degranulation pathway and `r sum(np_degran_proteases$protease)` of them  create proteases.
+
+`r nrow(np_degran_in_MDD)` of the Reactome Neutrophil degranulation pathway genes are in the MDD integrated analysis 14 module dataset. `r nrow(np_degran_in_MDD_proteases)` of these are proteases. 
+
+The distribution of the Neutrophil degranulation proteases in the MDD modules is:  
+
+```{r np_table}
+np_degran_in_MDD_proteases_counts
+
+```
+
+
+
 
 

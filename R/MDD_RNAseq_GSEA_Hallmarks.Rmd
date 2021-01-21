@@ -74,6 +74,10 @@ hm_hallmarks <- Heatmap(hallmarks_dm,
                        use_raster = FALSE)
 hm_hallmarks
 
+res <- pdf("../plots/MDD_GSEA_Hallmarks.pdf",width = 5, height = 6)
+draw(hm_hallmarks)
+res <- dev.off()
+
 write_csv(as.data.frame(hallmarks_dm) %>%
   mutate(gene = rownames(hallmarks_dm)) %>%
   select(gene, everything()), "../tables/MDD_RNAseq_hallmark_GSEA.csv")
