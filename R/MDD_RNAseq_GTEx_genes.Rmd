@@ -137,7 +137,7 @@ rownames(tissue_ligand_collapsed_dm) <- tissue_ligand_collapsed$ligand
 ```{r create_heatmap}
 
 hm_GTEx <- Heatmap(tissue_module_dm,
-                       name = "GTEx TPM",
+                       name = "TPM",
                        column_title = "GTEx tissue expression in MCF10A modules",
                        column_title_gp = gpar(fontsize = 12),
                        #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
@@ -152,6 +152,11 @@ hm_GTEx <- Heatmap(tissue_module_dm,
                        use_raster = FALSE)
 hm_GTEx
 
+pdf("../plots/MDD_GTEx_heatmap.pdf")
+draw(hm_GTEx)
+res <- dev.off
+
+write_csv(tissue_module, "../tables/MDD_GTEx_heatmap_data.csv")
 tissue_module_dm_centered <- tissue_module_dm %>%
   log2 %>%
   t %>%
@@ -177,7 +182,7 @@ tissue_module_dm_centered_both <- tissue_module_dm_centered %>%
   scale(scale = FALSE)
 
 hm_GTEx_lfc_centered_both <- Heatmap(tissue_module_dm_centered_both,
-                       name = "GTEx TPM\n (log2, mean-centered both directions)",
+                       name = "TPM\nmean centered",
                        column_title = "GTEx tissue expression in MCF10A modules",
                        column_title_gp = gpar(fontsize = 12),
                        #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
@@ -191,6 +196,15 @@ hm_GTEx_lfc_centered_both <- Heatmap(tissue_module_dm_centered_both,
                        column_names_gp = gpar(fontsize = 6),
                        use_raster = FALSE)
 hm_GTEx_lfc_centered_both
+
+pdf("../plots/MDD_GTEx_heatmap_normalized.pdf")
+draw(hm_GTEx_lfc_centered_both)
+res <- dev.off
+
+df <- tissue_module_dm_centered_both %>%
+  as_tibble(rownames = "module")
+write_csv(df, "../tables/MDD_GTEx_heatmap_normalized_data.csv")
+
 
 tissue_module_collapsed_dm_centered <- tissue_module_collapsed_dm %>%
   log2 %>%
