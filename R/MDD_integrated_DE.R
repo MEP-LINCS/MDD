@@ -1,19 +1,10 @@
-# Calculate RPPA log2 fold changes and differentially expressed proteins.
-#
-# The purpose of this script is to calculate log2 fold changes for all conditions
-# compared to ctrl_0, using limma.
-# This script is intended as the starting point for other scripts using RPPA
-# L2FCs and or DE proteins
-
 library(tidyverse)
 library(limma)
 library(ComplexHeatmap)
 
 assays <- c("cycIF", "GCP", "motifs", "RNAseq", "RPPA")
-#assay <- c("motifs")
 
 get_assay_values <- function(assay){
-  #browser()
   if(assay == "motifs"){
     level3File <- "../ATACseq/Data/MDD_ATACseq_MotifFamilyScores.csv"
   } else if(assay == "RNAseq"){
@@ -79,20 +70,15 @@ get_assay_values <- function(assay){
   if(!assay %in% c("RNAseq", "RPPA"))  mat <- mat %>%
     dplyr::select(all_of(unique(meta$specimenID)))
   
-  #delete all PBS values
-  
-  #rrscale each assay
-  #mat <- rrscale::rrscale(mat, zeros = 0.001, z = Inf)$RR
   return(list(mat = mat, meta = meta))
 }
 
 ###############################################################################
 # Creating design for comparisons.
 # All conditions to be compared to ctrl_0.
-#limma anlaysis expects log-expression values
+# limma analysis expects log-expression values
 
 combined_analysis <- lapply(assays, function(assay){
-  #browser() 
   outDirPlots <- paste0("../plots/",assay,"_integrated")
   outDirData <- paste0("../",assay,"/Data/IntegratedResults")
   if(assay == "motifs") outDirData <- "../ATACseq/Data/IntegratedResults"
@@ -116,20 +102,6 @@ combined_analysis <- lapply(assays, function(assay){
       group_by(feature, experimentalCondition) %>%
       summarise(value = mean(value), .groups = "drop") %>%
       pivot_wider(names_from = experimentalCondition, values_from = value)
-  
-    # lfc_values <- lfc_values %>%
-    #       mutate(across(where(is.numeric), zscale))
-    # pdf(sprintf("%s/%s_int_values_hist.pdf", outDirPlots, assay), height = 12, width = 16)
-    # df <- lfc_values %>%
-    #   as_tibble() %>%
-    #   pivot_longer(cols = where(is.numeric))
-    # p <- ggplot(df, aes(x = value)) +
-    #   geom_histogram(bins = 300) +
-    #   #coord_cartesian(xlim = c(-6,6)) +
-    #   labs(title = sprintf("%s deviation z scores histogram", assay)) +
-    #   theme_bw()
-    # print(p)
-    # dev.off()
     
   } else if (assay == "RNAseq"){
     lfc_values <- assay_values$mat %>%
@@ -143,18 +115,8 @@ combined_analysis <- lapply(assays, function(assay){
       filter(hgnc_symbol %in% lfc_values$feature) %>%
       dplyr::select(experimentalCondition, hgnc_symbol, padj) %>%
       pivot_wider(names_from = experimentalCondition, values_from = padj) %>%
-      #drop_na() %>%
       rename(feature = hgnc_symbol)
     
-    # lfc_mean <- lfc_values[,-1] %>%
-    #   unlist() %>%
-    #   mean
-    # 
-    # lfc_sd <- lfc_values[,-1] %>%
-    #   unlist() %>%
-    #   sd
-    # 
-    # lfc_values_z <- (lfc_values[,-1]-lfc_mean)/lfc_sd
   } else if (assay == "RPPA"){
     lfc_values <- assay_values$mat %>%
       dplyr::select(experimentalCondition, antibody, coefficient) %>%
@@ -165,18 +127,8 @@ combined_analysis <- lapply(assays, function(assay){
     adjusted_p_values_df <- assay_values$mat %>%
       dplyr::select(experimentalCondition, antibody, adjusted_pvalue) %>%
       pivot_wider(names_from = experimentalCondition, values_from = adjusted_pvalue) %>%
-      #drop_na() %>%
       rename(feature = antibody)
-    # 
-    # lfc_mean <- lfc_values[,-1] %>%
-    #   unlist() %>%
-    #   mean
-    # 
-    # lfc_sd <- lfc_values[,-1] %>%
-    #   unlist() %>%
-    #   sd
-    # 
-    # lfc_values_z <- (lfc_values[,-1]-lfc_mean)/lfc_sd
+  
   } else {
     design <- model.matrix(~experimentalCondition, assay_values$meta)
     
@@ -199,8 +151,6 @@ combined_analysis <- lapply(assays, function(assay){
       rownames_to_column(var = "feature") %>%
       select(matches("experimentalCondition|feature")) %>%
       rename_with(~gsub("experimentalCondition", "", .x, fixed = TRUE))
-    # 
-    
   }
   
   #filter to eliminate low variance genes
@@ -219,6 +169,7 @@ combined_analysis <- lapply(assays, function(assay){
     x_rr <- bind_cols(feature = x$feature, x_numeric_rr)
     return(x_rr)
   }
+  
   lfc_values_rr <-lfc_values %>%
     select(-matches("PBS|variance")) %>%
              rrscale_lfc_values()
@@ -238,19 +189,7 @@ combined_analysis <- lapply(assays, function(assay){
     labs(title = sprintf("%s histograms", assay)) +
     theme_bw()
   print(p)
-  
-  # pdf(sprintf("%s/%s_int_values_z_hist.pdf", outDirPlots, assay), height = 12, width = 16)
-  # df <- lfc_values_z %>%
-  #   as_tibble() %>%
-  #   pivot_longer(cols = matches("_24|_48"))
-  # p <- ggplot(df, aes(x = value)) +
-  #   geom_histogram(bins = 300) +
-  #   coord_cartesian(xlim = c(-5,5)) +
-  #   labs(title = sprintf("%s integrated Z scores histogram", assay)) +
-  #   theme_bw()
-  # print(p)
-  # dev.off()
-  
+ 
   df <- lfc_values %>%
     as_tibble() %>%
     pivot_longer(cols = matches("_24|_48"))
