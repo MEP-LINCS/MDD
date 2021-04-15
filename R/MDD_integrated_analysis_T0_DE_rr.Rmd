@@ -16,8 +16,8 @@ library(writexl)
 #library(UpSetR)
 
 source("../R/MDD_functions.R")
-create_pdfs <- TRUE
-write_csvs <- TRUE
+create_pdfs <- FALSE
+write_csvs <- FALSE
 
 ```
 
@@ -32,7 +32,6 @@ data_path <- paste0("../integrated_analysis/integrated_matrix_lfc_rr",PBS_pointe
 p_values_path <- paste0("../integrated_analysis/integrated_adj_p_values", PBS_pointer, ".csv") 
 shared_features_path <- paste0("../integrated_analysis/integrated_shared_features_rr", PBS_pointer, ".csv") 
 unique_features_path <- paste0("../integrated_analysis/integrated_unique_features_rr", PBS_pointer, "_absDir.csv") 
-
 #shared_clust_num <- 12
 combined_clust_num <- 18
 cluster_method <- "pam"
@@ -76,7 +75,7 @@ Input files are `r data_path`, `r shared_features_path` and `r unique_features_p
 
 Method summary:
 
-Use replicates to perform differential (DE) analysis between conditons and ctrl_0 for RNAseq, RPPA, GCP and cycIF assays. Use family z scores for motifs.  
+Use replicates to perform differential (DE) analysis between conditions and ctrl_0 for RNAseq, RPPA, GCP and cycIF assays. Use family z scores for motifs.  
 rrscale the DE values within each assay  
 Use set analysis to select features that are significantly expressed by a single ligand (ligand-specific) or multiple ligands (shared)  
 Perform Gap analysis with pam clustering on the shared and ligand-specific values as a single dataset  
@@ -1538,7 +1537,121 @@ if_df <- raw_df %>%
   pivot_wider(names_from = condition, values_from = value) %>%
   select(feature, all_of(condition_order))
 
-#Add migration data in the same format
+#Look for correlations between GCP and EdU-based signals
+#Prep GCP data to merge with IF
+GCP <- assay_pk_data %>%
+  filter(Type == "GCP",
+         experimentalTimePoint %in% c(24, 48)) %>%
+  mutate(condition = paste0(ligand, "_", experimentalTimePoint)) %>%
+  select(feature, condition, value)
+
+GCP_IF <- raw_df %>%
+select(matches("specimenName|24_C2|48_C2")) %>%
+  rename(feature = specimenName) %>%
+  filter(str_detect(feature, "_")) %>%
+  mutate(across(-feature, as.numeric)) %>%
+  pivot_longer(cols = matches("_C2_")) %>%
+  mutate(condition = str_remove(name, "_C2_.$")) %>%
+  group_by(feature, condition) %>%
+  summarise(value = mean(value), .groups = "drop") %>%
+  ungroup() %>%
+  bind_rows(GCP) %>%
+    mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
+         condition = str_replace(condition, "IFNG","IFNG+EGF"),
+         condition = str_replace(condition, "TGFB","TGFB+EGF")) %>%
+  pivot_wider(names_from = feature, values_from = value)
+#Fix version problem with rrscale
+library(rrscale)
+rrscaleValues <- function(x, zeros = .001, zscore_cutoff = Inf){
+  x_rr <- as.matrix(x) %>%
+    rrscale(zeros = zeros,  z = zscore_cutoff)
+  return(x_rr$RR)
+}
+GCP_IF_dm <-  GCP_IF %>%
+  select(-condition) %>%
+  mutate(across(.fns = ~ rrscaleValues(.x))) %>%
+  as.matrix() 
+  rownames(GCP_IF_dm) <- GCP_IF$condition
+
+   
+GCP_IF_dm_cor <- cor(GCP_IF_dm, method ="pearson")
+
+GCP_IF_cor_hm <- Heatmap(GCP_IF_dm_cor,
+                  name = "pearson\ncorrelation ",
+                  row_names_gp = gpar(fontsize = 5),
+                  column_names_gp = gpar(fontsize = 5),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
+GCP_IF_cor_hm
+
+GCP_IF_hm <- Heatmap(t(GCP_IF_dm),cluster_columns = FALSE,
+                  name = "Z scores ",
+                  row_names_gp = gpar(fontsize = 5),
+                  column_names_gp = gpar(fontsize = 5),
+                  col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")))
+GCP_IF_hm
+
+if(create_pdfs) {
+  pdf("../plots/MDD_GCP_IF_correlations.pdf",
+      width =12, height = 12)
+     res <- draw(GCP_IF_hm)
+     res <- draw(GCP_IF_cor_hm)
+  res <- dev.off()
+}
+#put the GCP-EdU correlation results into a table, with R2, pval and any other metrics you deem important. Please then also indicate which modules these fall into (as I recall, one of the modules was enriched for a lot of GCP features)
+
+#Create a set of scatterplots of all GCP features against Edu_Positive_Proportion
+df <- GCP_IF %>%
+  select(condition, Edu_Positive_Proportion, contains("_GCP")) %>%
+  pivot_longer(cols = contains("_GCP"), names_to = "GCP_feature")
+
+df_cors <- df %>%
+  group_by(GCP_feature) %>%
+  summarise(correlation = cor(x = Edu_Positive_Proportion, y = value)) %>%
+  right_join(df, by = "GCP_feature") %>%
+  arrange(desc(correlation)) %>%
+  mutate(GCP_feature = fct_inorder(GCP_feature))
+
+correlation_pvalue <- function(x,y){
+  #browser()
+  res <- cor.test(x , y, method = "pearson")
+  return(res$p.value)
+}
+df_cors_test <- df %>%
+  group_by(GCP_feature) %>%
+  summarise(R2 = cor(x = Edu_Positive_Proportion, y = value,method = "pearson")^2,
+         p_value = correlation_pvalue(x = Edu_Positive_Proportion, y = value)) %>%
+  right_join(df, by = "GCP_feature") %>%
+  arrange(desc(R2)) %>%
+  mutate(GCP_feature = str_remove(GCP_feature, "_GCP"),
+         GCP_feature = fct_inorder(GCP_feature),
+         R2 = signif(R2, 3),
+         p_value = signif(p_value, 3)) %>%
+  left_join(combined14_features_data_ann, by = c("GCP_feature" = "feature")) %>%
+  select(GCP_feature, Cluster, R2, p_value) %>%
+  distinct()
+
+res <- write_csv(df_cors_test, "../tables/MDD_GCP_EdU_correlations.csv")
+
+p <- ggplot(df_cors, aes(x = Edu_Positive_Proportion, y = value, color = condition)) +
+  geom_point() +
+  facet_wrap(~GCP_feature, scales = "free_y",ncol = 4)
+p
+
+p_fit <- ggplot(df_cors, aes(x = Edu_Positive_Proportion, y = value)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~GCP_feature, scales = "free_y",ncol = 4)
+p_fit
+
+if(create_pdfs) {
+  pdf("../plots/MDD_GCP_IF_EdU_scatterplots.pdf",
+      width =12, height = 20)
+  print(p_fit)
+  print(p)
+  res <- dev.off()
+}
+
+  #Add migration data in the same format
 migration <- read_csv("../integrated_analysis/Data/MDD_migration_distance_lineage_T0.csv") %>%
   filter(thour %in%c(24, 48),
          !treatment == "PBS") %>%
@@ -1608,6 +1721,12 @@ if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_
 
 cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="pearson")
 cor_dm_spearman <- cor(if_modules_dm, if_phenotypes_dm,  method ="spearman")
+
+res <- cor_dm %>%
+  as.data.frame() %>%
+  rownames_to_column("module") %>%
+  mutate(across(where(is.numeric), signif, digits = 3)) %>%
+write_csv( "../tables/MDD_integrated_module_phenotype_correlations_pearson.csv")
 
 modules <- as.data.frame(if_modules_dm) %>%
   rename_with(~ paste0("module_", .x)) %>%
@@ -2211,6 +2330,65 @@ if(create_pdfs){
   res <- dev.off()
 } 
 
+#OSM-specific
+df <- combined14_features_data_mean %>%
+  pivot_longer(cols = contains("_")) %>%
+  filter(str_detect(name, "OSM_")) %>%
+  mutate(ligand = str_remove(name, "_.*")) %>%
+  group_by(Cluster, ligand) %>%
+  summarise(mean = mean(value), .groups = "drop")
+
+OSM_mean <- ggplot(df, aes(x = Cluster, y =mean, fill = ligand))+
+  geom_col() +
+  theme_bw() +
+  scale_fill_manual(values = ligand_cols) +
+  scale_y_continuous(breaks = c(-1.5, -1, -.5, 0, .5, 1, 1.5),
+                     labels = c("", -1, "", 0, "", 1, "")) +
+  theme(axis.ticks.x = element_blank(),
+    axis.text.x = element_text(size = 5, angle = 90, color = "black"),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line.x =element_blank(),
+    axis.line.y = element_line(),
+    axis.ticks.y = element_line(),
+    strip.background = element_blank(),
+    legend.key.size = unit(.5, "lines"))
+OSM_mean
+
+#Module 2 only
+df <- combined14_features_data_mean %>%
+  pivot_longer(cols = contains("_")) %>%
+  filter(Cluster == 2) %>%
+  mutate(ligand = str_remove(name, "_.*")) %>%
+  group_by(Cluster, ligand) %>%
+  summarise(mean = mean(value), .groups = "drop")
+
+cl2_mean <- ggplot(df, aes(x = ligand, y =mean, fill = ligand))+
+  geom_col() +
+  theme_bw() +
+  scale_fill_manual(values = ligand_cols) +
+  scale_y_continuous(breaks = c(-1.5, -1, -.5, 0, .5, 1, 1.5),
+                     labels = c("", -1, "", 0, "", 1, "")) +
+  theme(axis.ticks.x = element_blank(),
+    axis.text.x = element_text(size = 5, angle = 90, color = "black"),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line.x =element_blank(),
+    axis.line.y = element_line(),
+    axis.ticks.y = element_line(),
+    strip.background = element_blank(),
+    legend.key.size = unit(.5, "lines"))
+cl2_mean
+
+if(create_pdfs){
+  pdf("../plots/MDD_combined14_OSM_cl2.pdf", width = 4, height = 3)
+  print(OSM_mean)
+  print(cl2_mean)
+  res <- dev.off()
+} 
+
 ```
 
 
@@ -2751,6 +2929,12 @@ all_data_hm <- Heatmap(all_data_cor,
                   column_names_gp = gpar(fontsize = 10),
                   col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
 all_data_hm
+
+if(write_csvs){
+  res <- write_csv(as_tibble(all_data_cor, rownames = "Condition")%>%
+  mutate(across(where(is.numeric), signif, digits = 3)),
+  path = "../tables/MDD_integrated_condition_condition_correlations.csv")
+}
 
 all_data_24_cor <- combined18_features_data %>%
   select(matches("_24")) %>%
