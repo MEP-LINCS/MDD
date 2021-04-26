@@ -28,7 +28,7 @@ ligand_cols <- c("CTRL" = "#7A4A2A",
                   "TGFB" = "#0000ff"
                  )
 
-create_pdfs <- TRUE
+create_pdfs <- FALSE
 
 tmin_period = 30
 ###DEBUG
@@ -40,7 +40,7 @@ This report is for `r plateID`.
 
 ```{r}
 
-df_input <- dir(paste0(plateID,"/Data"), pattern = paste0(plateID,".*_lineages.csv$"), full.names = TRUE) %>%
+df_input <- dir(paste0("Data/",plateID,"/Data"), pattern = paste0(plateID,".*_lineages.csv$"), full.names = TRUE) %>%
   map(read_csv,
       col_types = cols(
         .default = col_double(),
@@ -56,7 +56,7 @@ df_input <- dir(paste0(plateID,"/Data"), pattern = paste0(plateID,".*_lineages.c
        well_field = paste0(well, "_",field),
          thour = tmin/60)
 
-df_orphans <-  dir(paste0(plateID,"Data"), pattern = paste0(plateID,".*_orphans.csv$"), full.names = TRUE) %>%
+df_orphans <-  dir(paste0("Data/",plateID,"/Data"), pattern = paste0(plateID,".*_orphans.csv$"), full.names = TRUE) %>%
   map(read_csv,
       col_types = cols(
         tmin = col_character(),
