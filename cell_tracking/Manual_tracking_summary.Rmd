@@ -512,6 +512,27 @@ if(create_pdfs){
   res <- dev.off()
 }
 
+#develop a statistical test to compare migration distance for each ligand treatment
+migration_distance <- single_cell_lineage_T0_rel %>%
+  select(lineage_key, lineage_length, treatment) %>%
+  group_by(lineage_key, treatment) %>%
+  summarise(migration_distance = max(lineage_length),.groups = "drop")
+  
+p <- ggplot(migration_distance, aes(x = treatment, y = migration_distance, colour = treatment)) +
+  geom_quasirandom(cex = 3, alpha = .8) +
+ scale_color_manual(values = ligand_cols) +
+  labs(title = "Lineage migration distance",
+       subtitle = "",
+       y = "migration(pixels)")+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) 
+p
+
+md_anova <- aov(migration_distance ~ treatment, data = migration_distance)
+summary(md_anova)
+
+TukeyHSD(md_anova, ordered = TRUE)
+
 ```
 
 Method  
@@ -521,6 +542,9 @@ Velocity is calculated per time period as the distance moved in pixels per time 
 Mean distance per treatment is shown by the black line.  
 Lineages are a subset of a lineage tree with one daughter cell chosen after each mitotic event. The subset of the tree is chosen to span the experiment duration where possible.  
 Mitotic events are shown with a vertical line.  
+
+Statistical test  
+Compute the total distance traveled for each of the  
 
 ```{r treeExploration, eval = FALSE}
 treeData <- "((t2:0.04,t1:0.34):0.89,(t5:0.37,(t4:0.03,t3:0.67):0.9):0.59);"
