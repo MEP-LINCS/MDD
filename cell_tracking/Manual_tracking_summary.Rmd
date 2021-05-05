@@ -512,11 +512,36 @@ if(create_pdfs){
   res <- dev.off()
 }
 
+
 #develop a statistical test to compare migration distance for each ligand treatment
 migration_distance <- single_cell_lineage_T0_rel %>%
   select(lineage_key, lineage_length, treatment) %>%
   group_by(lineage_key, treatment) %>%
   summarise(migration_distance = max(lineage_length),.groups = "drop")
+
+#Count the number of mitotic events per lineage
+proliferation_and_distance <- migration_distance %>%
+  left_join(mitotic_events, by =c("lineage_key", "treatment")) %>%
+  group_by(lineage_key, treatment) %>%
+  summarise(mitotic_events = n()-1,
+            migration_distance = unique(migration_distance), .groups = "drop")
+  
+p <- ggplot(proliferation_and_distance, aes(x = migration_distance, y = mitotic_events, color = treatment)) +
+  geom_point(alpha = .7) +
+   scale_color_manual(values = ligand_cols) +
+  labs(title = "Mitotic events vs migration distance") +
+  theme_bw()+
+  theme(strip.text = element_text(size = 12),
+        strip.background = element_rect(fill = "transparent",linetype = "blank"),
+        axis.title = element_blank(),
+        axis.text = element_text(colour = "black"),
+        panel.border = element_blank(),
+        #panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line()) +
+  facet_wrap(~treatment)
+p
+
   
 p <- ggplot(migration_distance, aes(x = treatment, y = migration_distance, colour = treatment)) +
   geom_quasirandom(cex = 3, alpha = .8) +
@@ -534,6 +559,7 @@ summary(md_anova)
 TukeyHSD(md_anova, ordered = TRUE)
 
 ```
+
 
 Method  
 
