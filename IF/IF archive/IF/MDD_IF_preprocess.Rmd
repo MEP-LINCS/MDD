@@ -1,0 +1,182 @@
+---
+title: "Preprocess MDD IF Data"
+author: "Mark Dane"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r "setup", include=FALSE}
+knitr::opts_chunk$set(fig.width=9, fig.height=6,
+                      echo=FALSE, warning=FALSE, message=FALSE, cache=TRUE)
+
+#Author: Mark Dane, copyright 2015-2019
+library(MEMA)
+library(tidyverse)
+library(scales)
+
+#Modify MEMA package function to process vectors of NA
+gateOnlocalMinima <- function(x, probs=c(.2,.8), ...){
+  if(anyNA(x)) {
+    thresh <- NA
+  } else {  thresh <- MEMA:::localMinima(x, probs, ...)}
+  cluster <- rep.int(as.integer(1),times=length(x))
+  cluster[x>thresh] <- as.integer(2)
+  return(cluster)
+}
+
+#reduce the numeric values to 4 significant digits
+shorten <- function(x){
+  if(class(x)=="numeric") x <- signif(x,4)
+  return(x)
+}
+
+#temporary function for Ligand_2 metadata
+  label_ligand_2 <- function(x) {
+    ligand_2 <- rep("None", times = length(x))
+    ligand_2[x %in% c("BMP2", "IFNG", "TGFB")] <- "EGF"
+    return(ligand_2)
+  }
+  
+path <- "Data/"
+studyName <- "MDD_IF"
+fileNames <- dir("Data/")
+barcodes <- str_remove_all(fileNames, "_.*") %>%
+  unique()
+
+```
+
+
+```{r preprocessLevel2, echo=FALSE}
+
+#Get and clean the cell level raw data
+rd <- lapply(barcodes,function(barcode) {
+  fns <- fileNames[str_detect(fileNames, barcode)]
+  dtl <- lapply(fns, function(fn){
+    dt <- fread(paste0(path,fn), verbose = FALSE, showProgress = FALSE)
+    dt <- convertColumnNames(dt) 
+  })  
+  
+  #merge cyto and nuclei data with the same barcode
+  dt <- merge(dtl[1],dtl[2],by.x="ParentObjectIDMO",by.y="ObjectID") %>%
+    select(-contains("Parent"))
+  dt$barcode <- barcode
+  return(dt)
+}) %>% bind_rows() %>%
+  setnames("Well", "WellIndex") %>%
+  filter(Area>150) %>%
+  rename(MeanIntensity_DAPI = MeanIntensity377,
+         TotalIntensity_DAPI = TotalIntensity377,
+         MeanIntensity_KRT5 = MeanIntensity485,
+         TotalIntensity_KRT5 = TotalIntensity485,
+         MeanIntensity_CellMask = MeanIntensity560,
+         TotalIntensity_CellMask = TotalIntensity560,
+         MeanIntensity_EdU = MeanIntensity650,
+         TotalIntensity_EdU = TotalIntensity650)
+
+#Get the well level metadata
+md <- lapply(barcodes, function(barcode){
+  dt <- MEMA:::getWellMetadata(paste0("Metadata/",barcode,".xlsx"))
+  dt$barcode <- barcode
+  if(barcode %in% c(paste0("LI80200",4:9), paste0("LI8020",10:12))) dt$collection <- "C1"
+  if(barcode %in% c(paste0("LI80230",1:9), paste0("LI8023",10:15))) dt$collection <- "C2"
+  if(barcode %in% c(paste0("LI80200",4:6), paste0("LI80230",1:3))) dt$replicate <- "A"
+  if(barcode %in% c(paste0("LI80200",7:9), paste0("LI80230",4:6))) dt$replicate <- "B"
+  if(barcode %in% c(paste0("LI8020",10:12), paste0("LI80230",7:9))) dt$replicate <- "C"
+  if(barcode %in% paste0("LI8023",10:11)) dt$replicate <- "D"
+  if(barcode %in% paste0("LI8023",12:15)) dt$replicate <- "E"
+  dt$Ligand[dt$IncubationTime==0] <- "ctrl"
+  return(dt)
+}) %>% bind_rows() %>%
+  mutate(ligand = Ligand,
+         experimentalTimePoint = IncubationTime,
+         ligand=str_replace(ligand,"IFNg","IFNG"),
+         ligand=str_replace(ligand,"TGFb","TGFB"),
+         ligand=str_replace(ligand,"pbs","PBS"),
+         specimenName=paste(ligand, experimentalTimePoint, collection, replicate, sep="_")) %>%
+  select(specimenName, barcode, WellIndex)
+#Merge in the MDD experimental metadata
+mdd <- read_tsv("Metadata/MCF10A_MDD_sample_annotations.tsv") %>%
+  select(specimenName, specimenID) %>%
+  right_join(md, by=c("specimenName"))
+
+#Merge the data and metadata and gate some features
+l1 <- mdd %>%
+  inner_join(rd,by=c("barcode","WellIndex")) %>%
+  group_by(barcode) %>%   #Gate at barcode level
+  mutate(CellCycleState = gateOnlocalMinima(TotalIntensity_DAPI),
+         EdUPositive = gateOnlocalMinima(MeanIntensity_EdU)) %>%
+  ungroup()
+
+#for (j in colnames(l1)) data.table::set(cell, j = j, value = shorten(l1[[j]]))
+write_csv(l1, "MDD_IF_Level1.csv")
+```
+
+
+```{r preprocessLevel3}
+
+#Summarize to the field level
+parameterNames <- grep("Intensity|Elongation|Perimeter|Area|Proportion|Count|Thresh",colnames(l1),value = TRUE)
+
+field <- l1 %>%
+  group_by(barcode, WellIndex, Position, specimenName, specimenID) %>%
+  mutate(FieldCellCount=n()) %>%
+  mutate(DNA2nProportion = sum(CellCycleState==1)/n()) %>%
+  mutate(EdUPositiveProportion = sum(EdUPositive==2)/n()) %>%
+  summarise_at(c(parameterNames,"FieldCellCount","DNA2nProportion","EdUPositiveProportion"),numericMedian) %>%
+  mutate(Field=Position) %>%
+  ungroup() %>%
+  select(-Position)
+
+
+#Summarize the fields to get a well level
+parameterNames <- grep("Intensity|Elongation|Perimeter|Area|Proportion|Count|Thresh",colnames(field),value = TRUE)
+
+well <- field %>%
+  group_by(barcode, WellIndex, specimenID, specimenName) %>%
+  mutate(WellCellCount = median(FieldCellCount)) %>%
+  summarise_at(c(parameterNames,"FieldCellCount","DNA2nProportion","EdUPositiveProportion", "WellCellCount"),numericMedian) %>%
+  ungroup() %>%
+  mutate(replicate = str_remove(specimenName, ".*_"),
+         experimentalTimePoint = str_extract(specimenName,"0|24|48"),
+         collection = str_extract(specimenName, "C[12]"))
+
+#add EGF timecourse normalized values
+well_EGFNorm <- well %>%
+  filter(str_detect(specimenName, "EGF")) %>%
+  select(specimenName, WellCellCount, DNA2nProportion, MeanIntensity_KRT5, EdUPositiveProportion, ElongationFactor, Perimeter, Area) %>%
+  rename(WellCellCountEGF = WellCellCount,
+         DNA2nProportionEGF = DNA2nProportion,
+         MeanIntensity_KRT5EGF = MeanIntensity_KRT5,
+         EdUPositiveProportionEGF = EdUPositiveProportion,
+         ElongationFactorEGF = ElongationFactor,
+         AreaEGF = Area,
+         PerimeterEGF = Perimeter) %>%
+  group_by(specimenName) %>%
+  summarise_all(mean) %>%
+  ungroup() %>%
+  mutate(replicate = str_remove(specimenName, ".*_"),
+         experimentalTimePoint = str_extract(specimenName,"24|48"),
+         collection = str_extract(specimenName, "C[12]")) %>%
+  select(-specimenName) %>%
+  left_join(well, by = c("replicate", "collection", "experimentalTimePoint")) %>%
+  mutate(WellCellCount = WellCellCount/WellCellCountEGF,
+         DNA2nProportion = DNA2nProportion/DNA2nProportionEGF,
+         EdUPositiveProportion = EdUPositiveProportion/EdUPositiveProportionEGF,
+         MeanIntensity_KRT5 = MeanIntensity_KRT5/MeanIntensity_KRT5EGF
+         ,
+         ElongationFactor = ElongationFactor/ElongationFactorEGF,
+         Area = Area/AreaEGF,
+         Perimeter = Perimeter/PerimeterEGF) %>%
+  select(specimenID, WellCellCount, DNA2nProportion, EdUPositiveProportion, MeanIntensity_KRT5, ElongationFactor, Area, Perimeter) %>%
+  group_by(specimenID) %>%
+  summarise_all(mean) %>%
+  ungroup %>%
+  gather(key = "feature", value = "value", -specimenID) %>%
+  spread(key = specimenID, value = value)
+
+write_csv(well_EGFNorm, "MDD_IF_Level4.csv")
+
+```
+
+
