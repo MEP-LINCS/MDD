@@ -60,6 +60,7 @@ rsconnect/
 *.rda
 *.xlsx
 *.Rdata
+*.hdf
 
 #presentation files
 *.key
