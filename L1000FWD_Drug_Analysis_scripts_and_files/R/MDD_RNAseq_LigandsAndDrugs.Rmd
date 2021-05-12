@@ -1,0 +1,1104 @@
+---
+title: "Drug Signature Enrichment in MDD Ligand-induced genes"
+author: "Daniel Derrick"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    df_print: paged
+---
+
+
+```{r, include = FALSE}
+library(httr)
+library(jsonlite)
+library(tidyverse)
+library(openxlsx)
+library(cowplot)
+library(ComplexHeatmap)
+library(RColorBrewer)
+
+MDD_RNAseqDEGFile <- "../RNAseq/Data/MDD_RNAseq_DEGenesLong.csv"
+drugInfoFile <- "../misc/Drugs_metadata.csv"
+dTargetsFile <- "../misc/ljp_sfile1_drug_anno.txt"
+identifiersFile <- "../misc/LJP_BRD_to_DrugName.txt"
+sigInfoFile <- "../misc/CD_signature_metadata.csv"
+sAnnofile <- "../Metadata/MDD_sample_annotations.csv"
+bigDrugToMOATable <- "../misc/repurposing_drugs_20200324.txt"
+
+L1000FWD_URL <- 'https://maayanlab.cloud/L1000FWD/'
+
+outDir <- "../RNAseq/Analyses/MDD_RNAseqL1000FWD_Drug_Enrichment"
+
+FDR_threshold <- 0.1
+
+theme_set(theme_cowplot())
+if (!dir.exists(outDir)) {dir.create(outDir)}
+```
+
+
+# Setup {.tabset .tabset-fade .tabset-pills}
+
+## Importing MCF10A DE Genes
+
+Differentially expressed genes have an FDR-corrected q-value < 0.01 and
+a log2FC > 1.5, relative to CTRL_0. The barplot below shows the # of DE genes
+per `experimentalCondition`.
+
+```{r, message=FALSE}
+sAnno <- read_csv(sAnnofile) %>% 
+  filter(RNAseq_QCpass)
+  
+MDD_RNAseq_degenes <- read_csv(MDD_RNAseqDEGFile)
+
+MDD_ligandLists <- 
+  MDD_RNAseq_degenes %>% 
+  mutate(direction = case_when(log2FoldChange > 0 ~ "up",
+                               log2FoldChange < 0 ~ "down")
+         ) %>% 
+  split(.$experimentalCondition) %>% 
+  lapply(., function(x) {
+    X <- split(x, x$direction)
+    X <- lapply(X, pull, hgnc_symbol)
+    X
+  }) 
+
+MDD_ligandDEGenesSummary <-
+  sapply(MDD_ligandLists, sapply, length) %>% 
+  t %>% 
+  data.frame %>% 
+  rownames_to_column("experimentalCondition") %>% 
+  pivot_longer(-experimentalCondition, names_to = "direction", values_to = "genes") %>% 
+  mutate(experimentalCondition = as.factor(experimentalCondition)) %>% 
+  mutate(experimentalCondition = fct_relevel(experimentalCondition,
+                                             unique(sAnno$experimentalCondition)[-1][c(1:2, 9:14, 3:8)]
+                                             )) %>% 
+  arrange(experimentalCondition)
+
+MDD_ligandDEGenesSummary %>% 
+  ggplot(aes(experimentalCondition, genes, fill = direction)) +
+  geom_col(position = "dodge") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab("# DE Genes") +
+  ggtitle("DE Genes per experimentalCondition") +
+  scale_fill_manual(values = c("down" = "steelblue3",
+                               "up"   = "firebrick3"))
+```
+
+## Loading annotations for LJP profiles in L1000 FWD
+
+Loading table of LJP perturbations/drugs and relevant targets. This table comes from
+the LJP publication.
+
+```{r, message = FALSE}
+drugTargets <- read_tsv(dTargetsFile) %>% 
+  mutate(DrugName = as.factor(DrugName)) %>% 
+  mutate(DrugName = fct_recode(DrugName,
+                               "A-443654" = "A443654",
+                               "MLS002232309" = "XMD11-85H",
+                               "XMD-16144" = "XMD16-144",
+                               "Alpelisib" = "alpelisib"
+                               )) 
+
+drugTargets
+```
+
+The drugs in this dataframe have different annotations than those retrieved by L1000 FWD API, 
+so a second metadata table from the L1000 FWD website needs to be used to map the `DrugName` column
+to the `pert_id` column in the L1000 FWD results.
+
+```{r, message=FALSE, warning=FALSE}
+drugMeta <- read_csv(drugInfoFile)
+
+drugTargets_Meta <-
+  drugTargets %>% 
+  inner_join(drugMeta, by = c("DrugName" = "pert_iname"))
+
+drugTargets_Meta
+```
+
+`DrugName` is now mapped to `pert_id`, but `pert_id` still needs to be mapped to signature ids
+in order to identify signatures using MCF10A cells. Using a second metadata 
+table from the L1000 FWD webiste for this.
+
+
+```{r, message=FALSE}
+sigMeta <- read_csv(sigInfoFile)
+
+combinedAnnotations <-
+  drugTargets_Meta %>% 
+  inner_join(sigMeta) %>% 
+  dplyr::select(sig_id, cell_id, DrugName, nominal_target, pathway_role, DrugClass, pert_dose, pert_time) %>% 
+  mutate(nominal_target = str_replace_all(nominal_target, "/\x85", "")) %>% 
+  mutate(DrugClass = fct_recode(DrugClass,
+                                "Cell Cycle" = "CELL_CYCLE",
+                                "DNA Repair" = "DNA_repair",
+                                "SRC Family" = "SRC_family",
+                                "Chaperone" = "chaperone",
+                                "Others" = "others"
+                                ),
+         pathway_role = fct_recode(pathway_role,
+                                "Proteasome" = "proteasome",
+                                "Unknown" = "unknown")
+         )
+```
+
+## Submitting DE Genes to L1000FWD API
+
+The differentially expressed gene lists are submitted to the L1000 FWD API. 
+The result is a data frame for each experimentalCondition.
+
+```{r, }
+L1000FWD_URL <- 'https://maayanlab.cloud/L1000FWD/'
+
+if (!file.exists(sprintf("%s/MDD_L1000FWD_ligandResults.Rdata", outDir))) {
+  ligandDrugList <- lapply(MDD_ligandLists, function( X ) {
+    up_genes     <- X$up[!is.na(X$up)]
+    down_genes   <- X$down[!is.na(X$down)]
+  
+    payload <- list(
+      up_genes = up_genes,
+      down_genes = down_genes
+      )
+  
+    responseA <- POST(paste0(L1000FWD_URL, 'sig_search'), body=payload, encode='json')
+
+    if (responseA$status_code == 200) {
+      responseCode <- fromJSON(httr::content(responseA, 'text'))$result_id
+    
+      responseB <- GET(paste0(L1000FWD_URL, 'result/topn/', responseCode))
+    
+    if (responseB$status_code == 200) {
+      drugResponse <- 
+        fromJSON(httr::content(responseB, 'text'))
+      
+      drugResponse <-
+        lapply(drugResponse, function(x) {
+          X <-
+            x %>%
+            mutate(pert_id = str_extract(sig_id, "BRD-[:alnum:]+"))
+          
+          X
+      })
+      drugResponse
+    }
+      } else {
+        return("ERR")
+        }
+    })
+  
+  save(ligandDrugList, file = sprintf("%s/MDD_L1000FWD_ligandResults.Rdata", outDir))
+  } else {
+  load(sprintf("%s/MDD_L1000FWD_ligandResults.Rdata", outDir))
+  }
+```
+
+
+```{r}
+ligandDrugList <- ligandDrugList[sAnno %>% 
+                                   filter(experimentalTimePoint == 24) %>% 
+                                   filter(ligand != "PBS") %>% 
+                                   pull(experimentalCondition) %>% 
+                                   unique]
+
+ligandDrugListCombined <- 
+  lapply(ligandDrugList, bind_rows)
+
+ligandDrugListCombined <-
+  mapply(function(x, x_nm) {
+    x <-
+      x %>% 
+      mutate(experimentalCondition = x_nm) %>% 
+      mutate(direction = case_when(sign(combined_scores) == 1 ~ "Positive",
+                                   sign(combined_scores) != 1 ~ "Negative")) %>%
+      mutate(direction = fct_rev(as.factor(direction))) %>% 
+      dplyr::select(experimentalCondition, everything())
+    x
+  }, 
+  x = ligandDrugListCombined,
+  x_nm = names(ligandDrugListCombined),
+  SIMPLIFY = FALSE
+  )
+
+ligandDrugListCombinedLong <-
+  Reduce(bind_rows, ligandDrugListCombined)  %>% 
+  mutate(experimentalCondition = as.factor(experimentalCondition)) %>% 
+  mutate(experimentalCondition = fct_relevel(experimentalCondition,
+                                             unique(sAnno$experimentalCondition)[-1][c(1:2, 9:14, 3:8)]
+                                             )) %>% 
+  arrange(experimentalCondition) %>% 
+  mutate(LJP = grepl("LJP", sig_id)) %>% 
+  filter(grepl("24", experimentalCondition)) %>% 
+  filter(!grepl("PBS", experimentalCondition)) %>% 
+  mutate(experimentalCondition = fct_drop(experimentalCondition)) %>% 
+  mutate(Ligand = str_extract(experimentalCondition, "[:alnum:]+")) %>% 
+  mutate(Ligand = fct_inorder(as.factor(Ligand))) %>% 
+  dplyr::select(eperimentalCondition, )
+
+ligandDrugListCombinedLong %>% 
+  arrange(desc(scores)) %>% 
+  left_join(drugMeta) %>% 
+  # dplyr::select(experimentalCondition, 
+                # sig_id,
+                # pert_iname, scores, zscores) %>% 
+  group_by(experimentalCondition, direction) %>% 
+  mutate(rank = rank(qvals, ties.method = "first")) %>% 
+  dplyr::select(Ligand, qvals, scores, rank, sig_id,
+                pert_iname) %>% 
+  arrange(Ligand, rank) %>% 
+  filter(rank <= 5) %>% 
+  group_by(pert_iname) %>%
+  summarize(n =n()) %>% 
+  arrange(desc(n))
+
+(c(2, 1, 4, 5, 4, 10))[order(c(2, 1, 4, 5, 4, 10))]
+
+ligandDrugListCombined$OSM_24 %>% head
+
+writeLines(MDD_ligandLists$TGFB_24$up, "~/Desktop/TGFB_24_up.txt")
+writeLines(MDD_ligandLists$TGFB_24$down, "~/Desktop/TGFB_24_down.txt")
+writeLines(MDD_ligandLists$IFNG_24$up, "~/Desktop/IFNG_24_up.txt")
+writeLines(MDD_ligandLists$IFNG_24$down, "~/Desktop/IFNG_24_down.txt")
+writeLines(MDD_ligandLists$EGF_24$up, "~/Desktop/EGF_24_up.txt")
+writeLines(MDD_ligandLists$EGF_24$down, "~/Desktop/EGF_24_down.txt")
+```
+
+
+<!-- ```{r} -->
+<!-- ligandDrugListCombinedToWriteA <- -->
+<!--   lapply(ligandDrugListCombined, function(x) { -->
+<!--     x <- -->
+<!--       x %>% -->
+<!--       mutate(direction = case_when(sign(combined_scores) == 1 ~ "Positive", -->
+<!--                                    sign(combined_scores) != 1 ~ "Negative")) %>% -->
+<!--       group_by(direction) %>% -->
+<!--       mutate(rank = rank(qvals, ties.method = "first")) %>% -->
+<!--       filter(rank <= 10) %>% -->
+<!--       ungroup() %>% -->
+<!--       arrange(desc(direction), rank) %>% -->
+<!--       left_join(drugMeta, by = "pert_id") %>%  -->
+<!--       dplyr::select(experimentalCondition, rank, direction, pert_iname, qvals, sig_id, everything()) -->
+<!--     x -->
+<!--   }) -->
+
+<!-- write.xlsx(ligandDrugListCombinedToWriteA, -->
+<!--            file = sprintf("%s/MDD_LigandDEGenes_L1000FWD_drugSignatures_top10.xlsx", outDir)) -->
+<!-- ``` -->
+
+
+# Results {.tabset .tabset-fade .tabset-pills}
+
+<!-- ## All LJP results -->
+
+<!-- Using the metadata file, data is filtered to select drug signatures -->
+<!-- that were profiled as part of LJP. These are also filtered to remove -->
+<!-- signatures with FDR-adjusted q-values below `r FDR_threshold`. -->
+<!-- All LJP signatures meet this criteria, so none are removed. -->
+
+<!-- The drug enrichments are shown in the barplots below, annotated -->
+<!-- with drug class, pathway role, and cell line. -->
+
+<!-- ```{r, fig.height=10, fig.width = 8} -->
+<!-- ljpBarplot_drugClass <- -->
+<!--   ligandDrugListCombinedLong %>% -->
+<!--   mutate(Ligand = fct_inorder(as.factor(Ligand))) %>%  -->
+<!--   inner_join(combinedAnnotations) %>%  -->
+<!--   filter(LJP, .preserve = TRUE) %>%  -->
+<!--   filter(qvals < FDR_threshold,.preserve = TRUE) %>% -->
+<!--   mutate(DrugClass = fct_drop(DrugClass)) %>%  -->
+<!--   group_by(Ligand, direction, DrugClass, .drop = FALSE) %>%  -->
+<!--   summarize(n = n()) %>%  -->
+<!--   ggplot(aes(Ligand, n, fill = DrugClass)) + -->
+<!--   geom_col() + -->
+<!--   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + -->
+<!--   ylab(sprintf("# Drugs w/ FDR < %s", FDR_threshold)) + -->
+<!--   ggtitle("Enriched LJP Drug Signatures", -->
+<!--           subtitle = "Annotated with Drug Class") + -->
+<!--   facet_wrap(~direction, ncol = 1) -->
+
+<!-- ljpBarplot_drugClass -->
+<!-- ``` -->
+
+<!-- ```{r, fig.height=10, fig.width = 8} -->
+<!-- ljpBarplot_pathwayRole <- -->
+<!--   ligandDrugListCombinedLong %>%  -->
+<!--   inner_join(combinedAnnotations) %>%  -->
+<!--   filter(LJP) %>%  -->
+<!--   mutate(experimentalCondition = as.factor(experimentalCondition)) %>%  -->
+<!--   filter(qvals < FDR_threshold,.preserve = TRUE) %>% -->
+<!--   mutate(pathway_role = fct_drop(pathway_role)) %>%  -->
+<!--   group_by(experimentalCondition, pathway_role, direction, .drop = FALSE) %>%  -->
+<!--   summarize(n = n()) %>%  -->
+<!--   ggplot(aes(experimentalCondition, n, fill = pathway_role)) + -->
+<!--   geom_col() + -->
+<!--   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + -->
+<!--   ylab(sprintf("# Drugs w/ FDR < %s", FDR_threshold)) + -->
+<!--   ggtitle("Enriched LJP Drug Signatures", -->
+<!--           subtitle = "Annotated with Pathway Role") + -->
+<!--   facet_wrap(~direction, ncol = 1) -->
+
+<!-- ljpBarplot_pathwayRole -->
+<!-- ``` -->
+
+<!-- ```{r, fig.height=10, fig.width = 8} -->
+<!-- ljpBarplot_cellLine <- -->
+<!--   ligandDrugListCombinedLong %>%  -->
+<!--   inner_join(combinedAnnotations) %>%  -->
+<!--   filter(LJP) %>%  -->
+<!--   mutate(experimentalCondition = as.factor(experimentalCondition)) %>%  -->
+<!--   filter(qvals < FDR_threshold,.preserve = TRUE) %>% -->
+<!--   mutate(cell_id = fct_drop(cell_id)) %>%  -->
+<!--   group_by(experimentalCondition, cell_id, direction, .drop = FALSE) %>%  -->
+<!--   summarize(n = n()) %>%  -->
+<!--   ggplot(aes(experimentalCondition, n, fill = cell_id)) + -->
+<!--   geom_col() + -->
+<!--   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + -->
+<!--   ylab(sprintf("# Drugs w/ FDR < %s", FDR_threshold)) + -->
+<!--   ggtitle("MDD Enriched Drugs") + -->
+<!--     ggtitle("Enriched LJP Drug Signatures", -->
+<!--           subtitle = "Annotated with Cell Line") + -->
+<!--   facet_wrap(~direction, ncol = 1) -->
+
+<!-- ljpBarplot_cellLine -->
+<!-- ``` -->
+
+<!-- These drugs are detailed in the table below, as well as in the CSV file. -->
+
+<!-- ```{r} -->
+<!-- ljpTable_TW <- -->
+<!--   ligandDrugListCombinedLong %>%  -->
+<!--   inner_join(combinedAnnotations) %>%  -->
+<!--   filter(LJP) %>% -->
+<!--   mutate(experimentalCondition = as.factor(experimentalCondition)) %>%  -->
+<!--   filter(qvals < FDR_threshold) %>%  -->
+<!--   group_by(experimentalCondition) %>%  -->
+<!--   dplyr::select(experimentalCondition, cell_id, direction, DrugName, qvals, nominal_target, pathway_role, DrugClass) -->
+
+<!-- ljpTable_TW -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # Writing results -->
+<!-- pdf(sprintf("%s/MDD_DEGenes_L1000FWD_LJPSignaturesBarplots.pdf", outDir), height = 10, width = 8) -->
+<!-- ljpBarplot_drugClass -->
+<!-- ljpBarplot_pathwayRole -->
+<!-- ljpBarplot_cellLine -->
+<!-- dev.off() -->
+
+<!-- write_csv(ljpTable_TW, path = sprintf("%s/MDD_DEGenes_L1000FWD_LJPSignaturesTable.csv", outDir)) -->
+<!-- ``` -->
+
+
+
+## All drug target-annotated results
+
+Using the metadata file, data is filtered to select drug signatures
+that were annotated as part of LJP, even if the data was not profiled
+in LJP (so other cancer cell lines treated with drugs used in LJP are included).
+These are also filtered to remove signatures with FDR-adjusted q-values below `r FDR_threshold`. This
+removes 4 HGF signatures.
+
+The drug enrichments are shown in the barplots below, annotated
+with drug class, pathway role, and cell line.
+
+```{r, fig.height=10, fig.width = 8}
+drugAnnoBarplot_drugClass <-
+  ligandDrugListCombinedLong %>% 
+  inner_join(combinedAnnotations) %>% 
+  filter(qvals < FDR_threshold,.preserve = TRUE) %>%
+  mutate(DrugClass = fct_drop(DrugClass)) %>% 
+  group_by(Ligand, direction, DrugClass, .drop = FALSE) %>% 
+  summarize(n = n()) %>% 
+  ggplot(aes(Ligand, n, fill = DrugClass)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab(sprintf("# Drugs w/ FDR < %s", FDR_threshold)) +
+  ggtitle("Enriched target-annotated Drug Signatures") +
+  facet_wrap(~direction, ncol = 1) +
+  scale_fill_discrete("Drug Class")
+
+drugAnnoBarplot_drugClass
+```
+
+```{r, fig.height=10, fig.width = 8}
+drugAnnoBarplot_pathwayRole <-
+  ligandDrugListCombinedLong %>% 
+  inner_join(combinedAnnotations) %>% 
+  filter(qvals < FDR_threshold,.preserve = TRUE) %>%
+  mutate(pathway_role = fct_drop(pathway_role)) %>% 
+  group_by(Ligand, pathway_role, direction, .drop = FALSE) %>% 
+  summarize(n = n()) %>% 
+  ggplot(aes(Ligand, n, fill = pathway_role)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab(sprintf("# Drugs w/ FDR < %s", FDR_threshold)) +
+  ggtitle("Enriched target-annotated Drug Signatures") +
+  scale_fill_discrete("Pathway Role") +
+  facet_wrap(~direction, ncol = 1)
+
+drugAnnoBarplot_pathwayRole
+```
+
+```{r, fig.height=10, fig.width = 8}
+drugAnnoBarplot_nominalTarget <-
+  ligandDrugListCombinedLong %>% 
+  inner_join(combinedAnnotations) %>% 
+  filter(qvals < FDR_threshold,.preserve = TRUE) %>%
+  mutate(nominal_target = fct_drop(nominal_target)) %>% 
+  group_by(Ligand, nominal_target, direction, .drop = FALSE) %>% 
+  summarize(n = n()) %>% 
+  ggplot(aes(Ligand, n, fill = nominal_target)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab(sprintf("# Drugs w/ FDR < %s", FDR_threshold)) +
+  ggtitle("Enriched target-annotated Drug Signatures") +
+  scale_fill_discrete("Nominal Drug Target") +
+  facet_wrap(~direction, ncol = 1)
+  
+
+drugAnnoBarplot_nominalTarget
+```
+```{r, fig.height=10, fig.width = 8}
+drugAnnoBarplot_cellLine <-
+  ligandDrugListCombinedLong %>% 
+  inner_join(combinedAnnotations) %>% 
+  filter(qvals < FDR_threshold,.preserve = TRUE) %>%
+  mutate(cell_id = fct_drop(cell_id)) %>% 
+  group_by(Ligand, cell_id, direction, .drop = FALSE) %>% 
+  summarize(n = n()) %>% 
+  ggplot(aes(Ligand, n, fill = cell_id)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab(sprintf("# Drugs w/ FDR < %s", FDR_threshold)) +
+  ggtitle("MDD Enriched Drugs") +
+  ggtitle("Enriched target-annotated Drug Signatures") +
+  facet_wrap(~direction, ncol = 1) +
+  scale_fill_discrete("Cell Line")
+
+
+drugAnnoBarplot_cellLine
+```
+
+
+These drugs are detailed in the table below, as well as in the CSV file.
+
+```{r}
+drugAnnoTable_TW <-
+  ligandDrugListCombinedLong %>% 
+  inner_join(combinedAnnotations) %>% 
+  mutate(experimentalCondition = as.factor(experimentalCondition)) %>% 
+  filter(qvals < FDR_threshold) %>% 
+  dplyr::select(Ligand, experimentalCondition, cell_id, direction, 
+                DrugName, qvals, nominal_target, pathway_role, DrugClass)
+
+drugAnnoTable_TW
+```
+
+```{r}
+# Writing results
+
+pdf(sprintf("%s/MDD_DEGenes_L1000FWD_AllDrugAnnoSignaturesBarplots.pdf", outDir), height = 10, width = 8)
+drugAnnoBarplot_drugClass
+drugAnnoBarplot_nominalTarget
+drugAnnoBarplot_pathwayRole
+drugAnnoBarplot_cellLine
+dev.off()
+
+write_csv(drugAnnoTable_TW, path = sprintf("%s/MDD_DEGenes_L1000FWD_AllDrugAnnoSignaturesTable.csv", outDir))
+```
+
+# Binary Drug Enrichment Heatmaps {.tabset .tabset-fade .tabset-pills}
+
+## All Signatures
+
+```{r, fig.height = 7, fig.width = 9}
+colDirection = c(Positive = "firebrick3", 
+                 Negative = "steelblue3",
+                 background = "gray80")
+
+posNegW <- .95
+posNegH <- .9
+grayW <- .95
+grayH <- .8
+edgeCol <- NA
+
+aFun <- list(
+  background = function(x, y, w, h) {
+    grid.rect(x, y, w*grayW, h*grayH,
+              gp = gpar(fill = colDirection["background"],
+                        col = edgeCol))
+    },
+    Positive = function(x, y, w, h) {
+      grid.rect(x, y, w*posNegW, h*posNegH,
+                gp = gpar(fill = colDirection["Positive"],
+                          col = edgeCol))
+    },
+    Negative = function(x, y, w, h) {
+    grid.rect(x, y, w*posNegW, h*posNegH,
+                gp = gpar(fill = colDirection["Negative"],
+                          col = edgeCol))
+      }
+)
+
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+
+drugEnrichmentsAllWide <-
+  ligandDrugListCombinedLong %>% 
+  mutate(significant = qvals < FDR_threshold) %>%
+  filter(significant) %>%
+  mutate(significant = case_when(significant ~ fct_expand(direction, ""),
+                                 !significant ~ as.factor(""),
+                                 is.na(significant) ~ as.factor(""))) %>%
+  dplyr::select(sig_id,Ligand,  significant) %>% 
+  arrange(Ligand) %>% 
+  mutate(significant = fct_expand(significant, "background")) %>%
+  pivot_wider(names_from = Ligand,
+              values_from = significant,
+              values_fill = list(significant = as.factor("background")))
+
+drugEnrichmentsAllTP <-
+  drugEnrichmentsAllWide %>% 
+  column_to_rownames("sig_id")
+
+binaryHeatmapDrugEnrichmentsAll <- list()
+cTitle <- "All Drug Signatures"
+
+binaryHeatmapDrugEnrichmentsAll$Regular <-
+  drugEnrichmentsAllTP %>%
+  as.matrix %>%
+  Heatmap(
+    # left_annotation = drugEnrichmentsDrugAnnoRA,
+          # row_names_gp = gpar(fontsize = 7),
+    show_row_names = FALSE,
+          heatmap_legend_param = list(title = "Enrichment"),
+          col = c("white", "steelblue3", "firebrick3"),
+          column_title = cTitle)
+binaryHeatmapDrugEnrichmentsAll$Regular
+
+binaryHeatmapDrugEnrichmentsAll$oncoprint_named <-
+  drugEnrichmentsAllTP %>%
+  as.matrix %>%
+  oncoPrint(show_column_names = TRUE,
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            # left_annotation = drugEnrichmentsDrugAnnoRA,
+            show_row_names = TRUE,
+            row_names_gp = gpar(fontsize = 7),
+            heatmap_legend_param = list(title = "Enrichment"),
+            column_title = cTitle)
+binaryHeatmapDrugEnrichmentsAll$oncoprint_named
+
+binaryHeatmapDrugEnrichmentsAll$oncoprint <-
+  drugEnrichmentsAllTP %>%
+  as.matrix %>%
+  oncoPrint(show_column_names = TRUE,
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            show_row_names = FALSE,
+            # left_annotation = drugEnrichmentsDrugAnnoRA,
+            row_names_gp = gpar(fontsize = 7),
+            heatmap_legend_param = list(title = "Enrichment"),
+            column_title = cTitle)
+binaryHeatmapDrugEnrichmentsAll$oncoprint
+```
+
+
+```{r}
+# Writing results
+pdf(sprintf("%s/MDD_DEGenes_L1000FWD_all_drugBinaryHeatmap.pdf", outDir), height = 14, width = 9)
+binaryHeatmapDrugEnrichmentsAll$Regular
+binaryHeatmapDrugEnrichmentsAll$oncoprint
+# binaryHeatmapDrugEnrichmentsAll$oncoprint_named
+dev.off()
+```
+
+## Drug Annotated Signatures
+
+```{r, fig.height = 7, fig.width = 9}
+drugEnrichmentsDAWide <-
+  ligandDrugListCombinedLong %>% 
+  inner_join(combinedAnnotations) %>% 
+  mutate(significant = qvals < FDR_threshold) %>%
+  filter(significant) %>%
+  mutate(significant = case_when(significant ~ fct_expand(direction, ""),
+                                 !significant ~ as.factor(""),
+                                 is.na(significant) ~ as.factor(""))) %>%
+  dplyr::select(sig_id, Ligand, DrugClass, pathway_role, significant) %>% 
+  arrange(Ligand) %>% 
+  mutate(significant = fct_expand(significant, "background")) %>%
+  pivot_wider(names_from = Ligand,
+              values_from = significant,
+              values_fill = list(significant = as.factor("background")))
+
+colDrugAnno <-
+  list(DrugClass =
+         setNames(
+           gg_color_hue(length(unique(drugEnrichmentsDAWide$DrugClass))),
+           unique(drugEnrichmentsDAWide$DrugClass)
+           ),
+       pathway_role =
+         setNames(
+           gg_color_hue(length(unique(drugEnrichmentsDAWide$pathway_role))),
+           unique(drugEnrichmentsDAWide$pathway_role)
+           )
+  )
+
+drugEnrichmentsDATP <-
+  drugEnrichmentsDAWide %>% 
+  dplyr::select(-c(2,3)) %>% 
+  column_to_rownames("sig_id")
+
+rowAnnotationDA <-
+  rowAnnotation(df =
+                  drugEnrichmentsDAWide %>%
+                  data.frame %>%
+                  dplyr::select(DrugClass, pathway_role),
+                col = colDrugAnno)
+
+cTitle = "All target-annotated drug signatures"
+
+binaryHeatmapDrugEnrichmentsDA <- list()
+
+binaryHeatmapDrugEnrichmentsDA$Regular_named <-
+  drugEnrichmentsDATP %>%
+  as.matrix %>%
+  Heatmap(
+    left_annotation = rowAnnotationDA,
+    row_names_gp = gpar(fontsize = 7),
+    heatmap_legend_param = list(title = "Enrichment"),
+    col = c("white", "steelblue3", "firebrick3"),
+    column_title = cTitle)
+binaryHeatmapDrugEnrichmentsDA$Regular
+
+binaryHeatmapDrugEnrichmentsDA$Regular <-
+  drugEnrichmentsDATP %>%
+  as.matrix %>%
+  Heatmap(
+    left_annotation = rowAnnotationDA,
+    # row_names_gp = gpar(fontsize = 7),
+    show_row_names = FALSE,
+    heatmap_legend_param = list(title = "Enrichment"),
+    col = c("white", "steelblue3", "firebrick3"),
+    column_title = cTitle)
+binaryHeatmapDrugEnrichmentsDA$Regular
+
+binaryHeatmapDrugEnrichmentsDA$oncoprint_named <-
+  drugEnrichmentsDATP %>%
+  as.matrix %>%
+  oncoPrint(show_column_names = TRUE,
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            left_annotation = rowAnnotationDA,
+            show_row_names = TRUE,
+            row_names_gp = gpar(fontsize = 7),
+            heatmap_legend_param = list(title = "Enrichment"),
+            column_title = cTitle)
+binaryHeatmapDrugEnrichmentsDA$oncoprint_named
+
+binaryHeatmapDrugEnrichmentsDA$oncoprint <-
+  drugEnrichmentsDATP %>%
+  as.matrix %>%
+  oncoPrint(show_column_names = TRUE,
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            show_row_names = FALSE,
+            left_annotation = rowAnnotationDA,
+            row_names_gp = gpar(fontsize = 7),
+            heatmap_legend_param = list(title = "Enrichment"),
+            column_title = "All target-annotated Drug Signatures")
+binaryHeatmapDrugEnrichmentsDA$oncoprint
+```
+
+
+## Drug Annotated Signatures, collapsed to drug
+
+```{r, fig.height = 7, fig.width = 9}
+aFun <- list(
+  background = function(x, y, w, h) {
+    grid.rect(x, y, w*grayW, h*grayH,
+              gp = gpar(fill = colDirection["background"],
+                        col = edgeCol))
+    },
+    Positive = function(x, y, w, h) {
+      grid.rect(x, y, w*posNegW, h*posNegH,
+                gp = gpar(fill = colDirection["Positive"],
+                          col = edgeCol))
+    },
+    Negative = function(x, y, w, h) {
+    grid.rect(x, y, w*posNegW, h*posNegH,
+                gp = gpar(fill = colDirection["Negative"],
+                          col = edgeCol))
+    }
+    # CONFLICTING = function(x, y, w, h) {
+    # grid.rect(x, y, w*posNegW, h*posNegH,
+    #             gp = gpar(fill = colDirection["CONFLICTING"],
+    #                       col = edgeCol))
+    # }
+)
+
+drugEnrichmentsSummarizedWide <-
+  ligandDrugListCombinedLong %>% 
+  left_join(drugMeta) %>% 
+  mutate(significant = qvals < FDR_threshold) %>%
+  filter(significant) %>%
+  mutate(significant = case_when(significant ~ fct_expand(direction, ""),
+                                 !significant ~ as.factor(""),
+                                 is.na(significant) ~ as.factor(""))) %>%
+  group_by(Ligand, pert_iname) %>% 
+  summarize(sigSummary = case_when(all(significant %in% c("Positive", "")) ~ "Positive",
+                                   all(significant %in% c("Negative", "")) ~ "Negative")) %>% 
+  ungroup() %>% 
+  mutate(sigSummary = replace_na(sigSummary, "background")) %>%
+  # dplyr::select(sig_id,Ligand,  significant) %>% 
+  arrange(Ligand) %>% 
+  # mutate(significant = fct_expand(significant, "background")) %>%
+  pivot_wider(names_from = Ligand,
+              values_from = sigSummary,
+              values_fill = list(sigSummary = as.factor("background")))
+
+drugEnrichmentsSummarizedWide
+
+drugEnrichmentsSummarizedTP <-
+  drugEnrichmentsSummarizedWide %>% 
+  column_to_rownames("pert_iname")
+
+# VERY few conflicting results - 2
+
+binaryHeatmapDrugEnrichmentsSummarized <- list()
+
+cTitle = "All signatures, summarized to drug-level"
+binaryHeatmapDrugEnrichmentsSummarized$Regular <-
+  drugEnrichmentsSummarizedTP %>%
+  as.matrix %>%
+  Heatmap(show_row_names = FALSE,
+          heatmap_legend_param = list(title = "Enrichment"),
+          col = c("white", "steelblue3", "firebrick3"),
+          column_title = cTitle)
+
+binaryHeatmapDrugEnrichmentsSummarized$Regular
+
+binaryHeatmapDrugEnrichmentsSummarized$oncoprint <-
+  drugEnrichmentsSummarizedTP %>%
+  as.matrix %>%
+  oncoPrint(show_column_names = TRUE,
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            # left_annotation = drugEnrichmentsDrugAnnoRA,
+            show_row_names = FALSE,
+            row_names_gp = gpar(fontsize = 7),
+            heatmap_legend_param = list(title = "Enrichment"),
+            column_title = cTitle)
+```
+
+```{r}
+# Writing results
+pdf(sprintf("%s/MDD_DEGenes_L1000FWD_targetAnnotated_summarizedToDrug.pdf", outDir),
+    height = 14, width = 9)
+binaryHeatmapDrugEnrichmentsSummarized$Regular
+binaryHeatmapDrugEnrichmentsSummarized$oncoprint
+dev.off()
+```
+
+## Drug Annotated Signatures, collapsed to drug, only drugs with multiple enrichments
+
+```{r, fig.height = 7, fig.width = 9}
+drugEnrichmentsSummarizedWide <-
+  ligandDrugListCombinedLong %>% 
+  left_join(drugMeta) %>% 
+  # inner_join(combinedAnnotations) %>% 
+  mutate(significant = qvals < FDR_threshold) %>%
+  filter(significant) %>%
+  mutate(significant = case_when(significant ~ fct_expand(direction, ""),
+                                 !significant ~ as.factor(""),
+                                 is.na(significant) ~ as.factor(""))) %>%
+  group_by(Ligand, pert_iname) %>% 
+  summarize(sigSummary = case_when(all(significant %in% c("Positive", "")) ~ "Positive",
+                                   all(significant %in% c("Negative", "")) ~ "Negative")) %>% 
+  ungroup() %>% 
+  mutate(sigSummary = replace_na(sigSummary, "background")) %>%
+  # dplyr::select(sig_id,Ligand,  significant) %>% 
+  arrange(Ligand) %>% 
+  # mutate(significant = fct_expand(significant, "background")) %>%
+  pivot_wider(names_from = Ligand,
+              values_from = sigSummary,
+              values_fill = list(sigSummary = as.factor("background")))
+
+toPlot <-
+  drugEnrichmentsSummarizedWide %>% 
+  pivot_longer(-pert_iname, 
+               names_to = "Ligand",
+               values_to = "enrichment") %>% 
+  group_by(pert_iname) %>% 
+  summarize(n = sum(enrichment != "background")) %>% 
+  filter(n > 1) %>% 
+  pull(pert_iname)
+  
+drugEnrichmentsSummarizedTP <-
+  drugEnrichmentsSummarizedWide %>% 
+  column_to_rownames("pert_iname") %>% 
+  .[toPlot, ]
+
+
+cTitle <- "Drug-summarized signatures enriched in multiple ligands"
+binaryHeatmapDrugEnrichmentsSummarizedMultiples <- list()
+
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular <-
+  drugEnrichmentsSummarizedTP %>%
+  as.matrix %>%
+  Heatmap(
+    # left_annotation = drugEnrichmentsDrugAnnoRA,
+          # row_names_gp = gpar(fontsize = 7),
+          heatmap_legend_param = list(title = "Enrichment"),
+          col = c("white", "steelblue3", "firebrick3"),
+          column_title = cTitle)
+
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$oncoprint_named <-
+  drugEnrichmentsSummarizedTP %>%
+  as.matrix %>%
+  oncoPrint(show_column_names = TRUE,
+            alter_fun = aFun,
+            column_order = colnames(.),
+            col = colDirection,
+            # left_annotation = drugEnrichmentsDrugAnnoRA,
+            show_row_names = TRUE,
+            row_names_gp = gpar(fontsize = 7),
+            heatmap_legend_param = list(title = "Enrichment"),
+            column_title = cTitle)
+```
+
+```{r}
+# Writing results
+pdf(sprintf("%s/MDD_DEGenes_L1000FWD_targetAnnotated_summarizedToDrug_multipleHits.pdf", outDir),
+    height = 14, width = 9)
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$oncoprint_named
+dev.off()
+```
+
+
+
+## Drug Annotated Signatures, collapsed to drug, only drugs with multiple enrichments
+
+```{r, fig.height = 7, fig.width = 9}
+drugEnrichmentsSummarizedWide <-
+  ligandDrugListCombinedLong %>% 
+  left_join(drugMeta) %>% 
+  # inner_join(combinedAnnotations) %>% 
+  mutate(significant = qvals < FDR_threshold) %>%
+  filter(significant) %>%
+  mutate(significant = case_when(significant ~ fct_expand(direction, ""),
+                                 !significant ~ as.factor(""),
+                                 is.na(significant) ~ as.factor(""))) %>%
+  group_by(Ligand, pert_iname) %>% 
+  summarize(sigSummary = case_when(all(significant %in% c("Positive", "")) ~ "1",
+                                   all(significant %in% c("Negative", "")) ~ "-1")) %>% 
+  ungroup() %>% 
+  mutate(sigSummary = replace_na(sigSummary, "0")) %>%
+  mutate(sigSummary = as.numeric(sigSummary)) %>% 
+  # dplyr::select(sig_id,Ligand,  significant) %>% 
+  arrange(Ligand) %>% 
+  # mutate(significant = fct_expand(significant, "background")) %>%
+  pivot_wider(names_from = Ligand,
+              values_from = sigSummary,
+              values_fill = list(sigSummary = 0))
+
+toPlot <-
+  drugEnrichmentsSummarizedWide %>% 
+  pivot_longer(-pert_iname, 
+               names_to = "Ligand",
+               values_to = "enrichment") %>% 
+  group_by(pert_iname) %>% 
+  summarize(n = sum(enrichment != 0)) %>% 
+  filter(n > 1) %>% 
+  pull(pert_iname)
+
+drugEnrichmentsSummarizedTP <-
+  drugEnrichmentsSummarizedWide %>% 
+  column_to_rownames("pert_iname") %>% 
+  .[toPlot, ]
+drugEnrichmentsSummarizedTP
+
+cTitle <- "Drug-summarized signatures enriched in multiple ligands"
+binaryHeatmapDrugEnrichmentsSummarizedMultiples <- list()
+
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular <-
+  drugEnrichmentsSummarizedTP %>%
+  as.matrix %>%
+  Heatmap(cluster_rows = TRUE,
+          col = c("steelblue3", "white", "firebrick3"),
+          column_title = cTitle,
+          cluster_columns = FALSE,
+          heatmap_legend_param = list(
+            title = "Enrichment", at = c(-1, 0, 1), 
+            labels = c("Negative", "", "Positive")
+    ))
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular
+```
+
+```{r}
+# Writing results
+pdf(sprintf("%s/MDD_DEGenes_L1000FWD_targetAnnotated_summarizedToDrug_multipleHits_clusterd.pdf", outDir),
+    height = 14, width = 9)
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular
+dev.off()
+```
+
+## Drug Annotated Signatures, collapsed to drug, only drugs with multiple enrichments
+
+```{r, fig.height = 7, fig.width = 9}
+drugEnrichmentsSummarizedWide <-
+  ligandDrugListCombinedLong %>% 
+  left_join(drugMeta) %>% 
+  inner_join(combinedAnnotations) %>%
+  mutate(significant = qvals < FDR_threshold) %>%
+  filter(significant) %>%
+  mutate(significant = case_when(significant ~ fct_expand(direction, ""),
+                                 !significant ~ as.factor(""),
+                                 is.na(significant) ~ as.factor(""))) %>%
+  group_by(Ligand, DrugClass, pathway_role, pert_iname) %>% 
+  summarize(sigSummary = case_when(all(significant %in% c("Positive", "")) ~ "1",
+                                   all(significant %in% c("Negative", "")) ~ "-1")) %>% 
+  ungroup() %>% 
+  mutate(sigSummary = replace_na(sigSummary, "0")) %>%
+  mutate(sigSummary = as.numeric(sigSummary)) %>% 
+  # dplyr::select(sig_id,Ligand,  significant) %>% 
+  arrange(Ligand) %>% 
+  # mutate(significant = fct_expand(significant, "background")) %>%
+  pivot_wider(names_from = Ligand,
+              values_from = sigSummary,
+              values_fill = list(sigSummary = 0))
+
+toPlot <-
+  drugEnrichmentsSummarizedWide %>% 
+  pivot_longer(-c(pert_iname, DrugClass, pathway_role),
+               names_to = "Ligand",
+               values_to = "enrichment") %>% 
+  group_by(pert_iname) %>% 
+  summarize(n = sum(enrichment != 0)) %>% 
+  filter(n > 1) %>% 
+  pull(pert_iname)
+toPlot
+
+drugEnrichmentsSummarizedWide <- 
+  drugEnrichmentsSummarizedWide %>% 
+  filter(pert_iname %in% toPlot)
+  
+drugEnrichmentsSummarizedTP <-
+  drugEnrichmentsSummarizedWide %>% 
+  column_to_rownames("pert_iname") %>% 
+  dplyr::select(-DrugClass, -pathway_role)
+
+rowAnnotationDASummarized <-
+  rowAnnotation(df =
+                  drugEnrichmentsSummarizedWide %>%
+                  data.frame %>%
+                  dplyr::select(DrugClass, pathway_role),
+                col = colDrugAnno)
+
+
+cTitle <- "Drug-summarized signatures enriched in multiple ligands"
+binaryHeatmapDrugEnrichmentsSummarizedMultiples <- list()
+
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular <-
+  drugEnrichmentsSummarizedTP %>%
+  as.matrix %>%
+  Heatmap(cluster_rows = TRUE,
+          col = c("steelblue3", "white", "firebrick3"),
+          column_title = cTitle,
+          cluster_columns = FALSE,
+          left_annotation = rowAnnotationDASummarized,
+          heatmap_legend_param = list(
+            title = "Enrichment", at = c(-1, 0, 1), 
+            labels = c("Negative", "", "Positive")
+    ))
+
+pdf(sprintf("%s/MDD_DEGenes_L1000FWD_targetAnnotated_summarizedToDrug_multipleHits_clustered.pdf", outDir),
+    height = 14, width = 9)
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular
+dev.off()
+```
+
+## Drug Annotated Signatures, collapsed to drug, only drugs with multiple enrichments
+
+```{r, fig.height = 7, fig.width = 9}
+drugEnrichmentsSummarizedWide <-
+  ligandDrugListCombinedLong %>% 
+  left_join(drugMeta) %>% 
+  left_join(combinedAnnotations) %>%
+  mutate(significant = qvals < FDR_threshold) %>%
+  filter(significant) %>%
+  mutate(significant = case_when(significant ~ fct_expand(direction, ""),
+                                 !significant ~ as.factor(""),
+                                 is.na(significant) ~ as.factor(""))) %>%
+  group_by(Ligand, DrugClass, pathway_role, pert_iname) %>% 
+  summarize(sigSummary = case_when(all(significant %in% c("Positive", "")) ~ "1",
+                                   all(significant %in% c("Negative", "")) ~ "-1")) %>% 
+  ungroup() %>% 
+  mutate(sigSummary = replace_na(sigSummary, "0")) %>%
+  mutate(sigSummary = as.numeric(sigSummary)) %>% 
+  # dplyr::select(sig_id,Ligand,  significant) %>% 
+  arrange(Ligand) %>% 
+  # mutate(significant = fct_expand(significant, "background")) %>%
+  pivot_wider(names_from = Ligand,
+              values_from = sigSummary,
+              values_fill = list(sigSummary = 0))
+
+toPlot <-
+  drugEnrichmentsSummarizedWide %>% 
+  pivot_longer(-c(pert_iname, DrugClass, pathway_role),
+               names_to = "Ligand",
+               values_to = "enrichment") %>% 
+  group_by(pert_iname) %>% 
+  summarize(n = sum(enrichment != 0)) %>% 
+  filter(n > 1) %>% 
+  pull(pert_iname)
+toPlot
+
+drugEnrichmentsSummarizedWide <- 
+  drugEnrichmentsSummarizedWide %>% 
+  filter(pert_iname %in% toPlot)
+  
+drugEnrichmentsSummarizedTP <-
+  drugEnrichmentsSummarizedWide %>% 
+  column_to_rownames("pert_iname") %>% 
+  dplyr::select(-DrugClass, -pathway_role)
+
+rowAnnotationDASummarized <-
+  rowAnnotation(df =
+                  drugEnrichmentsSummarizedWide %>%
+                  data.frame %>%
+                  dplyr::select(DrugClass, pathway_role),
+                col = colDrugAnno)
+
+
+cTitle <- "Drug-summarized signatures enriched in multiple ligands"
+binaryHeatmapDrugEnrichmentsSummarizedMultiples <- list()
+
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular <-
+  drugEnrichmentsSummarizedTP %>%
+  as.matrix %>%
+  Heatmap(cluster_rows = TRUE,
+          col = c("steelblue3", "white", "firebrick3"),
+          column_title = cTitle,
+          cluster_columns = FALSE,
+          left_annotation = rowAnnotationDASummarized,
+          heatmap_legend_param = list(
+            title = "Enrichment", at = c(-1, 0, 1), 
+            labels = c("Negative", "", "Positive")
+    ))
+
+# Writing results
+pdf(sprintf("%s/MDD_DEGenes_L1000FWD_all_summarizedToDrug_multipleHits_clusteredAnnotated.pdf", outDir),
+    height = 14, width = 9)
+binaryHeatmapDrugEnrichmentsSummarizedMultiples$Regular
+dev.off()
+```

@@ -11,8 +11,8 @@ library(readxl)
 library(ComplexHeatmap)
 library(circlize)
 
-create_pdfs <- TRUE
-write_csvs <- TRUE
+create_pdfs <- FALSE
+write_csvs <- FALSE
 
 ```
 
@@ -118,11 +118,38 @@ np_degran_in_MDD_proteases_counts <- np_degran_in_MDD_proteases %>%
   group_by(module) %>%
   summarise(counts = n())
 
+#generalize to read all of the Reactome participating molecule files
+
+read_Reactome_PM_files <- function(filename){
+   path_members <- read_delim(filename, "\t", escape_double = FALSE, trim_ws = TRUE,col_types = cols(
+  MoleculeType = col_character(),
+  Identifier = col_character(),
+  MoleculeName = col_character(),
+  X4 = col_logical()
+)) %>%
+  mutate(Gene = str_remove(MoleculeName, ".* "),
+         Pathway = str_extract(filename,"R-HSA-.*"),
+         Pathway = str_remove(Pathway, "].tsv")) %>%
+  select(Gene, Pathway) %>%
+  distinct()
+}
+
+sig_pathway_proteins_m6p16 <- dir("../integrated_analysis/Data/", pattern = "Participating",full.names = TRUE) %>%
+  map_dfr(read_Reactome_PM_files)
+
+spp_proteases_m6p16 <- sig_pathway_proteins_m6p16 %>%
+  inner_join(protease, by = "Gene") %>%
+  distinct()
+
+mdd_spp_proteases_m6p16 <- spp_proteases_m6p16 %>%
+  inner_join(MDD, by = c("Gene" = "feature")) %>%
+  filter(module == "module_6+16")
+
 ```
 
-There are `r nrow(np_degran_proteases)` unique genes in the Reactome Neutrophil degranulation pathway and `r sum(np_degran_proteases$protease)` of them  create proteases.
+There are `r nrow(sig_pathway_proteins_m6p16)` unique genes in the `r length(unique(sig_pathway_proteins_m6p16$Pathway))` significant Reactome pathways in module 6+16 and `r nrow(spp_proteases_m6p16)` of them create proteases.
 
-`r nrow(np_degran_in_MDD)` of the Reactome Neutrophil degranulation pathway genes are in the MDD integrated analysis 14 module dataset. `r nrow(np_degran_in_MDD_proteases)` of these are proteases. 
+There are `r nrow(mdd_spp_proteases_m6p16)` Reactome pathway protease genes in MDD module 6+16.
 
 The distribution of the Neutrophil degranulation proteases in the MDD modules is:  
 
