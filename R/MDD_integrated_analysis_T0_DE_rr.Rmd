@@ -241,7 +241,7 @@ hm_combined18_mean <- Heatmap(combined18_features_data_mean_dm,
                             use_raster = FALSE)
 hm_combined18_mean
 
-#find correlations bewteen the modules and show cut to combine
+#find correlations between the modules and show cut to combine
 # #Modules only set
 # if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module")]
 cor_dm <- cor(t(combined18_features_data_mean_dm),  method = "pearson")
@@ -283,7 +283,7 @@ combined14_features_data_ann <- combined18_features_data_ann %>%
       Cluster = factor(Cluster, levels = combined14_clusters, ordered = TRUE)) %>%
   as.data.frame()
 
-#Remove the cluster assignements to keep the code similar to the 
+#Remove the cluster assignments to keep the code similar to the 
 #other dataset processing
 combined14_features_data <- combined14_features_data_ann %>%
   select(-Cluster)
@@ -419,22 +419,22 @@ if(create_pdfs){
   res <- dev.off()
 } 
 
-# hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
-#                               name = "lfc ",
-#                               column_title = "combined14 cluster means",
-#                               column_title_gp = gpar(fontsize = 12),
-#                               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-#                               cluster_rows = FALSE,
-#                               cluster_row_slices = FALSE,
-#                               cluster_columns = FALSE,
-#                               row_gap = unit(2, "mm"),
-#                               row_names_side = "left",
-#                               row_title = " ",
-#                               show_row_names = TRUE,
-#                               row_names_gp = gpar(fontsize = 12),
-#                               column_names_gp = gpar(fontsize = 10),
-#                               use_raster = FALSE)
-# #draw(hm_combined14_mean, heatmap_legend_side = "left")
+hm_combined14_mean <- Heatmap(combined14_features_data_mean_dm,
+                              name = "lfc ",
+                              column_title = "combined14 cluster means",
+                              column_title_gp = gpar(fontsize = 12),
+                              col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+                              cluster_rows = FALSE,
+                              cluster_row_slices = FALSE,
+                              cluster_columns = FALSE,
+                              row_gap = unit(2, "mm"),
+                              row_names_side = "left",
+                              row_title = " ",
+                              show_row_names = TRUE,
+                              row_names_gp = gpar(fontsize = 12),
+                              column_names_gp = gpar(fontsize = 10),
+                              use_raster = FALSE)
+draw(hm_combined14_mean, heatmap_legend_side = "left")
 mean_highlight_thresh <- 0.5
 hm_combined14_mean_obj <- Heatmap(combined14_features_data_mean_dm,
                             name = "lfc ",
@@ -505,6 +505,7 @@ if(write_csvs){
   df <- combined14_features_data_ann %>%
   filter(!Type == "RNAseq")
   res <- write_csv(df, "../tables/MDD_combined14_noRNAseq.csv")
+    res <- write_csv(combined14_features_data_mean, "../tables/MDD_combined14_mean.csv")
 }
 #Make heatmap with annotations
 haRow_noRNA_combined14 <- HeatmapAnnotation(df = combined14_noRNA_features_ann,
@@ -1853,8 +1854,8 @@ p_mod9_edu <- ggplot(df, aes(x = module_value, y = phenotype_value)) +
     scale_color_manual(values = ligand_cols) +
     scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(4, 6)) +
   labs(title = "Module 9 EdU positive proportion vs module",
-       x = "Module score",
-       y = "EdU positive proportion score") +
+       x = "Module expression",
+       y = "EdU positive proportion") +
    guides(color = guide_legend(override.aes = list(size = 4)),
            size = guide_legend(override.aes = list(shape = 19))) +
     theme_bw() +
@@ -1862,6 +1863,67 @@ p_mod9_edu <- ggplot(df, aes(x = module_value, y = phenotype_value)) +
           panel.grid.minor = element_blank(),
           strip.text.x = element_text(size = 3.5))
 p_mod9_edu
+
+
+df <- module_phenotype_data_ann %>%
+  filter(module == "10+15",
+         feature == "Mean_Cells_per_Cluster")
+
+p_mod10_15_mcc <- ggplot(df, aes(x = module_value, y = phenotype_value)) +
+  stat_smooth(se = FALSE, method = "lm") +
+ geom_point(aes(color = ligand, size = time), alpha = .9) +
+    scale_color_manual(values = ligand_cols) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(4, 6)) +
+  labs(title = "Module 10+15 Mean_Cells_per_Cluster proportion vs module",
+       x = "Module expression",
+       y = "Mean cells per cluster") +
+   guides(color = guide_legend(override.aes = list(size = 4)),
+           size = guide_legend(override.aes = list(shape = 19))) +
+    theme_bw() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          strip.text.x = element_text(size = 3.5))
+p_mod10_15_mcc
+
+df <- module_phenotype_data_ann %>%
+  filter(module == "11",
+         feature == "Mean_Cells_per_Cluster")
+
+p_mod11_mcc <- ggplot(df, aes(x = module_value, y = phenotype_value)) +
+  stat_smooth(se = FALSE, method = "lm") +
+ geom_point(aes(color = ligand, size = time), alpha = .9) +
+    scale_color_manual(values = ligand_cols) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(4, 6)) +
+  labs(title = "Module 11 Mean_Cells_per_Cluster proportion vs module",
+       x = "Module expression",
+       y = "Mean cells per cluster") +
+   guides(color = guide_legend(override.aes = list(size = 4)),
+           size = guide_legend(override.aes = list(shape = 19))) +
+    theme_bw() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          strip.text.x = element_text(size = 3.5))
+p_mod11_mcc
+
+df <- module_phenotype_data_ann %>%
+  filter(module == "8+17",
+         feature == "Normalized_Second_Neighbor_Dist")
+
+p_mod8_17_nsnd <- ggplot(df, aes(x = module_value, y = phenotype_value)) +
+  stat_smooth(se = FALSE, method = "lm") +
+ geom_point(aes(color = ligand, size = time), alpha = .9) +
+    scale_color_manual(values = ligand_cols) +
+    scale_radius(breaks = c(0,1,4, 8, 24, 48), range = c(4, 6)) +
+  labs(title = "Module 8+17 Normalized_Second_Neighbor_Dist proportion vs module",
+       x = "Module expression",
+       y = "Normalized second neighbor dist") +
+   guides(color = guide_legend(override.aes = list(size = 4)),
+           size = guide_legend(override.aes = list(shape = 19))) +
+    theme_bw() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          strip.text.x = element_text(size = 3.5))
+p_mod8_17_nsnd
 
 if(create_pdfs) {
   pdf("../plots/MDD_combined14_module_phenotype_scatterplots.pdf",
@@ -1871,9 +1933,12 @@ if(create_pdfs) {
 }
 
 if(create_pdfs) {
-  pdf("../plots/MDD_combined14_module_9_EdU_scatterplots.pdf")
+  pdf("../plots/MDD_combined14_module_vs_phenotypes_scatterplots.pdf")
   res <- print(p_mod9_edu)
-  res <- dev.off()
+    res <- print(p_mod10_15_mcc)
+   res <- print(p_mod11_mcc)
+    res <- print(p_mod8_17_nsnd) 
+    res <- dev.off()
 }
 
 ```
@@ -1948,7 +2013,6 @@ p <- ggplot(df, aes(x = Type, fill = Type)) +
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.line =element_blank())
-
 p
 
 p_log <- ggplot(df, aes(x = Type, fill = Type)) +
@@ -2074,6 +2138,27 @@ if(create_pdfs){
   res <- dev.off()
 }
 
+#Run gap analysis on RNAseq only  
+  dm <- combined18_features_data %>%
+    filter(Type == "RNAseq") %>%
+    select(all_of(condition_order)) %>%
+    as.matrix()
+  
+  if(file.exists(paste0("../integrated_analysis/gss_RNAseq_",cluster_method,"_combined18.rda"))){
+    load(paste0("../integrated_analysis/gss_RNAseq_",cluster_method,"_combined18.rda"))
+  } else {
+    gss_RNAseq_combined18 <- clusGap(dm, FUN = pam, pamonce = 5, K.max = 25, B = 100, verbose = FALSE)
+    save(gss_RNAseq_combined18, file = paste0("../integrated_analysis/gss_RNAseq_",cluster_method,"_combined18.rda"))
+  }
+  
+  plot_gap_custom(gss_RNAseq_combined18, "ombined18_RNAseq")
+  if(create_pdfs){
+    pdf("../plots/MDD_combined18_RNAseq_gap_cluster.pdf")
+    p <- plot_gap_custom(gss_RNAseq_combined18)
+    print(p)
+    res <- dev.off()
+  }
+  
 # #Shared gap analysis
 # dm <- shared_features_data %>%
 #     select(all_of(condition_order)) %>%
@@ -2391,6 +2476,217 @@ if(create_pdfs){
 
 ```
 
+```{r RNAseq_influence}
+#Birtwistle asked about how much of the module analysis was driven by the RNAseq data. I don’t want to spend a lot of time on this b/c I think it is adjacent to our goal of integrating over all data types, but I think there is one quick thing we can do: take the RNAseq data included in the megamatrix file to construct modules and cluster it. Then perform a confusion matrix analysis to compare overlap of RNAseq-only clusters to the distribution of RNAseq features for clusters you identified already. Assume that your integrative clusters represent ‘truth’. https://www.rdocumentation.org/packages/caret/versions/3.45/topics/confusionMatrix. If we get good overlap of clusters, we would conclude RNAseq is driving clusters; if we do not, then we would say that inclusion of other assay types is important for identification of integrative clusters. Thoughts on this?
+
+if(file.exists(paste0("../integrated_analysis/MDD_RNAseq_clusters.rda"))){
+    load(paste0("../integrated_analysis/MDD_RNAseq_clusters.rda"))
+  } else {
+    set.seed(42)
+    combined18_RNAseq <- combined18_features_dm[str_detect(rownames(combined18_features_dm), ".*_RNAseq"),]
+    medoids <- sample(1:nrow(combined18_RNAseq), size = combined_clust_num, replace = FALSE)
+    clusters  <- pam(x = combined18_RNAseq, k = combined_clust_num, medoids = medoids, cluster.only=TRUE, pamonce = 5)
+    combined18_RNAseq_data_ann <- as_tibble(combined18_RNAseq, rownames = "feature_type") %>%
+      mutate(Cluster = clusters)
+
+    combined18_RNAseq_clusters <- tibble(feature_type = rownames(combined18_RNAseq),
+                                     Cluster = clusters)
+    save(combined18_RNAseq_clusters,combined18_RNAseq_data_ann, file = paste0("../integrated_analysis/MDD_RNAseq_clusters.rda"))
+  }
+
+library(caret)
+
+
+#find correlations between the modules and show cut to combine
+# #Modules only set
+# if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module")]
+
+#Create a matrix and heatmap of the mean combined18 values
+combined18_RNAseq_mean <- combined18_RNAseq_data_ann %>%
+  select(-feature_type) %>%
+  group_by(Cluster) %>%
+  summarise(across(.cols = matches("_24|48"), .fns = mean, .groups = "drop"))
+
+combined18_RNAseq_mean_dm <- combined18_RNAseq_mean %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(combined18_RNAseq_mean_dm) <- paste0("Module_",combined18_RNAseq_mean$Cluster)
+
+cor_dm <- cor(t(combined18_RNAseq_mean_dm),  method = "pearson")
+hr = hclust(dist(cor_dm))
+clusters = dendextend::cutree(hr, k = 14)
+##Adding cuttree
+##
+cor_hm <- Heatmap(cor_dm,
+                   name = "pearson\ncorrelation",
+                  row_names_gp = gpar(fontsize = 10),
+                  split = clusters,
+                  column_names_gp = gpar(fontsize = 10),
+                  col = colorRamp2(c(-1, 0, 1), c("#2166AC", "white", "#B2182B")))
+cor_hm
+
+combined14_RNAseq_cluster_names <-c("A", "B", LETTERS[4:11], "C1","C2","C3","C4")
+
+#Use the combined18 RNAseq data and the cluster assignments to
+#create the combined14 RNAseq dataset
+
+combined14_RNAseq_features_data_ann <- combined18_RNAseq_data_ann %>%
+    mutate(Cluster = as.character(Cluster),
+           Cluster = case_when(Cluster == "1" ~"A",
+                               Cluster %in% c("2","17") ~"C1",
+                               Cluster == "3" ~"B",
+                               Cluster == "4" ~"D",
+                               Cluster %in% c("5","13") ~"C2",
+                               Cluster == "6" ~"E",
+                               Cluster %in% c("7", "16") ~"C3",
+                               Cluster == "8" ~"F",
+                               Cluster == "9" ~"G",
+                               Cluster %in% c("10","12") ~"C4",
+                               Cluster == "11" ~"H",
+                               Cluster == "14" ~"I",
+                               Cluster == "15" ~"J",
+                               Cluster == "18" ~"K"),
+      Cluster = factor(Cluster, levels = combined14_RNAseq_cluster_names, ordered = TRUE)) %>%
+  as.data.frame()
+
+#Remove the cluster assignments to keep the code similar to the 
+#other dataset processing
+# combined14_RNAseq_features_data <- combined14_RNAseq_features_data_ann %>%
+#   select(-Cluster)
+
+# #create a numeric matrix with feature row names
+# combined14_RNAseq_features_dm <- combined14_RNAseq_features_data %>%
+#   select(all_of(condition_order)) %>%
+#   as.matrix() 
+# rownames(combined14_RNAseq_features_dm) <- combined14_RNAseq_features_data$feature_type
+# combined14_RNAseq_features_dm <- combined14_RNAseq_features_dm[!is.nan(combined14_RNAseq_features_dm[,1]),]
+# 
+combined14_RNAseq_clusters <- combined14_RNAseq_features_data_ann %>%
+  select(feature_type, Cluster)
+
+df <- combined14_features_data_ann %>%
+  filter(Type == "RNAseq") %>%
+  select(feature_type, Cluster) %>%
+  rename(Integrated_cluster = Cluster) %>%
+  mutate(Integrated_cluster = case_when(Integrated_cluster == "1" ~"A",
+                                        Integrated_cluster == "2" ~"B",
+                                        Integrated_cluster == "5" ~"D",
+                                        Integrated_cluster == "7" ~"E",
+                                        Integrated_cluster == "9" ~"F",
+                                        Integrated_cluster == "11" ~"G",
+                                        Integrated_cluster == "12" ~"H",
+                                        Integrated_cluster == "13" ~"I",
+                                        Integrated_cluster == "14" ~"J",
+                                        Integrated_cluster == "18" ~"K",
+                                        Integrated_cluster == "3+4" ~"C1",
+                                        Integrated_cluster == "6+16" ~"C2",
+                                        Integrated_cluster == "8+17" ~"C3",
+                                        Integrated_cluster == "10+15" ~"C4"),
+         Integrated_cluster = factor(Integrated_cluster, levels = combined14_RNAseq_cluster_names, ordered = TRUE)) %>%
+  left_join(combined14_RNAseq_clusters, by = "feature_type") %>%
+    rename(RNAseq_only_cluster = Cluster)
+
+cf_matrix <- confusionMatrix(factor(df$RNAseq_only_cluster), df$Integrated_cluster)
+
+#####Cluster the integrated matrix with and without non-RNAseq features 
+#and with k = 14
+
+
+if(file.exists(paste0("../integrated_analysis/MDD_14_clusters.rda"))){
+    load(paste0("../integrated_analysis/MDD_14_clusters.rda"))
+  } else {
+    set.seed(42)
+    medoids <- sample(1:nrow(combined18_features_dm), size = 14, replace = FALSE)
+    clusters  <- pam(x = combined18_features_dm, k = 14, medoids = medoids, cluster.only=TRUE, pamonce = 5)
+    im_14_data_ann <- as_tibble(combined18_features_dm, rownames = "feature_type") %>%
+      mutate(Cluster = clusters)
+    
+    combined18_RNAseq_dm <- combined18_features_dm[str_detect(rownames(combined18_features_dm), ".*_RNAseq"),]
+    set.seed(42)
+    medoids <- sample(1:nrow(combined18_RNAseq_dm), size = 14, replace = FALSE)
+    clusters  <- pam(x = combined18_RNAseq_dm, k = 14, medoids = medoids, cluster.only=TRUE, pamonce = 5)
+    im_14_RNAseq_data_ann <- as_tibble(combined18_RNAseq_dm, rownames = "feature_type") %>%
+      mutate(Cluster = clusters)
+    im_14_RNAseq_clusters <- tibble(feature_type = rownames(combined18_RNAseq_dm),
+                                     Cluster = clusters)
+    save(im_14_data_ann,
+         im_14_RNAseq_data_ann,
+         im_14_RNAseq_clusters,
+         file = paste0("../integrated_analysis/MDD_14_clusters.rda"))
+  }
+
+
+df_14 <- im_14_data_ann %>%
+  select(feature_type, Cluster) %>%
+  filter(str_detect(feature_type, "RNAseq")) %>%
+  rename(Integrated_cluster = Cluster) %>%
+left_join(im_14_RNAseq_clusters, by = "feature_type") %>%
+    rename(RNAseq_cluster = Cluster) %>%
+  mutate(Integrated_cluster = as_factor(Integrated_cluster),
+         RNAseq_cluster = as_factor(RNAseq_cluster))
+
+cf_14_matrix <- confusionMatrix(df_14$RNAseq_cluster, reference = df_14$Integrated_cluster)
+
+#14 Int clusters and 14 RNAseq clusters
+df_int14 <- combined14_features_data_ann %>%
+ select(feature_type, Cluster) %>%
+  filter(str_detect(feature_type, "RNAseq")) %>%
+  rename(Integrated_cluster = Cluster) %>%
+   mutate(Integrated_cluster = case_when(Integrated_cluster == "1" ~"1",
+                                        Integrated_cluster == "2" ~"2",
+                                        Integrated_cluster == "5" ~"5",
+                                        Integrated_cluster == "7" ~"7",
+                                        Integrated_cluster == "9" ~"9",
+                                        Integrated_cluster == "11" ~"11",
+                                        Integrated_cluster == "12" ~"12",
+                                        Integrated_cluster == "13" ~"13",
+                                        Integrated_cluster == "14" ~"14",
+                                        Integrated_cluster == "18" ~"4",
+                                        Integrated_cluster == "3+4" ~"3",
+                                        Integrated_cluster == "6+16" ~"6",
+                                        Integrated_cluster == "8+17" ~"8",
+                                        Integrated_cluster == "10+15" ~"10")) %>%
+left_join(im_14_RNAseq_clusters, by = "feature_type") %>%
+    rename(RNAseq_cluster = Cluster) %>%
+  mutate(Integrated_cluster = as_factor(Integrated_cluster),
+         RNAseq_cluster = as_factor(RNAseq_cluster))
+
+cf_int_14_matrix <- confusionMatrix(df_int14$RNAseq_cluster, reference = df_int14$Integrated_cluster)
+
+
+#Compare stability of the Int 14 clusters that have different starting points
+
+generate_ConfusionMatrix <- function(df, df_ref){
+  df_int14 <- df_ref %>%
+ select(feature_type, Cluster) %>%
+  rename(Integrated_cluster = Cluster) %>%
+   mutate(Integrated_cluster = case_when(Integrated_cluster == "1" ~"1",
+                                        Integrated_cluster == "2" ~"2",
+                                        Integrated_cluster == "5" ~"5",
+                                        Integrated_cluster == "7" ~"7",
+                                        Integrated_cluster == "9" ~"9",
+                                        Integrated_cluster == "11" ~"11",
+                                        Integrated_cluster == "12" ~"12",
+                                        Integrated_cluster == "13" ~"13",
+                                        Integrated_cluster == "14" ~"14",
+                                        Integrated_cluster == "18" ~"4",
+                                        Integrated_cluster == "3+4" ~"3",
+                                        Integrated_cluster == "6+16" ~"6",
+                                        Integrated_cluster == "8+17" ~"8",
+                                        Integrated_cluster == "10+15" ~"10")) %>%
+left_join(im_14_RNAseq_clusters, by = "feature_type") %>%
+    rename(RNAseq_cluster = Cluster) %>%
+  mutate(Integrated_cluster = as_factor(Integrated_cluster),
+         RNAseq_cluster = as_factor(RNAseq_cluster))
+#   cor_dm <- cor(t(combined18_features_data_mean_dm),  method = "pearson")
+# hr = hclust(dist(cor_dm))
+# clusters = dendextend::cutree(hr, k = 14)
+}
+  
+  
+```
+
+
 
 This analysis can be interpreted to select the number of clusters in the dataset. It is based on a method described in Modern Statistics for Modern Biology by Susan Holmes and Wolfgang Huber http://web.stanford.edu/class/bios221/book/Chap-Clustering.html and is excerpted below.  
 
@@ -2424,6 +2720,27 @@ This, the default, has been proposed by Martin Maechler in 2012, when adding clu
 
 
 
+#### gss_RNAseq_combined18
+
+Three of the methods for choosing k using a gap statitistic are:  
+"Tibs2001SEmax": `r maxSE(gss_RNAseq_combined18$Tab[,'gap'], SE.f = gss_RNAseq_combined18$Tab[,'SE.sim'],
+      method = c("Tibs2001SEmax"),
+      SE.factor = 1) `  
+      
+uses the criterion, Tibshirani et al (2001) proposed: “the smallest k such that f(k) ≥ f(k+1) - s_{k+1}”. Note that this chooses k = 1 when all standard deviations are larger than the differences f(k+1) - f(k).
+
+
+"firstSEmax": `r maxSE(gss_RNAseq_combined18$Tab[,'gap'], SE.f = gss_RNAseq_combined18$Tab[,'SE.sim'],
+      method = c("firstSEmax"),
+      SE.factor = 1) `  
+      
+location of the first f() value which is not smaller than the first local maximum minus SE.factor * SE.f[], i.e, within an “f S.E.” range of that maximum (see also SE.factor).
+
+This, the default, has been proposed by Martin Maechler in 2012, when adding clusGap() to the cluster package, after having seen the "globalSEmax" proposal (in code) and read the "Tibs2001SEmax" proposal.
+
+"globalSEmax": `r maxSE(gss_RNAseq_combined18$Tab[,'gap'], SE.f = gss_RNAseq_combined18$Tab[,'SE.sim'],
+      method = c("globalSEmax"),
+      SE.factor = 1)`    
 ###
 
 
