@@ -14,8 +14,8 @@ library(ComplexHeatmap)
 library(circlize)
 
 
-create_pdfs <- TRUE
-write_csvs <- TRUE
+create_pdfs <- FALSE
+write_csvs <- FALSE
 
 #dotplot filter values 
 fdr_thresh <- .1
@@ -92,29 +92,6 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
      return(genes$feature)
  }
  
- # #make a list with a character vector of gene names from each module
- # get_genes_from_previous_excel <- function(sheet_name, file_name){
- #     genes <- read_excel(file_name, sheet = sheet_name) %>%
- #    filter(assay == "RNA") %>%
- #       mutate(module = sheet_name) %>%
- #       select(module, symbol)
- #     return(genes$symbol)
- # }
- # # 
- # if(!file.exists("MDD_Reactome_pathways_combined18.csv")){
- #   file_name <- "MDD_int_rr_combined18_tables.xlsx"
- #   gene_list <- map(excel_sheets(file_name), get_genes_from_excel, file_name = file_name)
- #   names(gene_list) <- excel_sheets(file_name)
- #       gene_list <- compact(gene_list)
- #   pathways_combined <- map_dfr(gene_list, get_pathway_data, .id = "module") %>%
- #         mutate(module = fct_inorder(module,ordered = TRUE))
- #   write_csv(pathways_combined, "MDD_Reactome_pathways_combined.csv")
- # } else {
- #   pathways_combined <- read_csv("MDD_Reactome_pathways_combined18.csv") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- # 
- # }
- 
  #manually combine some modules based on biological review
   if(!file.exists("../tables/MDD_Reactome_pathways_combined14.csv")){
     file_name <- "../tables/MDD_int_rr_combined18_tables.xlsx"
@@ -133,53 +110,7 @@ Read in the cluster data from the integrated analysis, filter to RNA features an
    pathways_combined14 <- read_csv("../tables/MDD_Reactome_pathways_combined14.csv") %>%
          mutate(module = factor(module, ordered = TRUE, levels = gtools::mixedsort(unique(module))))
  }
- 
- #Get pathways of newly induced gene sets
- #   if(!file.exists("MDD_Reactome_pathways_newly_induced_genes_ligands.csv")){
- #    file_name <- "MDD_RNAseq_inducedGeneList_ligands.csv"
- #    newly_induced_genes_ligands_df <- read_csv(paste0("../integrated_analysis/Data/",file_name)) %>%
- #      group_by(Ligand) %>%
- #      select(hgnc_symbol)
- #    
- #    newly_induced_genes_ligands <- newly_induced_genes_ligands_df %>%
- #      group_split()
- #    newly_induced_genes_ligands_list <- map(newly_induced_genes_ligands, function(x){
- #      return(x$hgnc_symbol)
- #      })
- #    names(newly_induced_genes_ligands_list)<- newly_induced_genes_ligands_df %>%
- #      group_keys() %>%
- #      unlist()
- #    
- #   pathways_newly_induced_genes_ligands <- map_dfr(newly_induced_genes_ligands_list, get_pathway_data, .id = "module") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- #   write_csv(pathways_newly_induced_genes_ligands, "../tables/MDD_Reactome_pathways_newly_induced_genes_ligands.csv")
- # } else {
- #   pathways_newly_induced_genes_ligands <- read_csv("MDD_Reactome_pathways_newly_induced_genes_ligands.csv") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- # }
- # #Pathway analaysis of newly induced genes by condition
- #   if(!file.exists("MDD_Reactome_pathways_newly_induced_genes_conditions.csv")){
- #    file_name <- "MDD_RNAseq_inducedGeneList_experimentalConditions.csv"
- #    newly_induced_genes_conditions_df <- read_csv(paste0("../integrated_analysis/Data/",file_name)) %>%
- #      group_by(experimentalCondition) %>%
- #      select(hgnc_symbol)
- #    
- #    newly_induced_genes_conditions <- newly_induced_genes_conditions_df %>%
- #      group_split()
- #    newly_induced_genes_conditions_list <- map(newly_induced_genes_conditions, function(x){
- #      return(x$hgnc_symbol)
- #      })
- #    names(newly_induced_genes_conditions_list)<- newly_induced_genes_conditions_df %>%
- #      group_keys() %>%
- #      unlist()
- #    
- #   pathways_newly_induced_genes_conditions <- map_dfr(newly_induced_genes_conditions_list, get_pathway_data, .id = "module") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- #   write_csv(pathways_newly_induced_genes_conditions, "../tables/MDD_Reactome_pathways_newly_induced_genes_conditions.csv")
- # } else {
- #   pathways_newly_induced_genes_conditions <- read_csv("MDD_Reactome_pathways_newly_induced_genes_conditions.csv") %>%
- #         mutate(module = fct_inorder(module, ordered = TRUE))
- # }
+
 ```
 
 
