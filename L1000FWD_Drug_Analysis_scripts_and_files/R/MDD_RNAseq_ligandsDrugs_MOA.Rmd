@@ -59,7 +59,6 @@ sAnno <-
   
 MDD_RNAseq_degenes <-
   read.csv(rnaseqDEGeneTable, stringsAsFactors = FALSE) %>% 
-  filter(Ligand != "CTRL") %>% 
   filter(padj < fdrThresholdRNAseq)
   
 MDD_ligandLists <-
@@ -226,6 +225,11 @@ ligandDrugListCombinedLong %>%
 
 
 ```{r}
+df <- ligandDrugListCombinedLong %>%
+  filter(qvals <= 0.2) %>%
+  left_join(combinedAnnotations, by = "sig_id") %>%
+  write_csv(path = "../tables/MDD_l1000FWD.csv")
+
 ligandDrugListCombinedLong %>% 
   arrange(desc(scores)) %>% 
   left_join(combinedAnnotations) %>% 
@@ -244,6 +248,7 @@ ligandDrugListCombinedLong %>%
   group_by(moa) %>%
   summarize(n =n()) %>% 
   arrange(desc(n)) 
+
 ```
 
 ## All drug target-annotated results
@@ -318,12 +323,12 @@ hm_col_cl <- Heatmap(moa_dm,
 hm_col_cl
 
 
-pdf("../plots/drugAnnoBarPlot_drugClass_heatmap.pdf", height = 12, width = 8)
+#pdf("../plots/drugAnnoBarPlot_drugClass_heatmap.pdf", height = 12, width = 8)
 draw(hm)
 draw(hm_col_cl)
 res <- dev.off()    
 
-res <- write_csv(moa, "../tables/MDD_l1000_drugClass_MOA.csv")
+#res <- write_csv(moa, "../tables/MDD_l1000_drugClass_MOA.csv")
         
 p <-  ggplot(drugAnnoBarplot_drugClass, aes(Ligand, n, fill = moa)) +
   geom_col() +
@@ -335,10 +340,10 @@ p <-  ggplot(drugAnnoBarplot_drugClass, aes(Ligand, n, fill = moa)) +
  
  drugAnnoBarplot_drugClass_TGFB_OSM <- drugAnnoBarplot_drugClass %>%
    filter(Ligand %in% c("TGFB", "OSM"))
-write_csv(drugAnnoBarplot_drugClass, "../tables/MDD_l1000_drugClass.csv")
-write_csv(drugAnnoBarplot_drugClass_TGFB_OSM, "../tables/MDD_l1000_drugClass_TGFB_OSM.csv")
+#write_csv(drugAnnoBarplot_drugClass, "../tables/MDD_l1000_drugClass.csv")
+#write_csv(drugAnnoBarplot_drugClass_TGFB_OSM, "../tables/MDD_l1000_drugClass_TGFB_OSM.csv")
 
-pdf("../plots/drugAnnoBarPlot_drugClass.pdf", height = 12, width = 60)
+#pdf("../plots/drugAnnoBarPlot_drugClass.pdf", height = 12, width = 60)
 p
 res <- dev.off()
 ```
@@ -358,8 +363,8 @@ drugAnnoBarplot_targets <-
   ggtitle("Enriched target-annotated Drug Signatures") +
   scale_fill_discrete("Drug Target") +
   facet_wrap(~direction, ncol = 1)
-write_csv(drugAnnoBarplot_targets, "../tables/MDD_l1000_drugTargets.csv")
-pdf("../plots/drugAnnoBarPlot_drugTargets.pdf", height = 12, width = 60)
+#write_csv(drugAnnoBarplot_targets, "../tables/MDD_l1000_drugTargets.csv")
+#pdf("../plots/drugAnnoBarPlot_drugTargets.pdf", height = 12, width = 60)
 p
 res <- dev.off()
 ```
