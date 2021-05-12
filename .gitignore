@@ -46,6 +46,10 @@ rsconnect/
 *.png
 *.json
 *.gmt
+*.cls
+*_packages
+.DS_Store
+*.gitignore
 
 
 #data files
