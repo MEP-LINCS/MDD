@@ -1,0 +1,955 @@
+---
+title: "MDD integrated analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, cache.lazy = FALSE, message=FALSE, warning = FALSE, fig.height=10, fig.width=14)
+
+suppressMessages(library(tidyverse))
+library(ComplexHeatmap)
+library(circlize)
+library(umap)
+library(cluster)
+library(RColorBrewer)
+library(writexl)
+library(UpSetR)
+
+source("../R/MDD_functions.R")
+create_pdfs <- TRUE
+write_csvs <- TRUE
+
+```
+
+
+
+```{r setup_parameters_and_metadata}
+keep_PBS <- FALSE
+PBS_pointer <- "_noPBS2"
+if(keep_PBS) PBS_pointer <- ""
+
+data_path <- paste0("../integrated_analysis/integrated_matrix_lfc_rr",PBS_pointer, ".csv")
+p_values_path <- paste0("../integrated_analysis/integrated_adj_p_values", PBS_pointer, ".csv") 
+shared_features_path <- paste0("../integrated_analysis/integrated_shared_features_rr", PBS_pointer, ".csv") 
+unique_features_path <- paste0("../integrated_analysis/integrated_unique_features_rr", PBS_pointer, ".csv") 
+
+clust_num <- 12
+cluster_method <- "pam"
+
+experimentalTimePoints <- c("_24", "_48")
+ligand_order <-  c("PBS", "HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+ligand_order <-  c("HGF", "OSM", "EGF","BMP2+EGF", "IFNG+EGF", "TGFB+EGF")
+condition_order <- paste0(rep(ligand_order, each = length(experimentalTimePoints)), rep(c("_24", "_48"), times = length(ligand_order)))
+
+#create a named vector of color values for the Heatmap clusters
+cluster_cols <- c(structure(RColorBrewer::brewer.pal(12, "Paired")[c(1:12)], names = 1:12), c("13" = "black", "14" = "gray", "15" = "brown"))
+
+ligand_cols <- c("CTRL" = "#7A4A2A",
+                 "PBS" = "#8dd3c7",
+                 "HGF" = "#80b1d3",
+                 "OSM" = "#fdb462",
+                 "EGF" = "#fb8072",
+                 "BMP2+EGF" = "#b3de69",
+                 "IFNG+EGF" = "#bebada",
+                 "TGFB+EGF" = "#ffd92f")
+
+#create factors for Up/Down unique features
+up_down_cluster_levels <- paste(names(ligand_cols), rep(c("Negative", "Mixed", "Positive"), each = length(ligand_cols)), sep = "_")
+ 
+up_down_cluster_colors <- rep(ligand_cols, times = 3)
+names(up_down_cluster_colors) <- up_down_cluster_levels
+
+```
+
+This analysis is run with keep_PBS flag set to `r keep_PBS`.  
+The cluster method is `r cluster_method`.  
+Input files are `r data_path`, `r shared_features_path` and `r unique_features_path`.  
+
+
+```{r prepData}
+
+#Read in the integrated data, add EGF to some names, set order
+if(!file.exists(data_path)) stop("cannot read ",data_path)
+all_features_data <- read_csv(data_path) %>%
+  pivot_longer(cols = matches("_24|_48"), names_to = "condition") %>%
+  mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
+         condition = str_replace(condition, "IFNG","IFNG+EGF"),
+         condition = str_replace(condition, "TGFB","TGFB+EGF"),
+         feature_type =  paste(feature, Type, sep = "_")) %>%
+  pivot_wider(names_from = condition, values_from = value) %>%
+  select(feature, Type, feature_type, all_of(condition_order)) %>%
+  drop_na
+
+#Read in the integrated data, add EGF to some names, set order
+if(!file.exists(unique_features_path)) stop("cannot read ",unique_features_path)
+set.seed(42)
+unique_features <- read_csv(unique_features_path) %>%
+  slice_sample(prop = 1)
+unique_features_data <- unique_features%>%
+  mutate(ligand = str_replace(ligand, "BMP2","BMP2+EGF"),
+         ligand = str_replace(ligand, "IFNG","IFNG+EGF"),
+         ligand = str_replace(ligand, "TGFB","TGFB+EGF"),
+         feature_type =  paste(feature, Type, sep = "_"),
+         Set = ligand) %>%
+  select(ligand, feature_type, Direction, Set) %>%
+  left_join(all_features_data, by = "feature_type") %>%
+  rename(Cluster = ligand) %>%
+  mutate(Cluster = paste(Cluster, Direction, sep = "_")) %>%
+  drop_na
+
+#Read in the integrated data, add EGF to some names, set order
+if(!file.exists(shared_features_path)) stop("cannot read ",shared_features_path)
+set.seed(42)
+shared_features <- read_csv(shared_features_path) %>%
+  slice_sample(prop = 1)
+shared_features_data <- shared_features %>%
+  mutate(ligand = str_replace(ligand, "BMP2","BMP2+EGF"),
+         ligand = str_replace(ligand, "IFNG","IFNG+EGF"),
+         ligand = str_replace(ligand, "TGFB","TGFB+EGF"),
+         feature_type =  paste(feature, Type, sep = "_"),
+         Set = "shared") %>%
+  select(feature_type, Set) %>%
+  distinct() %>%
+  left_join(all_features_data, by = c("feature_type" ))  %>%
+  drop_na
+set.seed(42)
+set_features_data <- bind_rows(shared_features_data, select(unique_features_data, -Direction, -Cluster)) %>%
+  slice_sample(prop = 1)
+assay_cols <- structure(RColorBrewer::brewer.pal(8, "Paired")[c(3, 2,6,5, 1)], names = unique(set_features_data$Type))
+
+```
+## {.tabset .tabset-fade}
+
+### heatmap
+
+```{r heatmaps}
+
+#create a numeric matrix with feature row names
+set_features_dm <- set_features_data %>%
+  select(all_of(condition_order)) %>%
+  as.matrix() 
+rownames(set_features_dm) <- set_features_data$feature_type
+set_features_dm <- set_features_dm[!is.nan(set_features_dm[,1]),]
+
+#cluster all features 
+if(cluster_method == "kmeans"){
+  #seed the clustering with a fixed, random set of points
+  set.seed(42)
+  centers <- set_features_dm[sample(1:nrow(set_features_dm), size = clust_num, replace = FALSE),]
+  clusters <- kmeans(x = set_features_dm, iter.max = 20, centers = centers)$cluster
+} else if(cluster_method == "HA") {
+  clust_obj <- hclust(dist(set_features_dm))
+  clusters <- cutree(clust_obj, k = clust_num)
+} else if(cluster_method == "pam") {
+  
+  if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))){
+    load(paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))
+  } else {
+    set.seed(42)
+    medoids <- sample(1:nrow(set_features_dm), size = clust_num, replace = FALSE)
+    clusters  <- pam(x = set_features_dm, k = clust_num, medoids = medoids, cluster.only=TRUE)
+    save(clusters, file = paste0("../integrated_analysis/MDD_",cluster_method,"_clusters.rda"))
+  }
+  
+} else stop("unsupported cluster method chosen")
+
+#Add the cluster assignements to the data
+set_features_data_ann <-  tibble(feature_type = names(clusters),
+                           Cluster = clusters) %>%
+  right_join(set_features_data, by = "feature_type") %>%
+    mutate(Cluster = factor(Cluster, ordered = TRUE))
+
+set_features_ann <- set_features_data_ann %>%
+  select(Cluster, Type, Set) %>%
+  as.data.frame()
+
+haRow_set <- HeatmapAnnotation(df = set_features_ann,
+                               which = "row",
+                               col = list(Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE),
+                                          Type = assay_cols,
+                                          Set = c("shared" = "black", ligand_cols)))
+
+hm_set <- Heatmap(set_features_dm,
+               name = "lfc rr",
+               column_title = "Set features",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-1.5, 0, 1.5), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE, 
+               cluster_columns = FALSE,
+               row_split = set_features_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = FALSE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_set,
+               use_raster = FALSE)
+hm_set
+
+if(create_pdfs){
+  pdf("MDD_integrated_rr_set_heatmap.pdf") 
+  draw(hm_set)
+  res <- dev.off()
+} 
+#######
+#Shared features
+
+#Create data and metadata matrices and annotations
+#cluster and order by cluster value
+
+shared_features_dm <- shared_features_data %>%
+  select(all_of(condition_order)) %>%
+  as.matrix() 
+
+rownames(shared_features_dm) <- shared_features_data$feature_type
+shared_features_dm <- shared_features_dm[!is.nan(shared_features_dm[,1]),]
+
+#cluster shared matrix
+if(cluster_method == "kmeans"){
+  #seed the kmeans clustering with a fixed, random set of points
+set.seed(42)
+centers <- shared_features_dm[sample(1:nrow(shared_features_dm), size = clust_num, replace = FALSE),]
+clusters <- kmeans(x = shared_features_dm, iter.max = 20, centers = centers)$cluster
+} else if(cluster_method == "HA") {
+  clust_obj <- hclust(dist(shared_features_dm))
+  clusters <- cutree(clust_obj, k = clust_num)
+} else if(cluster_method == "pam") {
+   set.seed(42)
+medoids <- sample(1:nrow(shared_features_dm), size = clust_num, replace = FALSE)
+  clusters  <- pam(x = shared_features_dm, k = clust_num, medoids = medoids, cluster.only=TRUE)
+} else stop("unsupported cluster method chosen")
+
+shared_features_data_ann <-tibble(feature_type = names(clusters),
+                 Cluster = clusters) %>%
+  right_join(shared_features_data, by = "feature_type") %>%
+  mutate(Cluster = factor(Cluster, levels = 1:clust_num, ordered = TRUE))
+
+shared_features_ann <-shared_features_data_ann %>%
+    select(Cluster, Type) %>%
+  as.data.frame()
+
+haRow_shared <- HeatmapAnnotation(df = shared_features_ann,
+                           which = "row",
+                           col = list(Cluster = factor(cluster_cols, levels = cluster_cols, ordered = TRUE),
+                                      Type = assay_cols))
+
+hm_shared <- Heatmap(shared_features_dm,
+               name = "lfc rr",
+               column_title = "Shared features",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = TRUE, 
+               cluster_columns = FALSE,
+               row_split = shared_features_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = FALSE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_shared,
+               use_raster = FALSE)
+hm_shared
+if(create_pdfs){
+  pdf("MDD_integrated_rr_shared_heatmap.pdf") 
+  draw(hm_shared)
+  res <- dev.off()
+} 
+
+# #Create a matrix and heatmap of the mean cluster values by condition
+ shared_features_data_mean <- shared_features_data_ann %>%
+  group_by(Cluster) %>%
+  summarise(across(.cols = matches("_24|48"), .fns = mean))
+
+  shared_features_count <- shared_features_data_ann %>%
+  group_by(Cluster) %>%
+ count()
+  
+shared_features_data_mean_dm <- shared_features_data_mean %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(shared_features_data_mean_dm) <- paste0("Module_",shared_features_data_mean$Cluster,"_", shared_features_count$n)
+
+hm_shared_mean <- Heatmap(shared_features_data_mean_dm,
+               name = "lfc ",
+               column_title = "Shared cluster averages",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               use_raster = FALSE)
+
+#make a heatmap of the unique features
+#Create data and metadata matrices and annotations
+#k means cluster and order by cluster value
+
+unique_features_data_ann <- unique_features_data %>%
+  mutate(Ligand = str_remove(Cluster, "_.*"),
+         Ligand = factor(Ligand,  ordered = TRUE),
+         Direction = factor(Direction, ordered = TRUE),
+    Cluster = factor(Cluster, ordered = TRUE)) 
+
+unique_features_ann <- unique_features_data_ann %>%
+    select(Ligand, Direction, Type) %>%
+  as.data.frame()
+
+haRow_unique <- HeatmapAnnotation(df = unique_features_ann,
+                                  which = "row",
+                                  col = list(Ligand = factor(ligand_cols, levels = ligand_cols, ordered = TRUE),
+                                             Type = assay_cols,
+                                             Direction = factor(c("Negative" = "blue","Mixed" = "gray","Positive" = "red"))))
+
+unique_features_data_dm<- unique_features_data_ann %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+
+hm_unique <- Heatmap(unique_features_data_dm,
+               name = "lfc rr",
+               column_title = "Ligand-unique features",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = TRUE, 
+               cluster_columns = FALSE,
+               row_split = unique_features_data_ann$Cluster,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = FALSE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               left_annotation = haRow_unique,
+               use_raster = FALSE)
+hm_unique
+
+if(create_pdfs){
+  pdf("MDD_integrated_rr_unique_heatmap.pdf") 
+  draw(hm_unique)
+  res <- dev.off()
+} 
+
+
+# #Create a matrix and heatmap of the mean cluster values by condition
+ unique_features_data_mean <- unique_features_data_ann %>%
+  group_by(Cluster) %>%
+  summarise(across(.cols = matches("_24|48"), .fns = mean))
+
+  unique_features_count <- unique_features_data_ann %>%
+  group_by(Cluster) %>%
+    count()
+
+unique_features_data_mean_dm <- unique_features_data_mean %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(unique_features_data_mean_dm) <- paste0(unique_features_data_mean$Cluster, "_",unique_features_count$n)
+
+hm_unique_mean <- Heatmap(unique_features_data_mean_dm,
+               name = "lfc ",
+               column_title = "Unique cluster averages",
+               column_title_gp = gpar(fontsize = 12),
+               col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
+               cluster_rows = FALSE,
+               cluster_row_slices = FALSE,
+               cluster_columns = FALSE,
+               row_gap = unit(2, "mm"),
+               row_title = " ",
+               show_row_names = TRUE,
+               row_names_gp = gpar(fontsize = 8),
+               column_names_gp = gpar(fontsize = 10),
+               use_raster = FALSE)
+
+hm_shared_mean
+hm_unique_mean
+
+if(create_pdfs){
+  pdf("MDD_mean_heatmaps.pdf") 
+  draw(hm_shared_mean)
+  draw(hm_unique_mean)
+  res <- dev.off()
+} 
+
+```
+
+```{r writeTables}
+selectFeature <- function(df){
+  #browser()
+  res <- df %>%
+    select(feature, Type) %>%
+    mutate(analyte = str_remove(feature, "_.*")) %>%
+    rename(assay = Type) %>%
+    select(feature, analyte, assay, time, symbol)
+return(res)
+}
+
+selectDerivedFeature <- function(df){
+  #browser()
+  res <- df %>%
+    select(feature, FDR, Type)
+return(res)
+}
+
+module_features <- set_features_data_ann %>%
+  arrange(Cluster, Type) %>%
+  mutate(Cluster = paste0("module_", Cluster),
+         Cluster = factor(Cluster, levels = unique(Cluster))) %>%
+  split(.$Cluster) 
+
+res <- write_xlsx(module_features,
+                  path = "MDD_int_rr_set_tables.xlsx")
+
+module_features <- shared_features_data_ann %>%
+  arrange(Cluster, Type) %>%
+  mutate(Cluster = paste0("module_", Cluster),
+         Cluster = factor(Cluster, levels = unique(Cluster))) %>%
+  split(.$Cluster) 
+
+res <- write_xlsx(module_features,
+                  path = "MDD_int_rr_shared_tables.xlsx")
+
+module_features <- unique_features_data %>%
+  arrange(Cluster, Type) %>%
+  mutate(Cluster = paste0("module_", Cluster),
+         Cluster = factor(Cluster, levels = unique(Cluster))) %>%
+  split(.$Cluster) 
+
+res <- write_xlsx(module_features,
+                  path = "MDD_int_rr_unique_tables.xlsx")
+```
+
+
+### UMAPs
+
+```{r UMAPAnalysis, fig.width=5.75, fig.height=4.75}
+
+#Generate a 2d scatterplot of the UMAP dimensions and color by clusters, assay type
+
+#Create annotation values
+dm <- shared_features_data_ann %>%
+  dplyr::select(-feature, -Cluster, -Type, -feature_type, -Set) %>%
+  as.matrix()
+rownames(dm) <- shared_features_data_ann$feature_type
+
+custom_settings = umap.defaults
+custom_settings$random_state <- 42
+custom_settings$n_epochs = 200
+custom_settings$n_neighbors = 15
+
+if(file.exists(paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))){
+  load(paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))
+} else {
+df_UMAP <- umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
+  data.frame(feature_type = rownames(dm)) %>%
+  rename(UMAP_1 = X1,
+         UMAP_2 = X2) %>%
+  left_join(shared_features_data_ann, by = "feature_type") 
+save(df_UMAP, file = paste0("../integrated_analysis/MDD_",cluster_method,"_UMAP.rda"))
+}
+
+plot_UMAP_3d <- FALSE
+if(plot_UMAP_3d){
+  custom_settings$n_components = 3
+  
+  df_UMAP_3d <-  umap(dm, config = custom_settings, na.rm = TRUE)$layout %>%
+    data.frame(feature = rownames(dm)) %>%
+    rename(UMAP_1 = X1,
+           UMAP_2 = X2,
+           UMAP_3 = X3) %>%
+    left_join(integrated_shared, by = "feature")
+  df_UMAP_3d$Cluster_color <- cluster_cols[df_UMAP_3d$Cluster]
+  save(df_UMAP_3d, file = "MDD_UMAP_3d")
+  
+  library(rgl)
+  plot3d(df_UMAP_3d$UMAP_1,
+         df_UMAP_3d$UMAP_2,
+         df_UMAP_3d$UMAP_3,
+         col = factor(df_UMAP_3d$Cluster_color))
+}
+
+  p <- ggplot(df_UMAP, aes(x = UMAP_1,
+                           y = UMAP_2,
+                           colour = factor(Cluster))) +
+    geom_point(size = 1, alpha = .6, shape = 16) +
+    scale_color_manual(values = cluster_cols) +
+    labs(title = paste("UMAP embedding colored by cluster"),
+         colour = "Cluster") +
+    guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
+    theme_bw()+
+    theme(axis.title = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line =element_blank())
+  p
+  
+  if(create_pdfs) {
+    pdf("MDD_conditions_umap_main.pdf")    
+    print(p)
+    res <- dev.off()
+  } 
+```
+
+There are `r dim(dm)[1]` dots in the 2d UMAP that represent the significant differentially expressed features relative to T0 in the shared-features integrated matrix.  
+
+
+```{r UMAPAnalysis2, fig.width=7.5, fig.height=4}
+p <- ggplot(data = df_UMAP[df_UMAP$Type=="RNA",], aes(x = UMAP_1,
+                                                      y = UMAP_2,
+                                                      colour = factor(Type))) +
+  geom_point(size = .8, alpha = .6) +
+  scale_colour_manual(values = assay_cols)+
+  labs(title = paste("UMAP embedding colored by assay"),
+       colour = "Assay") +
+  guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4))) +
+  theme_bw()+
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line =element_blank())
+p <- p + geom_point(data = df_UMAP[!df_UMAP$Type=="RNA",],size = .8, alpha = .8)
+p
+
+if(create_pdfs) {
+  pdf("MDD_ligands_umap_type.pdf") 
+      print(p)
+  res <- dev.off()
+}
+
+```
+
+```{r highlightAssay, fig.width=2.5, fig.height=2.5}
+
+p_list <- lapply(unique(df_UMAP$Type), function(assay){
+  
+  df <- df_UMAP
+  
+  p <- ggplot(data = df[!df$Type==assay,], 
+              aes(x = UMAP_1,
+                  y = UMAP_2,
+                  color = Type)) +
+    geom_point(color = "gray",size = 1, alpha = .4, shape = 16) +
+    scale_colour_manual(values = assay_cols) +
+    annotate("text",x = -2, y = -6, label = assay) +
+    scale_size_area(limits = c(0, 30)) +
+    labs()+
+    guides(colour = FALSE,
+           size = FALSE)+
+    theme_bw()+
+    theme(axis.title = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line =element_blank())
+  p <- p + geom_point(data = df[df$Type==assay,], 
+                      size = 1,
+                      alpha = .9,
+                      shape = 16) 
+  return(p)
+  
+})
+
+res <- map(p_list, print)
+
+if(create_pdfs) {
+  pdf("MDD_ligands_umap_type_highlights.pdf") 
+  res <- map(p_list, print)
+  res <- dev.off()
+}
+```
+
+
+```{r UMAPbyCondition, fig.width=2.5, fig.height=2.5, eval = TRUE}
+
+
+df <- df_UMAP %>%
+  rename("BMP2_EGF_24" = "BMP2+EGF_24",
+         "IFNG_EGF_24" =  "IFNG+EGF_24",
+         "TGFB_EGF_24" = "TGFB+EGF_24",
+         "BMP2_EGF_48" = "BMP2+EGF_48",
+         "IFNG_EGF_48" =  "IFNG+EGF_48",
+         "TGFB_EGF_48" = "TGFB+EGF_48")
+df_UMAP_conditions <- colnames(df)[str_detect(colnames(df_UMAP),"PBS|HGF|OSM|EGF|BMP2|IFNG|TGFB")] %>%
+  str_replace("[+]","_")
+
+p_list <- lapply(df_UMAP_conditions, function(condition){
+  p <- ggplot(df, aes_string(x = "UMAP_1",
+                             y = "UMAP_2",
+                             colour = condition)) +
+    geom_point(size = 1.5, alpha = .8, shape = 16) +
+    annotate("text",x = -2, y = -6, label = condition)+
+    scale_color_gradientn(colours = colorRampPalette(rev(brewer.pal(n = 7, name =
+                                                                      "RdBu")))(100)) +
+    labs()+
+    guides(colour = FALSE)+
+    theme_bw()+
+    theme(text = element_text(size = 1),
+          axis.title = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line = element_line(colour = "black"))
+  return(p)
+})
+res <- map(p_list, print)
+if(create_pdfs) {
+  pdf("MDD_integrated_umap_by_condition.pdf")
+  res <- map(p_list, print)
+  res <- dev.off()
+}
+
+```
+
+### phenotype analysis
+
+```{r correlate_to_phenotypes}
+
+level3File <- paste0("../IF/Data/MDD_IF_Level3.csv")
+
+raw_df <- read_csv(level3File)
+colnames(raw_df) <- raw_df[raw_df$X1 == "specimenName",]
+
+if_df <- raw_df %>%
+  select(matches("specimenName|24_C2|48_C2")) %>%
+  rename(feature = specimenName) %>%
+  filter(str_detect(feature, "_")) %>%
+  mutate(across(-feature, as.numeric)) %>%
+  pivot_longer(cols = matches("_C2_")) %>%
+  mutate(condition = str_remove(name, "_C2_.$")) %>%
+    mutate(condition = str_replace(condition, "BMP2","BMP2+EGF"),
+         condition = str_replace(condition, "IFNG","IFNG+EGF"),
+         condition = str_replace(condition, "TGFB","TGFB+EGF")) %>%
+  group_by(feature, condition) %>%
+  summarise(value = mean(value), .groups = "drop") %>%
+  ungroup() %>%
+  pivot_wider(names_from = condition, values_from = value) %>%
+  select(feature, all_of(condition_order))
+
+if_dm <- if_df %>%
+  select(-feature) %>%
+  as.matrix()
+  rownames(if_dm) <- if_df$feature
+  
+unique_features_data_mean_df <- unique_features_data_ann %>%
+  filter(!Direction == "Mixed") %>%
+  group_by(Cluster) %>%
+      summarise(across(.cols = matches("_24|48"), .fns = mean)) %>%
+    ungroup()
+unique_features_data_mean_dm <- unique_features_data_mean_df %>%
+  select(-Cluster) %>%
+  as.matrix()
+rownames(unique_features_data_mean_dm) <- unique_features_data_mean_df$Cluster
+  
+if_module_dm <- rbind(shared_features_data_mean_dm, unique_features_data_mean_dm, if_dm) %>%
+  t
+  
+cor_dm <- cor(if_module_dm, method ="pearson")
+
+cor_hm <- Heatmap(cor_dm,
+                   name = "pearson\ncorrelation ",
+                  row_names_gp = gpar(fontsize = 6),
+                  column_names_gp = gpar(fontsize = 6),)
+cor_hm
+
+if(create_pdfs) {
+  pdf("MDD_integrated_module_IF_correlations.pdf")
+  res <- print(cor_hm)
+  res <- dev.off()
+}
+
+#Reduce phenotype set
+if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|StdIntensity_KRT5|MinIntensity_KRT5|_Negative|_Positive")]
+cor_dm <- cor(if_module_dm_reduced,  method ="pearson")
+
+cor_hm <- Heatmap(cor_dm,
+                   name = "pearson\ncorrelation",
+                  row_names_gp = gpar(fontsize = 10),
+                  column_names_gp = gpar(fontsize = 10),)
+cor_hm
+
+if(create_pdfs) {
+  pdf("MDD_integrated_module_IF_correlations_reduced.pdf",
+      width = 9, height = 8)
+  res <- print(cor_hm)
+  res <- dev.off()
+}
+
+
+#Modules only set
+if_module_dm_reduced <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative|_Positive")]
+cor_dm <- cor(if_module_dm_reduced,  method = "pearson")
+
+cor_hm <- Heatmap(cor_dm,
+                   name = "pearson\ncorrelation",
+                  row_names_gp = gpar(fontsize = 10),
+                  column_names_gp = gpar(fontsize = 10),)
+cor_hm
+
+if(create_pdfs) {
+  pdf("MDD_integrated_module_module_correlations_reduced.pdf",
+      width = 9, height = 8)
+  res <- print(cor_hm)
+  res <- dev.off()
+}
+
+#Modules vs IF  set
+if_modules_dm <- if_module_dm[,str_detect(colnames(if_module_dm),"Module|_Negative$|_Positive$")]
+
+if_phenotypes_dm <- if_module_dm[,str_detect(colnames(if_module_dm), "Well_Cell_Count|Mean_Cells_per_Cluster|Normalized_Second_Neighbor_Dist|DNA2n_Proportion|Edu_Positive_Proportion|MeanIntensity_KRT5|MinIntensity_KRT5")]
+cor_dm <- cor(if_modules_dm, if_phenotypes_dm,  method ="pearson")
+
+cor_hm <- Heatmap(cor_dm,
+                   name = "pearson\ncorrelation",
+                  row_names_gp = gpar(fontsize = 10),
+                  column_names_gp = gpar(fontsize = 10),)
+cor_hm
+
+if(create_pdfs) {
+  pdf("MDD_integrated_module_phenotype_correlations_reduced.pdf",
+      width = 9, height = 8)
+  res <- print(cor_hm)
+  res <- dev.off()
+}
+
+```
+
+
+### cluster analysis
+
+
+```{r featureTypes, fig.width=8, fig.height=4}
+#create a bar chart of the feature types
+df <- shared_features_data %>%
+  #drop_na() %>%
+  select(feature, Type) %>%
+  distinct()
+
+p <- ggplot(df, aes(x = Type, fill = Type)) +
+  geom_bar() +
+  coord_cartesian(ylim = c(0, 10000)) +
+  scale_fill_manual(values = assay_cols)+
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "features at unique timepoints in the shared-features MDD integrated dataset"),
+       x ="Feature type") +
+  theme_bw()+
+  theme(axis.text.x =  element_text(angle = 90),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+
+p
+
+p_log <- ggplot(df, aes(x = Type, fill = Type)) +
+  geom_bar() +
+  scale_y_log10() +
+  scale_fill_manual(values = assay_cols)+
+  labs(title = paste("Type distribution of the",length(unique(paste0(df$feature))), "shared features at unique timepoints in the MDD integrated dataset"),
+       x ="Feature type") +
+  theme_bw()+
+  theme(axis.text.x =  element_text(angle = 90),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+
+p_log
+if(create_pdfs){
+  pdf("MDD_ligands_feature_type_distribution.pdf")
+  print(p)  
+  res <- dev.off()
+  pdf("MDD_ligands_feature_type_distribution_log_scale.pdf")
+  print(p_log)
+  res <- dev.off()
+} 
+
+```
+
+
+```{r gapStatistics, fig.width=4, fig.height=4, eval = TRUE}
+
+plot_gap_custom <- function(x) {
+  gstab = data.frame(x$Tab, k = seq_len(nrow(x$Tab)))
+  p <- ggplot(gstab, aes(k, gap)) + 
+    geom_line() +
+    geom_errorbar(aes(ymax = gap + SE.sim,
+                      ymin = gap - SE.sim), width=0.1) +
+    geom_point(size = .5, col=  "red") +
+    labs(title = paste("Gap analysis to determine set-features cluster number,",cluster_method)) +
+     theme_bw()+
+  theme(axis.ticks = element_blank(),
+        panel.border = element_blank(),
+        axis.line =element_blank())
+  return(p)
+}
+
+hclusCut <- function(x, k, d.meth = "euclidean", ...)
+   list(cluster = cutree(hclust(dist(x, method=d.meth), ...), k=k))
+
+dm <- shared_features_data %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+
+dm <- set_features_data %>%
+    select(all_of(condition_order)) %>%
+  as.matrix()
+
+if(file.exists(paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))){
+  load(paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))
+} else {
+  gss <- clusGap(dm, FUN = pam, K.max = 25, B = 100, verbose = FALSE)
+  save(gss, file = paste0("../integrated_analysis/gss_",cluster_method,"_T0_DE.rda"))
+}
+
+  plot_gap_custom(gss)
+if(create_pdfs){
+  pdf("MDD_ligands_gap_cluster.pdf")
+  p <- plot_gap_custom(gss)
+  print(p)
+  res <- dev.off()
+}
+# 
+# p <- ggplot(integrated_shared, aes(x = as.factor(Cluster), fill = Type)) +
+#   geom_bar() +
+#   scale_fill_manual(values = assay_cols)+
+#   labs(x = "Cluster",
+#        fill = "Assay") +
+#   theme_bw()+
+#   theme(axis.ticks = element_blank(),
+#         panel.border = element_blank(),
+#         panel.grid.major = element_blank(),
+#         panel.grid.minor = element_blank(),
+#         axis.line =element_blank())
+# p
+# if(create_pdfs){
+#   pdf("MDD_ligands_assay_cluster.pdf")
+#   print(p)
+#   res <- dev.off()
+# }
+```
+
+```{r assayClusterdistribution, fig.width=8, fig.height=4, eval = TRUE}
+
+p <- ggplot(shared_features_data_ann, aes(x = as.factor(Cluster), fill = Type)) +
+  geom_bar(position = "dodge") +  
+  scale_fill_manual(values = assay_cols) +
+  labs(x = "Cluster",
+       fill = "Assay") +
+  facet_wrap(~Type, scales = "free_y") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    #axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p
+
+df <- shared_features_data_ann %>%
+  group_by(Type, Cluster) %>%
+  count() %>%
+  ungroup()
+
+p <- ggplot(df, aes(x = n, fill = Type)) +
+  geom_density() +  
+  scale_fill_manual(values = assay_cols) +
+  labs(x = "feature count",
+       fill = "Assay") +
+  facet_wrap(~Type, scales = "free") +
+  theme_bw()+
+  theme(#axis.title = element_blank(),
+    #axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line =element_blank())
+p
+
+if(create_pdfs){
+  pdf("MDD_ligands_cluster_feature_counts.pdf")
+  print(p)
+  res <- dev.off()
+} 
+
+```
+
+
+This analysis can be interpreted to select the number of clusters in the dataset. It is based on a method described in Modern Statistics for Modern Biology by Susan Holmes and Wolfgang Huber http://web.stanford.edu/class/bios221/book/Chap-Clustering.html and is excerpted below.  
+
+Taking the logarithm of the within-sum-of-squares (log(WSSk)) and comparing it to averages from simulated data with less structure can be a good way of choosing k. This is the basic idea of the gap statistic introduced by Tibshirani, Walther, and Hastie (2001). We compute log(WSSk) for a range of values of k, the number of clusters, and compare it to that obtained on reference data of similar dimensions with various possible ‘non-clustered’ distributions. We can use uniformly distributed data as we did above or data simulated with the same covariance structure as our original data.
+
+The default choice for the number of clusters, k1, is the first value of k for which the gap is not larger than the first local maximum minus a standard error (see the manual page of the clusGap function). ... the choice recommended by Tibshirani, Walther, and Hastie (2001) is the smallest k such that gap(k)≥gap(k+1)−s′k+1...
+
+The first local maximum is k = 3 and the second one is at 9. This analysis is choosing to use k = `r clust_num` which is is the first value where the gap value is less than the local maximum at 9 minus its standard error.  
+
+
+<bksp>
+
+<bksp>
+
+###
+
+
+### z score vs DE analysis
+
+```{r compare_to_previous}
+
+path <- "../integrated_analysis/Data/MDD_ligand_module_features.xlsx"
+integrated_data <- lapply(readxl::excel_sheets(path), readxl::read_xlsx, path = path ) %>%
+  bind_rows(.id = "module") %>%
+  mutate(module = readxl::excel_sheets(path)[as.integer(module)])
+
+int_genes <- integrated_data %>%
+  filter(assay == "RNA",
+         time %in% c(24,48)) %>%
+  rename(Cluster = module) %>%
+  select(Cluster, symbol) %>%
+  mutate(Cluster = str_replace(Cluster, "module_","int_")) %>%
+  distinct
+
+set_genes <- set_features_data_ann %>%
+  filter(Type == "RNAseq") %>%
+  rename(symbol = feature) %>%
+  select(Cluster, symbol) %>%
+  mutate(Cluster = paste0("set_",Cluster)) %>%
+  distinct
+
+genes <- bind_rows(int_genes, set_genes) %>%
+  mutate(member = 1) %>%
+  pivot_wider(names_from = Cluster, values_from = member, values_fill = 0) %>%
+  rename(Name = symbol) %>%
+  mutate(Name = as.factor(Name),
+         across(where(is.numeric), as.integer)) %>%
+  as.data.frame()
+
+upset_obj <- upset(genes, nset = 32)
+
+upset_obj
+
+pdf("set_comparisons.pdf", width = 10, height = 8)
+upset_obj
+res = dev.off()
+
+```
+
+We want to compare the features identified using set analysis of differentially expressed features to the prior method based on z scores of transformed assay values.  
+
+#### Method  
+
+Filter both matrices to 24 and 48 hour, RNAseq features and perform a set analysis on the 12 modules in each datase.  
+
+###

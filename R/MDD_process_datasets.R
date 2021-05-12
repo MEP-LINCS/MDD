@@ -171,6 +171,10 @@ RPPA_values <- read_csv("RPPA/Data/MDD_RPPA_Level3.csv") %>%
 #          feature = paste0(feature, "_RPPApathway")) %>%
 #   dplyr::select(-condition) %>%
 #   preprocess_level3(type =  "RPPApathway")
+#Write out matrix of MDD RPPA modified pathway scores
+# res <- RPPA_pathways %>%
+#   pivot_wider(names_from = ligand, values_from = value) %>%
+#   write_csv(path = "tables/MDD_RPPA_pathway_scores.csv")
 
 # TFs <- get_TFs(dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx", sheet =1)
 # TFs_details <- map(2:7, get_TFs, dir_path = "RNAseq/Data/ChEA3_results_MD_OHSU", pattern = "ctrl_vs_.*xlsx") %>%

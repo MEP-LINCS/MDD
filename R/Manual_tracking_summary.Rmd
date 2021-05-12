@@ -1,0 +1,610 @@
+---
+title: "MCF10A live cell image analysis"
+output: 
+  html_document:
+  code_folding: hide
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(ggbeeswarm)
+library(tidyverse)
+library(RColorBrewer)
+library(ggtree)
+
+ligand_cols <- c("CTRL" = "#7A4A2A",
+                 "PBS" = "#8dd3c7",
+                 "HGF" = "#80b1d3",
+                 "OSM" = "#fdb462",
+                 "EGF" = "#fb8072",
+                 "BMP2+EGF" = "#b3de69",
+                 "IFNG+EGF" = "#bebada",
+                 "TGFB+EGF" = "#ffd92f",
+                  "EGF+TGFB" = "#ffd92f",
+                  "OSM+EGF" = "#fdb462",
+                  "OSM+EGF+TGFB" = "#ff0000",
+                  "OSM+TGFB" = "#00ff00",
+                  "TGFB" = "#0000ff"
+                 )
+
+create_pdfs <- FALSE
+
+tmin_period = 30
+###DEBUG
+plateID <- "LI802303"
+
+```
+
+This report is for `r plateID`.
+
+```{r}
+
+df_input <- dir(paste0("../Data/",plateID,"/Data"), pattern = paste0(plateID,".*_lineages.csv$"), full.names = TRUE) %>%
+  map(read_csv,
+      col_types = cols(
+        .default = col_double(),
+        D2Rpixel = col_number(),
+        field = col_character(),
+        well = col_character(),
+        treatment = col_character()
+      )) %>%
+  map(tibble) %>%
+  bind_rows() %>%
+  mutate(key = paste(well, field, TID, sep = "_"),
+         lineage_key= paste0(well, "_", field, "_", lineage),
+       well_field = paste0(well, "_",field),
+         thour = tmin/60)
+
+df_orphans <-  dir(paste0("../Data/",plateID,"/Data"), pattern = paste0(plateID,".*_orphans.csv$"), full.names = TRUE) %>%
+  map(read_csv,
+      col_types = cols(
+        tmin = col_character(),
+        TID = col_character(),
+        xpixel = col_character(),
+        ypixel = col_character(),
+        PID = col_character(),
+        Ival = col_character(),
+        well = col_character(),
+        field = col_character()
+      )) %>%
+  map(tibble) %>%
+  bind_rows()
+write_csv(df_orphans, paste0("../Data/",plateID,"_orphans.csv"))
+
+```
+
+
+```{r TIDdistributions, fig.width=3, fig.height=3}
+
+#count and display the number of cells in each lineage
+df <- df_input %>%
+  select(key, treatment) %>%
+  distinct() 
+
+p <- ggplot(df, aes(x = treatment)) +
+  geom_bar() +
+  labs(title = "Count of cells in dataset") +
+  theme(axis.text.x = element_text(angle = 90))
+p
+
+#count and display the number of lineages in each lineage
+
+df <- df_input %>%
+  select(lineage, well_field, treatment) %>%
+  distinct() 
+
+p <- ggplot(df, aes(x = treatment)) +
+  geom_bar() +
+  labs(title = "Count of lineages in dataset") +
+  theme(axis.text.x = element_text(angle = 90))
+p
+
+df <- df_input %>%
+  select(key, treatment, average_velocity) %>%
+  group_by(treatment) %>%
+  summarise(average_velocity = mean(average_velocity, na.rm = TRUE), .groups = "drop_last")
+
+p <- ggplot(df, aes(x = treatment, y = average_velocity)) +
+  geom_col() +
+  labs(title = "Average cell velocity by treatment",
+       subtitle = "",
+       y = "velocity(pixels/hour)") +
+  theme(axis.text.x = element_text(angle = 90))
+p
+```
+
+```{r beeswarm, fig.height=3, fig.width=5}
+df <- df_input %>%
+  select(key, treatment, average_velocity) %>%
+  group_by(key, treatment) %>%
+  summarise(average_velocity = mean(average_velocity, na.rm = TRUE), .groups = "drop_last") 
+
+p <- ggplot(df, aes(x = treatment, y = average_velocity, colour = treatment)) +
+  geom_quasirandom(cex = .5, alpha = .5) +
+  scale_color_manual(values = ligand_cols) +
+  labs(title = "Average cell velocity by treatment",
+       subtitle = "",
+       y = "velocity(pixels/hour)") +
+  theme(axis.text.x = element_text(angle = 90))
+p
+
+```
+
+```{r velocityTracks, fig.height=8, fig.width=12}
+p <- ggplot(df_input, aes(x = thour, y = 2*distance, color = factor(TID))) +
+  geom_path(size = .5, alpha = .8) +
+  guides(color = FALSE)+
+  labs(y = "velocity(pixels/hour)") +
+  facet_wrap(~well_field+treatment) +
+    theme_bw() +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 4,margin = margin(1)))
+p
+
+df <- df_input %>%
+  filter(treatment %in% c("EGF", "OSM"))
+
+p <- ggplot(df, aes(x = thour, y = 2*distance, color = factor(key), group = field)) +
+  geom_path(size = .5, alpha = .8) +
+geom_smooth(method = "loess", formula = 'y ~ x', alpha = .8, se = FALSE
+ )+
+  guides(color = FALSE)+
+  labs(y = "velocity(pixels/hour)") +
+  coord_cartesian(ylim = c(0,150)) +
+  facet_wrap(~well_field+treatment) +
+    theme_bw() +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 4,margin = margin(1)))
+p
+
+df <- df_input %>%
+  filter(treatment %in% c("EGF", "OSM")) %>%
+  select(treatment, average_velocity, well_field, TID) %>%
+  distinct()
+
+p <- ggplot(df, aes(x = treatment, y = average_velocity, colour = treatment)) +
+  geom_quasirandom(cex = 5, alpha = .8) +
+ scale_color_manual(values = ligand_cols) +
+  labs(title = "Average cell velocity by treatment",
+       subtitle = "",
+       y = "velocity(pixels/hour)")+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) 
+p
+
+EGF_vel <- df %>%
+  filter(treatment == "EGF") %>%
+  pull(average_velocity)
+
+OSM_vel <- df %>%
+  filter(treatment == "OSM") %>%
+  pull(average_velocity)
+
+egf_osm_ttest_obj <- t.test(x = EGF_vel, y = OSM_vel)
+
+p <- ggplot(df, aes(x = well_field, y = average_velocity, colour = treatment)) +
+  geom_quasirandom(cex = 5, alpha = .8) +
+  scale_color_manual(values = ligand_cols) +
+  labs(title = "Cell velocity by treatment",
+       subtitle = "each dot is one cell's velocity at one time point",
+       y = "velocity(pixels/hour)") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  theme_bw()
+p
+
+
+```
+
+```{r velocity_across_time, fig.width=8, fig.height=5}
+
+df <- df_input %>%
+  group_by(treatment, thour) %>%
+  summarise(average_velocity = 60*mean(distance)/tmin_period) %>%
+  ungroup()
+
+p <- ggplot(df, aes(x = thour, y = average_velocity, colour = treatment)) +
+  geom_path(size = .8, alpha = .6) +
+  geom_point(size = .8, alpha = .4)+
+  geom_smooth(method = "loess", formula = 'y ~ x', alpha = .8, se = FALSE
+  )+
+  coord_cartesian(xlim = c(0,48)) +
+  scale_x_continuous(breaks = c(0,12,24,36,48)) +
+  labs(title = "Migration velocity over time",
+       x = "time (hours)",
+       y = "velocity(pixels/hour)") +
+  theme_bw()
+p
+
+if(create_pdfs){
+  pdf("../plots/MDD_migration_velocity_summarized.pdf", useDingbats = FALSE, width = 8, height = 5)
+  print(p)
+  res <- dev.off()
+}
+
+```
+
+```{r migration_facets, fig.width=8, fig.height=7}
+
+df <- df_input %>%
+  group_by(treatment, thour, well, field) %>%
+    summarise(average_velocity = 60*mean(distance)/tmin_period, .groups = "drop_last") 
+
+p <- ggplot(df, aes(x = thour, y = average_velocity, colour = treatment, group = field)) +
+  geom_path(size = .4, alpha = .8) +
+  geom_point(size = .4, alpha = .4)+
+  geom_smooth(method = "loess", formula = 'y ~ x', alpha = .8, se = FALSE
+  )+
+  coord_cartesian(xlim = c(0,48),
+                  ylim = c(0,60)) +
+  scale_x_continuous(breaks = c(0,12,24,36,48)) +
+  labs(title = "Migration velocity over time",
+       x = "time (hours)",
+       y = "velocity (pixels/hour)") +
+  theme_bw() +
+  facet_wrap(~treatment, ncol = 4)
+p
+
+if(create_pdfs){
+  pdf("../plots/MDD_migration_distance.pdf", useDingbats = FALSE, width = 8, height = 4)
+  print(p)
+  res <- dev.off()
+}
+
+```
+
+
+
+```{r plot_migration, fig.width=6, fig.height=8}
+
+cols <- RColorBrewer::brewer.pal(9, name = "Set1")[sample(c(1:5, 7:9), length(unique(df_input$TID)), replace = TRUE)]
+
+p <- ggplot(df_input, aes(xpixel, ypixel, colour = factor(TID))) +
+  geom_point(size = .1, alpha = .8) +
+  geom_path(size = .1, alpha = .8) +
+  scale_colour_manual(values = cols) +
+  guides(colour = FALSE) +
+  labs(title = "absolute positions, all data") +
+  theme_bw() +
+  theme(strip.text = element_text(size = 5, margin = margin()),
+        strip.background = element_rect(fill = "transparent")) +
+  facet_wrap(~well+field+treatment)
+p
+
+```
+
+
+```{r relative_migration, fig.width=8, fig.height=8}
+
+T0_rel <- df_input %>%
+  filter(PID == 1) %>%
+  select(key, xpixel, ypixel) %>%
+  rename(x_T0 = xpixel,
+         y_T0 = ypixel) %>%
+  right_join(df_input, by = c("key") )%>%
+  mutate(x_rel = xpixel-x_T0,
+         y_rel = ypixel-y_T0) %>%
+  select(key, lineage_key, TID, motherID, x_rel, y_rel,  well, field, treatment, lineage, generation, tmin) %>%
+  drop_na()
+
+set.seed(42)
+cols <- RColorBrewer::brewer.pal(9, name = "Set1")[sample(c(1:5, 7:9), length(unique(T0_rel$TID)), replace = TRUE)]
+
+p <- ggplot(T0_rel, aes(x_rel, y_rel, colour = factor(TID))) +
+  geom_point(size = .1, alpha = .8) +
+  geom_path(size = .1, alpha = .8) +
+  scale_colour_manual(values = cols) +
+  guides(colour = FALSE) +
+    labs(title = "relative tracks",
+         subtitle = "all tracks start at the origin")+
+  theme_bw()+
+    theme(strip.text = element_text(size = 5, margin = margin()),
+        strip.background = element_rect(fill = "transparent")) +
+facet_wrap(~well+field+treatment)
+p
+```
+
+```{r relative_migration_linked, fig.width=8, fig.height=5}
+#balance the number of lineages in each treatment
+#get the number of lineages per treatment and return minimum
+min_treatment_lineages <- T0_rel %>%
+  select(treatment, lineage) %>%
+  distinct() %>%
+  count(treatment) %>%
+  pull() %>%
+  min()
+
+set.seed(42)
+lineages <- T0_rel %>%
+  select(lineage_key, treatment) %>%
+  distinct() %>%
+  group_by(treatment) %>%
+  sample_n(size = min_treatment_lineages, replace = FALSE) %>%
+  ungroup()
+
+#given a dataframe of one lineage
+#select one track from the last time period
+#if the track does not start at time 0, select it's mother
+#continue this until a track starts at time 0
+#return a list of the TIDs
+
+select_lineage_tracks <- function(x, ...){
+  #browser()
+  last_track <- x %>%
+    slice_tail(tmin, n = 1)
+  first_time_period <- x %>%
+    filter(TID == last_track$TID) %>%
+    pull(tmin) %>%
+    min()
+  if(first_time_period == 0){
+    selected_tracks <- x %>%
+      filter(TID == last_track$TID)
+  } else {
+    pgen1_track <- x %>%
+      filter(TID == last_track$motherID) %>%
+      slice_head(tmin, n = 1)
+    if(nrow(pgen1_track) ==  0)  browser()
+    if(pgen1_track$tmin == 0) {
+      selected_tracks <- x %>%
+        filter(TID %in% c(last_track$TID, pgen1_track$TID))
+    } else {
+      pgen2_track <- x %>%
+        filter(TID == pgen1_track$motherID) %>%
+        slice_head(tmin, n = 1)
+      if(pgen2_track$tmin == 0) {
+        selected_tracks <- x %>%
+          filter(TID %in% c(last_track$TID, pgen1_track$TID, pgen2_track$TID))
+      } else {
+        pgen3_track <- x %>%
+          filter(TID == pgen2_track$motherID) %>%
+          slice_head(tmin, n = 1)
+        if(pgen3_track$tmin == 0) {
+          selected_tracks <- x %>%
+            filter(TID %in% c(last_track$TID, pgen1_track$TID, pgen2_track$TID, pgen3_track$TID))
+        } else {
+          pgen4_track <- x %>%
+            filter(TID == pgen3_track$motherID) %>%
+            slice_head(tmin, n = 1)
+          if(pgen4_track$tmin == 0) {
+            selected_tracks <- x %>%
+              filter(TID %in% c(last_track$TID,
+                                pgen1_track$TID,
+                                pgen2_track$TID,
+                                pgen3_track$TID,
+                                pgen4_track$TID))
+          } else {
+            stop(paste("generations do not span entire time period for ", unique(x$linage_key)))
+          }
+        }
+      }
+    }
+  }
+  return(selected_tracks)
+}
+
+#average distance moved
+calc_distance <- function(x,y){
+  df <-data.frame(x,y)
+  mat <- dist(df) %>%
+    as.matrix()
+  res <- c(0, mat[col(mat)==row(mat)+1])
+  return(res)
+}
+
+#select an equal number of lineages for each treatement
+#select tracks within each lineage to create one full 
+#set of data across all timepoints
+single_cell_lineage <- df_input %>%
+  filter(lineage_key %in% lineages$lineage_key) %>%
+  group_by(lineage_key) %>%
+  group_modify(select_lineage_tracks) %>%
+  ungroup()
+
+#accumulate the sum of x
+
+single_cell_lineage_T0_rel <- single_cell_lineage %>%
+  filter(tmin == 0) %>%
+  mutate(xpixel_T0 = xpixel,
+         ypixel_T0 = ypixel) %>%
+  select(lineage_key, xpixel_T0, ypixel_T0) %>%
+  right_join(single_cell_lineage,by = "lineage_key") %>%
+  mutate(xpixel_rel = xpixel - xpixel_T0,
+         ypixel_rel = ypixel - ypixel_T0,
+         treatment = factor(treatment, levels = names(ligand_cols)))  %>%
+  group_by(lineage_key) %>%
+  mutate(lineage_D2P = calc_distance(xpixel_rel, ypixel_rel),
+         lineage_length = cumsum(lineage_D2P)) %>%
+  ungroup()  %>%
+  group_by(treatment, thour) %>%
+  mutate(lineage_length_mean = mean(lineage_length)) %>%
+  ungroup() %>%
+  group_by(treatment, lineage) %>%
+  mutate(lineage_col = sample(1:9, size = 1)) %>%
+  ungroup()
+  
+
+mitotic_events <- single_cell_lineage_T0_rel %>%
+  group_by(key) %>%
+  slice_tail(tmin, n = 1) %>%
+  ungroup() %>%
+  filter(!tmin == max(single_cell_lineage_T0_rel$tmin))
+
+p <- ggplot(single_cell_lineage_T0_rel, aes(x = tmin, y = lineage_key)) +
+  geom_point(size = 1.2) +
+  labs(title = "Lineages vs time to show missing data") +
+  theme_bw()+
+  theme(axis.text.y = element_text(size = 4))
+p
+
+p <- ggplot(single_cell_lineage_T0_rel, aes(xpixel_rel, ypixel_rel, colour = factor(lineage_key))) +
+  geom_path(size = .4, alpha = .8) +
+  scale_colour_manual(values = cols) +
+  guides(colour = FALSE) +
+  labs(title = "Relative motion of equal number of lineages")+
+  theme_bw()+
+  theme(strip.text = element_text(size = 12),
+        strip.background = element_rect(fill = "transparent"),
+        axis.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line =element_blank()) +
+  facet_wrap(~treatment, ncol = 4)
+p
+
+df <- single_cell_lineage_T0_rel %>%
+  filter(treatment %in% c("TGFB+EGF", "EGF", "OSM", "PBS")) 
+
+p_subset <- ggplot(df, aes(xpixel_rel, ypixel_rel, colour = factor(lineage_key))) +
+  geom_path(size = .4, alpha = .8) +
+  scale_colour_manual(values = cols) +
+  guides(colour = FALSE) +
+  labs(title = "Relative motion of equal number of lineages")+
+  theme_bw()+
+  theme(strip.text = element_text(size = 12),
+        strip.background = element_rect(fill = "transparent"),
+        axis.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line =element_blank()) +
+  facet_wrap(~treatment, ncol = 4)
+p_subset
+
+if(create_pdfs){
+  pdf("../plots/MDD_migration_relative_tracks.pdf", useDingbats = FALSE, width = 8, height = 5)
+  print(p)
+  res <- dev.off()
+    pdf("../plots/MDD_migration_relative_tracks_subset.pdf", useDingbats = FALSE, width = 8, height = 3)
+    print(p_subset)
+  res <- dev.off()
+  
+}
+
+df <- single_cell_lineage_T0_rel %>%
+  select(thour, lineage_length_mean, treatment) %>%
+  distinct() %>%
+  arrange(thour)
+
+p <- ggplot(single_cell_lineage_T0_rel, aes(x = thour, y = lineage_length,  group = lineage_key, colour = factor(lineage_col))) +
+  geom_point(data = mitotic_events, size = .6, alpha = .8) +
+  geom_path(size = .6, alpha = .8) +
+  scale_x_continuous(breaks = c(0,12,24, 36, 48)) +
+  scale_color_brewer(palette = "Paired") +
+    labs(title = "Distance traveled by lineage",
+         subtitle = "equal number of lineages in each treatment, distance measured in pixels") +
+  guides(color = FALSE) +
+  theme_bw()+
+  theme(strip.text = element_text(size = 12),
+        strip.background = element_rect(fill = "transparent",linetype = "blank"),
+        axis.title = element_blank(),
+        axis.text = element_text(colour = "black"),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line()) +
+  facet_wrap(~treatment, nrow = 1)
+#p <- p + 
+p <- p + geom_path(data = df, aes(x = thour, y = lineage_length_mean), color = "black", group = 1, alpha = .8, size = 1)
+p
+
+if(create_pdfs){
+  pdf("../plots/MDD_migration_distance.pdf", useDingbats = FALSE, width = 8, height = 2)
+  print(p)
+  res <- dev.off()
+}
+
+
+#develop a statistical test to compare migration distance for each ligand treatment
+migration_distance <- single_cell_lineage_T0_rel %>%
+  select(lineage_key, lineage_length, treatment) %>%
+  group_by(lineage_key, treatment) %>%
+  summarise(migration_distance = max(lineage_length),.groups = "drop")
+
+#Count the number of mitotic events per lineage
+proliferation_and_distance <- migration_distance %>%
+  left_join(mitotic_events, by =c("lineage_key", "treatment")) %>%
+  group_by(lineage_key, treatment) %>%
+  summarise(mitotic_events = n()-1,
+            migration_distance = unique(migration_distance), .groups = "drop")
+  
+p <- ggplot(proliferation_and_distance, aes(x = migration_distance, y = mitotic_events, color = treatment)) +
+  geom_point(alpha = .7) +
+   scale_color_manual(values = ligand_cols) +
+  labs(title = "Mitotic events vs migration distance") +
+  theme_bw()+
+  theme(strip.text = element_text(size = 12),
+        strip.background = element_rect(fill = "transparent",linetype = "blank"),
+        axis.title = element_blank(),
+        axis.text = element_text(colour = "black"),
+        panel.border = element_blank(),
+        #panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line()) +
+  facet_wrap(~treatment)
+p
+
+  
+p <- ggplot(migration_distance, aes(x = treatment, y = migration_distance, colour = treatment)) +
+  geom_quasirandom(cex = 3, alpha = .8) +
+ scale_color_manual(values = ligand_cols) +
+  labs(title = "Lineage migration distance",
+       subtitle = "",
+       y = "migration(pixels)")+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) 
+p
+
+md_anova <- aov(migration_distance ~ treatment, data = migration_distance)
+summary(md_anova)
+
+TukeyHSD(md_anova, ordered = TRUE)
+
+```
+
+
+Method  
+
+Distance is cumulative measured along the path of a cell.  
+Velocity is calculated per time period as the distance moved in pixels per time in hours.  
+Mean distance per treatment is shown by the black line.  
+Lineages are a subset of a lineage tree with one daughter cell chosen after each mitotic event. The subset of the tree is chosen to span the experiment duration where possible.  
+Mitotic events are shown with a vertical line.  
+
+Statistical test  
+Compute the total distance traveled for each of the  
+
+```{r treeExploration, eval = FALSE}
+treeData <- "((t2:0.04,t1:0.34):0.89,(t5:0.37,(t4:0.03,t3:0.67):0.9):0.59);"
+
+library("treeio")
+library("ggtree")
+
+nwk <- system.file("extdata", "sample.nwk", package="treeio")
+tree <- read.tree(nwk)
+
+treeObj <- read.tree(text = treeData)
+
+ggplot(treeObj, aes(x, y)) + geom_tree() + theme_tree()
+
+df_one_tree <- df_input %>%
+  filter(treatment == "OSM",
+         field =="A7_3",
+         lineage == 1) %>%
+  group_by(TID, motherID) %>%
+  summarise(lifetime = max(tmin) - min(tmin)) %>%
+  ungroup() %>%
+  select(motherID, TID)
+
+one_tree_obj <- as.phylo(df_one_tree)
+
+ggplot(one_tree_obj, aes(x, y)) + 
+  geom_tree() + 
+  geom_tiplab()+
+  theme_tree()
+
+p <- ggtree(one_tree_obj) + geom_nodepoint(color="#b5e521", alpha=1/4, size=10)
+p + geom_tippoint(color="#FDAC4F", shape=8, size=3)
+p <- p + geom_tiplab(size=3, color="purple")
+p
+
+
+```
