@@ -13,9 +13,9 @@ library(circlize)
 ```
 
 #### METHOD  
-Perform GSEA on the ligand vs T0 MDD RNA seq data
+Perform GSEA on the ligand vs T0 MDD RNA seq data  
 Use the nes to compare the KEGG gene sets in the ligand responses  
-
+Create include all ligands and a no PBS set  
 
 
 ```{r MDD_data}
@@ -78,7 +78,7 @@ hm_KEGG <- Heatmap(KEGG_dm,
                        row_title = " ",
                        show_row_names = TRUE,
                    show_column_names = TRUE,
-                       row_names_gp = gpar(fontsize = 4),
+                       row_names_gp = gpar(fontsize = 3),
                        column_names_gp = gpar(fontsize = 6),
                        use_raster = FALSE)
 hm_KEGG
@@ -87,13 +87,10 @@ write_csv(as.data.frame(KEGG_dm) %>%
   mutate(gene = rownames(KEGG_dm)) %>%
   select(gene, everything()), "../tables/MDD_RNAseq_KEGG_GSEA.csv")
 
-KEGG_dm_centered <- KEGG_dm %>%
-  t %>%
-  scale(scale = FALSE) %>%
-  t
-hm_KEGG_row_centered <- Heatmap(KEGG_dm_centered,
+KEGG_dm_noPBS <- KEGG_dm[,!str_detect(colnames(KEGG_dm),"PBS")]
+hm_KEGG_noPBS <- Heatmap(KEGG_dm_noPBS,
                        name = "NES",
-                       column_title = "KEGG GSEA in MDD RNAseq\n (row mean-centered)",
+                       column_title = "KEGG GSEA in MDD RNAseq",
                        column_title_gp = gpar(fontsize = 12),
                        #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
                        cluster_rows = TRUE,
@@ -102,36 +99,18 @@ hm_KEGG_row_centered <- Heatmap(KEGG_dm_centered,
                        row_title = " ",
                        show_row_names = TRUE,
                    show_column_names = TRUE,
-                       row_names_gp = gpar(fontsize = 4),
+                       row_names_gp = gpar(fontsize = 3),
                        column_names_gp = gpar(fontsize = 6),
                        use_raster = FALSE)
-hm_KEGG_row_centered
+hm_KEGG_noPBS
 
-write_csv(as.data.frame(KEGG_dm_centered) %>%
-  mutate(gene = rownames(KEGG_dm_centered)) %>%
-  select(gene, everything()), "../tables/MDD_RNAseq_KEGG_dm_row_centered.csv")
+res <- pdf("../plots/MDD_GSEA_KEGG.pdf",width = 5, height = 8)
+draw(hm_KEGG)
+draw(hm_KEGG_noPBS)
+res <- dev.off()
 
-KEGG_dm_centered_both <- KEGG_dm_centered %>%
-  scale(scale = FALSE)
-
-hm_KEGG_dm_centered_both <- Heatmap(KEGG_dm_centered_both,
-                       name = "NES",
-                       column_title = "KEGG GSEA in MDD RNAseq\n (mean-centered both directions)",
-                       column_title_gp = gpar(fontsize = 12),
-                       #col = colorRamp2(c(-2, 0, 2), c("#2166AC", "white", "#B2182B")),
-                       cluster_rows = TRUE,
-                       cluster_row_slices = FALSE,
-                       cluster_columns = FALSE,
-                       row_title = " ",
-                       show_row_names = TRUE,
-                   show_column_names = TRUE,
-                       row_names_gp = gpar(fontsize = 4),
-                       column_names_gp = gpar(fontsize = 6),
-                       use_raster = FALSE)
-hm_KEGG_dm_centered_both
-
-write_csv(as.data.frame(KEGG_dm_centered_both) %>%
-  mutate(gene = rownames(KEGG_dm_centered_both)) %>%
-  select(gene, everything()), "../tables/MDD_RNAseq_KEGG_dm_centered_both.csv")
+write_csv(as.data.frame(KEGG_dm_noPBS) %>%
+  mutate(gene = rownames(KEGG_dm_noPBS)) %>%
+  select(gene, everything()), "../tables/MDD_RNAseq_noPBS_KEGG_GSEA.csv")
 
 ```
