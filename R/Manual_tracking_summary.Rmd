@@ -40,7 +40,7 @@ This report is for `r plateID`.
 
 ```{r}
 
-df_input <- dir(paste0("Data/",plateID,"/Data"), pattern = paste0(plateID,".*_lineages.csv$"), full.names = TRUE) %>%
+df_input <- dir(paste0("../Data/",plateID,"/Data"), pattern = paste0(plateID,".*_lineages.csv$"), full.names = TRUE) %>%
   map(read_csv,
       col_types = cols(
         .default = col_double(),
@@ -56,7 +56,7 @@ df_input <- dir(paste0("Data/",plateID,"/Data"), pattern = paste0(plateID,".*_li
        well_field = paste0(well, "_",field),
          thour = tmin/60)
 
-df_orphans <-  dir(paste0("Data/",plateID,"/Data"), pattern = paste0(plateID,".*_orphans.csv$"), full.names = TRUE) %>%
+df_orphans <-  dir(paste0("../Data/",plateID,"/Data"), pattern = paste0(plateID,".*_orphans.csv$"), full.names = TRUE) %>%
   map(read_csv,
       col_types = cols(
         tmin = col_character(),
@@ -70,7 +70,7 @@ df_orphans <-  dir(paste0("Data/",plateID,"/Data"), pattern = paste0(plateID,".*
       )) %>%
   map(tibble) %>%
   bind_rows()
-write_csv(df_orphans, paste0(plateID,"_orphans.csv"))
+write_csv(df_orphans, paste0("../Data/",plateID,"_orphans.csv"))
 
 ```
 
@@ -217,7 +217,7 @@ p <- ggplot(df, aes(x = thour, y = average_velocity, colour = treatment)) +
 p
 
 if(create_pdfs){
-  pdf("MDD_migration_velocity_summarized.pdf", useDingbats = FALSE, width = 8, height = 5)
+  pdf("../plots/MDD_migration_velocity_summarized.pdf", useDingbats = FALSE, width = 8, height = 5)
   print(p)
   res <- dev.off()
 }
@@ -246,7 +246,7 @@ p <- ggplot(df, aes(x = thour, y = average_velocity, colour = treatment, group =
 p
 
 if(create_pdfs){
-  pdf("MDD_migration_distance.pdf", useDingbats = FALSE, width = 8, height = 4)
+  pdf("../plots/MDD_migration_distance.pdf", useDingbats = FALSE, width = 8, height = 4)
   print(p)
   res <- dev.off()
 }
@@ -470,10 +470,10 @@ p_subset <- ggplot(df, aes(xpixel_rel, ypixel_rel, colour = factor(lineage_key))
 p_subset
 
 if(create_pdfs){
-  pdf("MDD_migration_relative_tracks.pdf", useDingbats = FALSE, width = 8, height = 5)
+  pdf("../plots/MDD_migration_relative_tracks.pdf", useDingbats = FALSE, width = 8, height = 5)
   print(p)
   res <- dev.off()
-    pdf("MDD_migration_relative_tracks_subset.pdf", useDingbats = FALSE, width = 8, height = 3)
+    pdf("../plots/MDD_migration_relative_tracks_subset.pdf", useDingbats = FALSE, width = 8, height = 3)
     print(p_subset)
   res <- dev.off()
   
@@ -507,7 +507,7 @@ p <- p + geom_path(data = df, aes(x = thour, y = lineage_length_mean), color = "
 p
 
 if(create_pdfs){
-  pdf("MDD_migration_distance.pdf", useDingbats = FALSE, width = 8, height = 2)
+  pdf("../plots/MDD_migration_distance.pdf", useDingbats = FALSE, width = 8, height = 2)
   print(p)
   res <- dev.off()
 }
