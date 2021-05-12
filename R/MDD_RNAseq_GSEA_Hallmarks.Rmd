@@ -15,7 +15,7 @@ library(circlize)
 #### METHOD  
 Perform GSEA on the ligand vs T0 MDD RNA seq data  
 Use the Normalized Enrichment Score (nes) to compare the Hallmark gene sets in the ligand responses  
-Create include all ligands and a no PBS set  
+Create an all ligands and a no-PBS set  
 
 
 
@@ -102,8 +102,9 @@ draw(hm_hallmarks_noPBS)
 res <- dev.off()
 
 write_csv(as.data.frame(hallmarks_dm_noPBS) %>%
-  mutate(gene = rownames(hallmarks_dm_noPBS)) %>%
-  select(gene, everything()), "../tables/MDD_RNAseq_noPBS_hallmark_GSEA.csv")
+            mutate(gene = rownames(hallmarks_dm_noPBS),
+                   across(where(is.numeric), signif, digits = 3)) %>%
+            select(gene, everything()), "../tables/MDD_RNAseq_noPBS_hallmark_GSEA.csv")
 
 
 ```
