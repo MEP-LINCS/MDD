@@ -1,3 +1,4 @@
+#Prepare the RNAseq data 
 library(tidyverse)
 #load level 3 RNAseq data
 l3 <- read_csv("RNAseq/Data/MDD_RNAseq_Level3_HGNC.csv") %>%
@@ -25,7 +26,7 @@ sample_names <- colnames(l3_wide)[str_detect(colnames(l3_wide),"_")] %>%
             # row.names = FALSE,
             # col.names = FALSE)
 
-#after running each ligand vs control, aggragate the results
+#after running each ligand vs control, aggregate the results
 fdr_thresh <- 0.2
 gsea_reports <- dir("RNAseq/Data/GSEA/", full.names = TRUE)
 gsea_report_tables <- map(gsea_reports,  read_tsv) %>%
