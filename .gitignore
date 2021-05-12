@@ -43,14 +43,25 @@ rsconnect/
 *.html
 *.gitignore
 .Rhistory
+*_packages
+.DS_Store
 
 #data files
 *.txt
+*.rtf
 *.csv
 *.tsv
 *.gct
 *.rda
+*.xlsx
+*.RData
+*.cls
+*.json
+*.gmt
 
 #presentation files
 *.key
 *.ppt
+*.png
+*.docx
+*.pptx
