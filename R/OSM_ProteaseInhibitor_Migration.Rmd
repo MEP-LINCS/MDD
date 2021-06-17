@@ -1,0 +1,208 @@
+---
+title: "OSM_ProteaseInhibitor_Cluster_Migration"
+author: "IM"
+date: "1/11/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+To do = update link to image quantification (synapse?)
+## Image Analysis Method
+
+Stabilize Images using in house script
+Baxter algorithms to track clusters > 1000 pixels in area (> ~5 cells)
+Cell Profiler to import tracks and output quantification of object trajectories
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(ggpmisc)
+library(lsmeans)
+
+#function to compute Mean Squared Displacement
+computeMSD <- function(sx,sy,until=4)
+{
+  msd.t <- rep(0,until)
+  for (dt in 1:until)
+  {
+    displacement.x <- as.vector(na.omit(sx[(1+dt):length(sx)]) - sx[1:(length(sx)-dt)])
+    displacement.y <- as.vector(na.omit(sy[(1+dt):length(sy)]) - sy[1:(length(sy)-dt)])
+    sqrdispl <- (displacement.x^2 + displacement.y^2)
+    msd.t[dt] <- mean(sqrdispl)
+  }
+  return(msd.t)
+}
+
+#function to compute MSD for all image sets
+msd_all_images<-function(dataframe,until=8){
+  full_list<-unique(dataframe[, c('ObjectNumber', 'Metadata_Well_Field', 'treatment')])
+  full_msd<-data.frame()
+for (object in 1:nrow(full_list)){
+  tryCatch({object_data<-subset(dataframe, ObjectNumber == toString(full_list[object,1]) &                                     Metadata_Well_Field == toString(full_list[object,2]))
+  time_dat<-data.frame(time_segment = numeric())
+  for(time in 1:until){
+    time_seg = time*30
+    time_dat[time,1]<-as.numeric(time_seg)
+  }
+  object_msd<-round(computeMSD(object_data$AreaShape_Center_X, object_data$AreaShape_Center_Y,                     until=until), digits=2)
+  object_msd_meta<-data.frame(ObjectNumber = rep(toString(full_list[object,1]), until),                                      Metadata_Well_Field=rep(toString(full_list[object,2]), until),                                       treatment = rep(toString(full_list[object,3]), until),                                         time_interval = (time_dat$time_seg), MSD = (object_msd)) 
+  full_msd<-rbind(full_msd, object_msd_meta)}, error = function(e){})
+  }
+  
+  return(full_msd)
+}
+
+#standard error
+se<-function(x) sqrt(var(x)/length(x))
+
+ligand_cols <- c(
+                 "OSM" = "#000000",
+                 "OSM + Cocktail" = "#33CC99",
+                 "OSM + Bestatin" = "#6699FF",
+                 "OSM + Aprotonin" = "#999999",
+                 "OSM + Pepstatin A" = "#CC69FF",
+                 "OSM + E-64" = "#CC0000"
+                 )
+
+```
+
+
+```{r data, include=FALSE, echo=FALSE}
+protease_dat<-read_csv('../Analysis/Experimental Validation/MDD_OSM_proteaseInhibitor_clustermigration.csv')
+
+#calculate distance, displacement, and speed for clusters
+protease_distance<-protease_meta %>%
+  subset(AreaShape_Area!=0) %>%
+  group_by(ObjectNumber, Metadata_Well_Field) %>%
+  arrange(ImageNumber) %>%
+  mutate(X_diff = AreaShape_Center_X - dplyr::lag(AreaShape_Center_X, default =                                                                 first(AreaShape_Center_X))) %>%
+  mutate(Y_diff = AreaShape_Center_Y - dplyr::lag(AreaShape_Center_Y, default =                                                                  first(AreaShape_Center_Y))) %>%
+  mutate(distance_diff = sqrt(X_diff^2 + Y_diff^2)) %>%
+  mutate(cumulative_distance = cumsum(distance_diff)) %>%
+  mutate(disp_x = AreaShape_Center_X - first(AreaShape_Center_X))%>%
+  mutate(disp_y = AreaShape_Center_Y - first(AreaShape_Center_Y)) %>%
+  mutate(total_displacement = sqrt(disp_x^2 + disp_y^2)) %>%
+  mutate(object_name= paste0(Metadata_Well_Field, ImageNumber)) %>%
+  mutate(time = (ImageNumber-1)*30) %>%
+  mutate(micron_distance = distance_diff * 1.24) %>%
+  mutate(micron_cumulative_distance = cumulative_distance * 1.24) %>%
+  mutate(cumulative_micron_displacement = total_displacement * 1.24) %>%
+  mutate(speed_per_min = micron_distance/30) %>%
+  mutate(X_disp_lag_4hr = AreaShape_Center_X - dplyr::lag(AreaShape_Center_X, n = 8)) %>%
+  mutate(X_disp_lag_4hr = AreaShape_Center_Y - dplyr::lag(AreaShape_Center_Y, n = 8)) %>%
+  mutate(total_displacement_lag_4hr =  sqrt(X_disp_lag_4hr^2  + X_disp_lag_4hr^2))
+
+```
+
+## Total cumulative distances over time
+
+```{r basic distance object, echo=FALSE, message=FALSE}
+ggplot(protease_distance, aes(x=ImageNumber, y = micron_cumulative_distance, group = interaction(ObjectNumber, Metadata_Well_Field))) +
+  geom_line() + facet_wrap(~treatment)
+```
+
+```{r basic distance field, echo=FALSE, message=FALSE}
+full_avg<-protease_distance %>%
+  group_by(Metadata_Well_Field, ImageNumber, treatment) %>%
+  summarize(field_average_cum_distance = mean(micron_cumulative_distance))
+
+ggplot(full_avg, aes(x=ImageNumber, y = field_average_cum_distance, group = Metadata_Well_Field)) +
+  geom_line() + facet_wrap(~treatment) + ylab('Cumulative Distance')
+```
+
+```{r basic distance treatment, echo=FALSE, message=FALSE}
+full_avg_trt<-protease_distance %>%
+  group_by(ImageNumber, treatment, time) %>%
+  summarize(trt_average_cum_distance = mean(micron_cumulative_distance), distance_se =                     se(micron_cumulative_distance)) %>%
+  mutate(trt_distance_ci = 1.96*distance_se) %>%
+  mutate(time_hrs = time/60)
+
+ggplot(full_avg_trt, aes(x=time_hrs, y = trt_average_cum_distance, group = treatment, color = treatment)) + 
+  geom_line() + ylab('Total Distance'~(mu*m)) + xlab('Time (hrs)') +geom_ribbon(aes(ymin=trt_average_cum_distance - trt_distance_ci,ymax = trt_average_cum_distance + trt_distance_ci), linetype=3, alpha=0.1) + scale_x_continuous(breaks=c(12,24, 36, 48)) +
+  scale_color_manual(values = ligand_cols) + labs(color = 'Treatment') + theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
+        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
+        legend.title=element_text(size = rel(1)), panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  
+
+speed_trt<-protease_distance %>%
+  group_by(ImageNumber, treatment, time) %>%
+  summarize(avg_speed = mean(speed_per_min), speed_se = se(speed_per_min)) %>%
+  mutate(trt_speed_ci = 1.96*speed_se) %>%
+  mutate(time_hrs = time/60)
+
+ggplot(speed_trt, aes(x=time_hrs, y = avg_speed, group = treatment, color = treatment)) + 
+  geom_line() + ylab('Speed'~(mu*m/min)) + xlab('Time (min)') +geom_ribbon(aes(ymin=avg_speed - trt_speed_ci,ymax = avg_speed + trt_speed_ci), linetype=3, alpha=0.1) +
+  scale_color_manual(values = ligand_cols) + labs(color = 'Treatment') + theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
+        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
+        legend.title=element_text(size = rel(1)), panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+```
+statistical test for differences in distance travelled at 48 hours
+
+```{r msd distance test, echo=FALSE, message=FALSE}
+res.aov2 <- aov(micron_cumulative_distance ~ treatment, data = subset(protease_distance, ImageNumber==97))
+summary(res.aov2)
+
+TukeyHSD(res.aov2, which = "treatment")
+```
+
+## Mean squared displacement (MSD)
+
+```{r msd object, echo=FALSE, message=FALSE}
+full_msd<-msd_all_images(protease_distance) 
+
+full_msd_trt<-full_msd %>%
+  mutate(MSD_micron = 1.24^2*MSD) %>%
+  group_by(time_interval, treatment) %>%
+  summarize(trt_average_msd = mean(MSD_micron), trt_msd_se = se(MSD_micron)) %>%
+  mutate(trt_msd_ci = 1.96*trt_msd_se)
+
+
+ggplot(full_msd_trt, aes(x=time_interval, y = trt_average_msd, group = treatment, color = treatment)) +
+  geom_line() + geom_errorbar(aes(ymin = trt_average_msd - trt_msd_ci, ymax = trt_average_msd + trt_msd_ci), width = 4) +
+  scale_color_manual(values = ligand_cols) +
+  labs( x = 'Time Interval (min)',
+        y = 'MSD'~(mu*m^2),
+        color = 'Treatment') +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(1.5)),
+        axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1.5)),
+        plot.title = element_text(size = rel(2)),legend.text=element_text(size = rel(1)),
+        legend.title=element_text(size = rel(1)), panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+```
+
+Statistical analysis of MSD regressions using ANOVA
+
+```{r msd late stats}
+m.interaction <- lm(MSD ~ time_interval*treatment, data = full_msd)
+anova(m.interaction)
+
+#obtain slopes
+m.lst <- lstrends(m.interaction, "treatment", var="time_interval")
+m.lst
+
+#compare slopes
+pairs(m.lst)
+```
+
+
+```{r directionality, echo=FALSE, message=FALSE}
+full_directionality_avg<-protease_distance %>%
+  mutate(X_disp_lag_4hr = AreaShape_Center_X - dplyr::lag(AreaShape_Center_X, n = 8)) %>%
+  mutate(X_disp_lag_4hr = AreaShape_Center_Y - dplyr::lag(AreaShape_Center_Y, n = 8)) %>%
+  mutate(total_displacement_lag_4hr =  sqrt(X_disp_lag_4hr^2  + X_disp_lag_4hr^2)) %>%
+  
+  mutate(directionality_ratio = total_distance / total_displacement_lag_4hr) %>%
+  drop_na() %>%
+  group_by(ImageNumber, treatment) %>%
+  summarize(avg_directionality = mean(directionality_ratio), directionality_se = se(directionality_ratio))
+
+ggplot((full_directionality_avg), aes(x=ImageNumber, y=avg_directionality, group = treatment, color= treatment)) +
+  geom_line() 
+
+```
